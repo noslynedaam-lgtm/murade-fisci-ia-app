@@ -1,0 +1,10 @@
+{
+  "name": "Murade Fisco IA",
+  "description": "Plataforma Murade Fisco IA de Conformidade e Gestão Fiscal com IA, IA Murad Voz Natural Humana (ElevenLabs), Certificado Digital A1/A3 para Conexão Oficial SERPRO/e-CAC/RFB, Cadastro de Clientes, DCTFWeb, Guias e Procuração Eletrônica MURADE.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

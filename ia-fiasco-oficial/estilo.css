@@ -1,0 +1,439 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+}
+
+:root {
+    --azul-oficial: #1e3a8a;
+    --verde-oficial: #16a34a;
+    --cinza-escuro: #1f2937;
+    --destaque: #f59e0b;
+    --fundo: #f0f6fd;
+    --seguranca: #7c3aed;
+}
+
+body {
+    background: linear-gradient(135deg, #0f172a, #1e3a8a, #3b82f6);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 580px;
+    margin: 0 auto;
+}
+
+/* CABEÇALHO */
+header {
+    text-align: center;
+    color: white;
+    margin-bottom: 20px;
+}
+
+header h1 {
+    font-size: 28px;
+    margin-bottom: 5px;
+}
+
+.subtitulo {
+    color: #bfdbfe;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.selo-oficial {
+    display: inline-block;
+    background: rgba(22, 163, 74, 0.2);
+    color: #86efac;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 🔐 MÓDULO CERTIFICADO DIGITAL */
+.modulo-certificado {
+    background: white;
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border-top: 4px solid var(--seguranca);
+}
+
+.modulo-certificado h3 {
+    color: var(--seguranca);
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.sub-destaque {
+    text-align: center;
+    color: #6b7280;
+    font-size: 13px;
+    margin-bottom: 18px;
+}
+
+.caixa-form label {
+    display: block;
+    margin: 14px 0 5px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--cinza-escuro);
+}
+
+.caixa-form input,
+.caixa-form select {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+.botoes-cert {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.botoes-cert button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.botoes-cert button:hover {
+    opacity: 0.9;
+}
+
+.btn-senha {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 2;
+    padding: 4px;
+}
+
+.status-cert {
+    margin-top: 18px;
+    padding: 14px;
+    background: #f3f4f6;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.icone-status {
+    font-size: 20px;
+}
+
+.status-cert.ok {
+    background: #ecfdf5;
+    border-left: 3px solid var(--verde-oficial);
+}
+
+.status-cert.pendente {
+    background: #fffbeb;
+    border-left: 3px solid var(--destaque);
+}
+
+.status-cert.erro {
+    background: #fef2f2;
+    border-left: 3px solid #ef4444;
+}
+
+.info-cert {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f5f3ff;
+    border-radius: 8px;
+    font-size: 13px;
+    border-left: 3px solid var(--seguranca);
+}
+
+/* STATUS GERAL */
+.status {
+    background: white;
+    border-radius: 12px;
+    padding: 14px 20px;
+    text-align: center;
+    margin-bottom: 18px;
+    font-weight: 600;
+    color: var(--azul-oficial);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* CONVERSA */
+.conversa {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    min-height: 150px;
+    max-height: 250px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.mensagem {
+    margin-bottom: 16px;
+    padding: 14px;
+    border-radius: 10px;
+    line-height: 1.6;
+}
+
+.mensagem.ia {
+    background: #dbeafe;
+    border-left: 4px solid var(--azul-oficial);
+}
+
+.mensagem.usuario {
+    background: #fef3c7;
+    border-left: 4px solid var(--destaque);
+    text-align: right;
+}
+
+/* MÓDULO NOTA FISCAL */
+.modulo-nfe {
+    background: white;
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.modulo-nfe h3 {
+    color: var(--azul-oficial);
+    text-align: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.tipo-nota {
+    margin-bottom: 18px;
+}
+
+.botoes-tipo {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.btn-tipo {
+    flex: 1;
+    padding: 10px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.2s;
+}
+
+.btn-tipo.ativo {
+    border-color: var(--azul-oficial);
+    background: var(--azul-oficial);
+    color: white;
+}
+
+.form-nfe label {
+    display: block;
+    margin: 14px 0 5px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--cinza-escuro);
+}
+
+.dica-oficial {
+    font-weight: normal;
+    font-size: 11px;
+    color: #6b7280;
+}
+
+.form-nfe input,
+.form-nfe textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 15px;
+}
+
+.linha-dupla {
+    display: flex;
+    gap: 12px;
+}
+
+.linha-dupla > div {
+    flex: 1;
+}
+
+.caixa-impostos {
+    background: #f9fafb;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+    border-left: 3px solid var(--verde-oficial);
+}
+
+.caixa-impostos h4 {
+    color: var(--verde-oficial);
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.resumo-final {
+    background: #f0fdf4;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 18px;
+    text-align: center;
+}
+
+.linha-total {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--verde-oficial);
+}
+
+.btn-emitir {
+    width: 100%;
+    background: var(--verde-oficial);
+    color: white;
+    border: none;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: bold;
+    margin-top: 18px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.btn-emitir:disabled {
+    background: #9ca3af;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.btn-principal {
+    background: var(--verde-oficial);
+    color: white;
+}
+
+.btn-secundario {
+    background: var(--seguranca);
+    color: white;
+}
+
+/* NOTA GERADA */
+.nota-gerada {
+    margin-top: 20px;
+}
+
+.cabecalho-nota {
+    text-align: center;
+    border-bottom: 2px dashed #d1d5db;
+    padding-bottom: 15px;
+    margin-bottom: 15px;
+}
+
+.assinatura {
+    color: var(--seguranca);
+    font-size: 13px;
+    margin-top: 5px;
+}
+
+.numero-nota {
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--azul-oficial);
+}
+
+.corpo-nota h5 {
+    background: #e5e7eb;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 15px 0 8px;
+    font-size: 13px;
+    text-transform: uppercase;
+}
+
+.valor-final {
+    background: #fef3c7;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    margin-top: 15px;
+}
+
+.valor-final h5 {
+    background: transparent;
+    font-size: 20px;
+    color: #92400e;
+}
+
+.botoes-acao {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.botoes-acao button {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-salvar { background: var(--azul-oficial); color: white; }
+.btn-nova { background: var(--destaque); color: white; }
+
+/* MICROFONE */
+.botao-mic {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: none;
+    background: white;
+    font-size: 36px;
+    cursor: pointer;
+    display: block;
+    margin: 25px auto 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+    transition: 0.2s;
+}
+
+.botao-mic.gravando {
+    background: #ef4444;
+    animation: pulsar 1s infinite;
+}
+
+@keyframes pulsar {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.dica {
+    text-align: center;
+    color: white;
+    font-size: 13px;
+    opacity: 0.8;
+}

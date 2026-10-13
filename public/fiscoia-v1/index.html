@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FISCOIA v1.1.0 — CND / Certidões Negativas · Atualizado 2026</title>
+    <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+    <div class="tela-completa">
+        <!-- MENU LATERAL -->
+        <aside class="menu-lateral">
+            <div class="logo-area">
+                <h1 class="logo-nome">FISCOIA</h1>
+                <p class="sub-logo">Sistema de Conformidade Fiscal</p>
+            </div>
+
+            <div class="perfil-usuario">
+                <span class="icone-coroa">👑</span>
+                <div class="dados-perfil">
+                    <strong>MURAD</strong>
+                    <small>Acesso Master</small>
+                </div>
+            </div>
+
+            <nav class="navegacao">
+                <button class="item-menu ativo" data-pagina="inicio">
+                    <span class="icone">🏠</span> Início
+                </button>
+                <button class="item-menu" data-pagina="empresas">
+                    <span class="icone">👥</span> Clientes
+                </button>
+                <button class="item-menu" data-pagina="agenda">
+                    <span class="icone">📅</span> Agenda Fiscal
+                </button>
+                <!-- ✅ MÓDULO CND — NOVO -->
+                <button class="item-menu" data-pagina="cnd">
+                    <span class="icone">📄</span> CND / Certidões
+                </button>
+                <button class="item-menu" data-pagina="guias">
+                    <span class="icone">📄</span> Guias
+                </button>
+                <button class="item-menu" data-pagina="serpro">
+                    <span class="icone">🔗</span> Integração SERPRO
+                </button>
+                <button class="item-menu" data-pagina="procura">
+                    <span class="icone">📋</span> Procuração RFB
+                </button>
+                <button class="item-menu" data-pagina="conta">
+                    <span class="icone">⚙️</span> Configurações
+                </button>
+            </nav>
+        </aside>
+
+        <!-- ÁREA PRINCIPAL -->
+        <main class="conteudo-principal">
+            <header class="cabecalho-superior">
+                <div class="versao">
+                    <span class="bolinha-verde"></span>
+                    <strong>FISCOIA v1.1.0</strong>
+                    <span class="tag-compliance">CND · Atualizado 2026 · Órgãos Oficiais</span>
+                </div>
+                <div class="logo-central">
+                    <span class="escudo">🛡️</span>
+                    <h2>FISCOIA <span class="nome-dono">MURADE</span></h2>
+                    <button class="botao-pontinhos" id="btn-config">⋮</button>
+                </div>
+            </header>
+
+            <!-- MENU CONFIGURAÇÕES -->
+            <div class="menu-configuracoes" id="menu-config">
+                <div class="cabecalho-menu-config">
+                    <h4>⚙️ Configurações</h4>
+                    <button class="fechar-menu" id="fechar-config">✕</button>
+                </div>
+                <div class="lista-opcoes-config">
+                    <button class="opcao-config" data-opcao="certificado">🔐 Certificado Digital</button>
+                    <button class="opcao-config" data-opcao="empresa">🏢 Dados do Escritório</button>
+                    <button class="opcao-config" data-opcao="notificacoes">🔔 Alertas e Avisos</button>
+                    <button class="opcao-config" data-opcao="backup">💾 Backup</button>
+                </div>
+            </div>
+
+            <!-- PAINEL PERFIL -->
+            <section class="painel-perfil">
+                <span class="titulo-perfil">✨ Usuário:</span>
+                <div class="perfil-logado">
+                    <span class="coroa">👑</span> Logado como <strong>MURAD</strong>
+                </div>
+            </section>
+
+            <!-- ✅ PÁGINA INÍCIO -->
+            <section class="pagina ativa" id="pagina-inicio">
+                <div class="selo-homologado">✅ Sistema Atualizado — CND 2026 · Órgãos Oficiais</div>
+                <h1 class="titulo-painel">Painel de Gestão Fiscal</h1>
+                <p class="sub-bemvindo">Controle centralizado de conformidade fiscal, certidões negativas e prazos de obrigações tributárias.</p>
+                
+                <div class="resumo-rapido">
+                    <div class="cartao-resumo">
+                        <span class="numero">📄</span>
+                        <span>Certidões: <strong id="qtd-cnd-total">0</strong></span>
+                    </div>
+                    <div class="cartao-resumo">
+                        <span class="numero">🟢</span>
+                        <span>Válidas: <strong id="qtd-cnd-valida">0</strong></span>
+                    </div>
+                    <div class="cartao-resumo">
+                        <span class="numero">🟡</span>
+                        <span>Próx. Vencer: <strong id="qtd-cnd-alerta">0</strong></span>
+                    </div>
+                    <div class="cartao-resumo">
+                        <span class="numero">🔴</span>
+                        <span>Vencidas: <strong id="qtd-cnd-vencida">0</strong></span>
+                    </div>
+                </div>
+
+                <h3 style="margin:30px 0 15px; color:var(--azul-escuro);">⚠️ Certidões Próximas de Vencer</h3>
+                <div id="cnd-alertas-inicio" class="lista-agenda">
+                    <p class="vazio">Todas as certidões estão em dia ✅</p>
+                </div>
+            </section>
+
+            <!-- ✅ PÁGINA PRINCIPAL — CND / CERTIDÕES -->
+            <section class="pagina" id="pagina-cnd">
+                <div class="cabecalho-pagina">
+                    <h2>📄 CND — Certidões Negativas de Débitos</h2>
+                    <div class="filtros">
+                        <button class="btn-filtro ativo" data-filtro="todas">Todas</button>
+                        <button class="btn-filtro" data-filtro="federal">Federal</button>
+                        <button class="btn-filtro" data-filtro="estadual">Estadual</button>
+                        <button class="btn-filtro" data-filtro="municipal">Municipal</button>
+                        <button class="btn-filtro" data-filtro="fgts">FGTS/CRF</button>
+                        <button class="btn-filtro" data-filtro="vencidas">Vencidas</button>
+                    </div>
+                </div>
+
+                <!-- SELECIONAR CLIENTE -->
+                <div class="filtro-cliente">
+                    <label>👤 Cliente:</label>
+                    <select id="cnd-filtro-cliente">
+                        <option value="todos">Todos os Clientes</option>
+                    </select>
+                    <button class="btn-principal" style="width:auto; margin-left:15px; margin-top:0;" onclick="abrirModalCadastrarCND()">➕ Cadastrar Certidão</button>
+                </div>
+
+                <!-- LEGENDA -->
+                <div class="legenda-cores">
+                    <span>🟢 Válida</span>
+                    <span>🟡 A vencer em até 10 dias</span>
+                    <span>🔴 Vencida / Pendente</span>
+                    <span>⚪ Sem registro</span>
+                </div>
+
+                <!-- EMISSÃO RÁPIDA — LINKS OFICIAIS 2026 -->
+                <div class="bloco-form" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); border-left:4px solid #3b82f6;">
+                    <h3>🔗 Emitir Nova Certidão — Links Oficiais 2026</h3>
+                    <p style="color:#1e40af; margin-bottom:15px; font-size:14px;">Abre direto no site oficial do órgão competente, com consulta direta por CNPJ</p>
+                    
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px;">
+                        <a class="btn-emissor" href="https://www.gov.br/pt-br/servicos/emitir-certidao-de-regularidade-fiscal" target="_blank" style="display:block; background:white; padding:15px; border-radius:8px; text-align:center; text-decoration:none; color:#1e40af; font-weight:600; border:2px solid #bfdbfe;">
+                            🏛️ CND Federal (RFB/INSS)<br>
+                            <small style="color:#64748b;">Receita Federal & PGFN — Gov.br</small>
+                        </a>
+                        <a class="btn-emissor" href="https://www.sefaz.go.gov.br/Certidao/Emissao/" target="_blank" style="display:block; background:white; padding:15px; border-radius:8px; text-align:center; text-decoration:none; color:#1e40af; font-weight:600; border:2px solid #bfdbfe;">
+                            🏢 CND Estadual — SEFAZ-GO<br>
+                            <small style="color:#64748b;">Goiás — Emissão Direta SEFAZ</small>
+                        </a>
+                        <a class="btn-emissor" href="https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf" target="_blank" style="display:block; background:white; padding:15px; border-radius:8px; text-align:center; text-decoration:none; color:#1e40af; font-weight:600; border:2px solid #bfdbfe;">
+                            💰 CRF — FGTS<br>
+                            <small style="color:#64748b;">Caixa Econômica Federal</small>
+                        </a>
+                        <a class="btn-emissor" href="https://www.goiania.go.gov.br/sistemas/sccer/asp/sccer00300f0.asp" target="_blank" style="display:block; background:white; padding:15px; border-radius:8px; text-align:center; text-decoration:none; color:#1e40af; font-weight:600; border:2px solid #bfdbfe;">
+                            🏘️ CND Municipal — Pref. Goiânia<br>
+                            <small style="color:#64748b;">Emissão Direta — Sistema SCCER</small>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- LISTA DE CNDs CADASTRADAS -->
+                <div class="lista-agenda" id="lista-cnd">
+                    <p class="vazio">Nenhuma certidão cadastrada ainda. Clique em "Cadastrar Certidão" para registrar 📄</p>
+                </div>
+            </section>
+
+            <!-- MODAL: CADASTRAR CERTIDÃO -->
+            <div class="modal-fundo" id="modal-cnd" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:9999; align-items:center; justify-content:center;">
+                <div class="modal-conteudo" style="background:white; padding:30px; border-radius:12px; max-width:500px; width:90%; max-height:90vh; overflow-y:auto;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h3>📄 Cadastrar Certidão</h3>
+                        <button onclick="fecharModalCND()" style="background:none; border:none; font-size:24px; cursor:pointer;">✕</button>
+                    </div>
+                    
+                    <label>Cliente / Empresa:</label>
+                    <select id="cnd-modal-cliente" style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;">
+                        <option value="">Selecione...</option>
+                    </select>
+                    
+                    <label>Tipo de Certidão:</label>
+                    <select id="cnd-modal-tipo" style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;">
+                        <option value="federal">🏛️ CND Federal (RFB + INSS)</option>
+                        <option value="estadual">🏢 CND Estadual — SEFAZ</option>
+                        <option value="municipal">🏘️ CND Municipal — Prefeitura</option>
+                        <option value="fgts">💰 CRF — FGTS</option>
+                    </select>
+                    
+                    <label>Número / Código da Certidão:</label>
+                    <input type="text" id="cnd-modal-numero" placeholder="Nº do protocolo / código" style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;">
+                    
+                    <label>Data de Emissão:</label>
+                    <input type="date" id="cnd-modal-emissao" style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;">
+                    
+                    <label>Data de Validade:</label>
+                    <input type="date" id="cnd-modal-validade" style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;">
+                    
+                    <label>Arquivo (PDF — opcional):</label>
+                    <input type="file" id="cnd-modal-arquivo" accept=".pdf" style="width:100%; padding:8px; margin:8px 0 16px;">
+                    
+                    <label>Observações:</label>
+                    <textarea id="cnd-modal-obs" rows="2" placeholder="Detalhes, restrições, etc." style="width:100%; padding:10px; margin:8px 0 16px; border:1px solid #cbd5e1; border-radius:6px;"></textarea>
+                    
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button onclick="fecharModalCND()" style="flex:1; padding:12px; border:none; border-radius:8px; background:#e5e7eb; cursor:pointer; font-weight:bold;">Cancelar</button>
+                        <button onclick="salvarCND()" class="btn-principal" style="flex:1; margin:0;">💾 Salvar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ✅ PÁGINA EMPRESAS — FINAL: SEM IE, SÓ IM + CNAE + CERTIFICADO -->
+            <section class="pagina" id="pagina-empresas">
+                <h2>👥 Cadastro de Empresas</h2>
+                
+                <div class="bloco-form">
+                    <h3>Nova Empresa / Cliente</h3>
+                    
+                    <label>Razão Social:</label>
+                    <input type="text" id="cli-razao" placeholder="Nome completo da empresa">
+                    
+                    <label>CNPJ:</label>
+                    <input type="text" id="cli-documento" placeholder="00.000.000/0000-00" maxlength="18">
+                    
+                    <!-- ✅ 1️⃣ INSCRIÇÃO MUNICIPAL -->
+                    <label>🏘️ Inscrição Municipal (IM):</label>
+                    <input type="text" id="cli-im" placeholder="Nº da Prefeitura — ISS" maxlength="20">
+                    
+                    <!-- ✅ 2️⃣ CNAE -->
+                    <label>📊 CNAE — Código da Atividade Principal:</label>
+                    <input type="text" id="cli-cnae" placeholder="Ex: 8211-3/00" maxlength="12">
+                    
+                    <label>Regime Tributário:</label>
+                    <select id="cli-regime">
+                        <option value="simples">Simples Nacional</option>
+                        <option value="presumido">Lucro Presumido</option>
+                        <option value="real">Lucro Real</option>
+                    </select>
+                    
+                    <!-- ✅ 3️⃣ CERTIFICADO DIGITAL -->
+                    <label>🔐 Vencimento do Certificado Digital:</label>
+                    <input type="date" id="cli-certificado-venc">
+                    
+                    <button class="btn-principal" onclick="salvarCliente()" style="margin-top:20px;">💾 Salvar Empresa</button>
+                </div>
+
+                <h3 style="margin-top:30px;">📋 Empresas Cadastradas</h3>
+                <div id="lista-clientes"></div>
+            </section>
+
+            <!-- ✅ PÁGINA AGENDA FISCAL -->
+            <section class="pagina" id="pagina-agenda">
+                <div class="cabecalho-pagina">
+                    <h2>📅 Agenda Fiscal Oficial — 2026</h2>
+                    <div class="filtros">
+                        <button class="btn-filtro ativo" data-filtro-agenda="todos">Todos</button>
+                        <button class="btn-filtro" data-filtro-agenda="mes">Este Mês</button>
+                        <button class="btn-filtro" data-filtro-agenda="15dias">Próximos 15 Dias</button>
+                        <button class="btn-filtro" data-filtro-agenda="vencidos">Vencidos</button>
+                    </div>
+                </div>
+
+                <div class="filtro-cliente">
+                    <label>Filtrar por Cliente:</label>
+                    <select id="agenda-filtro-cliente">
+                        <option value="todos">Todos os Clientes</option>
+                    </select>
+                </div>
+
+                <div class="lista-agenda" id="lista-agenda">
+                    <p class="vazio">Carregando prazos fiscais oficiais...</p>
+                </div>
+            </section>
+
+            <!-- ✅ PÁGINA GUIAS -->
+            <section class="pagina" id="pagina-guias">
+                <h2>📄 Guias e Tributos Fiscais</h2>
+                <p class="sub-pagina">Geração, conferência e emissão centralizada de guias de recolhimento (DARF, DAS, FGTS, ICMS).</p>
+                <div class="bloco-form">
+                    <h3>Emissão e Consulta Rápida</h3>
+                    <p style="color:#64748b; font-size:14px; margin-bottom:15px;">Integração pronta com o serviço SERPRO / Integra Contador e Receita Federal do Brasil.</p>
+                    <button class="btn-principal" onclick="alert('Módulo de Guias pronto para sincronização com SERPRO e Receita Federal.')">🔄 Sincronizar Guias do Mês</button>
+                </div>
+            </section>
+
+            <!-- ✅ OUTRAS PÁGINAS -->
+            <section class="pagina" id="pagina-serpro">
+                <h2>🔗 Integração SERPRO & e-CAC</h2>
+                <p class="sub-pagina">Homologação de chaves Consumer Key / Secret e mTLS para comunicação governamental oficial.</p>
+            </section>
+
+            <section class="pagina" id="pagina-procura">
+                <h2>📋 Procuração Eletrônica RFB</h2>
+                <p class="sub-pagina">Controle de outorgas eletrônicas para representação de clientes perante a Receita Federal.</p>
+            </section>
+
+            <section class="pagina" id="pagina-conta">
+                <h2>⚙️ Configurações do Sistema</h2>
+                <p class="sub-pagina">Gerencie certificados da Murade, preferências de notificação e dados da empresa.</p>
+            </section>
+        </main>
+    </div>
+
+    <script src="fiscoia.js"></script>
+</body>
+</html>
