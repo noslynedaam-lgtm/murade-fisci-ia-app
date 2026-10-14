@@ -24,6 +24,7 @@ import PainelStatusEmpresas from './screens/Dashboard/PainelStatusEmpresas';
 import { ConfiguracaoIntegracaoScreen } from './screens/Configuracao/ConfiguracaoIntegracaoScreen';
 import { AutomacaoFiscalScreen } from './screens/AutomacaoFiscal/AutomacaoFiscalScreen';
 import { ModuloFiscalScreen } from './screens/Fiscal/ModuloFiscalScreen';
+import { ModulosMuradeScreen } from './screens/ModulosMuradeScreen';
 import { IaMuradVozScreen } from './screens/IaVoz/IaMuradVozScreen';
 import { ModalCalculadoraFiscal } from './components/ModalCalculadoraFiscal';
 import { PainelAnimadoLateral } from './components/PainelAnimadoLateral';
@@ -607,6 +608,8 @@ export default function App() {
               />
             )}
 
+            {abaAtiva === 'modulos' && <ModulosMuradeScreen />}
+
             {(abaAtiva === 'iaVoz' || abaAtiva === 'vozMurad' || abaAtiva === 'voz') && (
               <IaMuradVozScreen
                 usuario={usuarioAtual}
@@ -620,7 +623,7 @@ export default function App() {
               'guiasINSS', 'guias-inss', 'inss', 'orgaos_publicos', 'orgaos', 'procuracao', 'serpro',
               'guias', 'cadastro-empresa', 'empresas', 'videoAulas', 'minhaConta', 'planos', 'admin',
               'admin_faturamento', 'admin_bloqueio', 'admin_precos', 'configuracao', 'integracao',
-              'automacaoFiscal', 'automacao', 'fiscal', 'iaVoz'
+              'automacaoFiscal', 'automacao', 'fiscal', 'iaVoz', 'modulos'
             ].includes(abaAtiva) && (
               <DashboardFiscal
                 planoAtivoId={planoAtivoId}

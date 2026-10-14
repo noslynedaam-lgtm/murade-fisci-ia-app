@@ -5,7 +5,7 @@ import {
   User, DollarSign, ShieldAlert, Tag, 
   ChevronLeft, ChevronRight, X, LogOut, Receipt, CheckCircle2, Server,
   UserPlus, ShieldCheck, ClipboardCheck, Settings, Cpu, Calculator, Volume2,
-  Key, Eye, EyeOff, RefreshCw, Lock, Unlock, Radio
+  Key, Eye, EyeOff, RefreshCw, Lock, Unlock, Radio, LayoutGrid
 } from 'lucide-react';
 import { UsuarioAuth } from '../types';
 import { TIPOS_USUARIO, ehUsuarioAdmin, obterMenuPermitido } from '../config/Permissoes';
@@ -194,6 +194,7 @@ export default function MenuLateral({
     admin_bloqueio: ShieldAlert,
     admin_precos: Tag,
     dashboard: LayoutDashboard,
+    modulos: LayoutGrid,
     conformidade: ClipboardCheck,
     empresas: Building2,
     agenda: CalendarCheck,
@@ -211,6 +212,7 @@ export default function MenuLateral({
   const itensMuradeAdmin = [
     { id: 'admin', rotulo: 'Painel MURADE', icone: Crown, admin: true },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026', admin: true },
+    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP', admin: true },
     { id: 'fiscal', rotulo: 'NFe & Apuração', icone: Receipt, tag: 'v3.2.1', admin: true },
     { id: 'configuracao', rotulo: 'Config. Integração', icone: Settings, tag: '3 Sistemas', admin: true },
     { id: 'admin_faturamento', rotulo: 'Faturamento', icone: DollarSign, admin: true },
@@ -228,6 +230,7 @@ export default function MenuLateral({
   const itensContador = [
     { id: 'dashboard', rotulo: 'Início', icone: LayoutDashboard },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026' },
+    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP' },
     { id: 'cadastro-empresa', rotulo: 'Cadastrar Empresa', icone: UserPlus },
     { id: 'conformidade', rotulo: 'Relatório de Conformidade', icone: ClipboardCheck, tag: 'Empresas' },
     { id: 'empresas', rotulo: 'Clientes / Empresas', icone: Building2 },
