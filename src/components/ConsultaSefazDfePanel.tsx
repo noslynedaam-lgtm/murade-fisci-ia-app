@@ -4,6 +4,7 @@ import { AlertTriangle, Download, RefreshCw, ShieldCheck } from 'lucide-react';
 type DfeStatus = {
   certificadoCadastrado: boolean;
   certificadoValidadoPelaSefaz: boolean;
+  certificadoValidadoEm: string | null;
   ambienteConfigurado: 'producao' | 'homologacao';
   ultimoNsu: string;
   maiorNsu: string;
@@ -129,7 +130,7 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
     </div>
     {!pronto && <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Selecione uma empresa cadastrada na carteira central para consultar o estado oficial.</p>}
     {status && <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-      <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Certificado no servidor</span><div className="font-bold">{status.certificadoCadastrado ? 'Cadastrado' : 'Falta cadastrar'}</div><div className="text-[10px] text-slate-500">Cadastro não significa validação SEFAZ.</div></div>
+      <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Certificado no servidor</span><div className="font-bold">{!status.certificadoCadastrado ? 'Falta cadastrar' : status.certificadoValidadoPelaSefaz ? 'Validado em consulta SEFAZ' : 'Cadastrado; ainda não validado'}</div><div className="text-[10px] text-slate-500">{status.certificadoValidadoEm ? `Resposta válida em ${new Date(status.certificadoValidadoEm).toLocaleString('pt-BR')}.` : 'Cadastro não significa validação SEFAZ.'}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Posição de distribuição</span><div className="font-bold">NSU {status.ultimoNsu} / {status.maiorNsu}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Última resposta oficial</span><div className="font-bold">{status.ultimoStatusSefaz ? `cStat ${status.ultimoStatusSefaz}` : 'Ainda não consultada'}</div><div className="text-[10px] text-slate-500">{status.consultadoEm ? new Date(status.consultadoEm).toLocaleString('pt-BR') : 'Sem resposta registrada'}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Arquivados neste sistema</span><div className="font-bold">{status.documentosPersistidos} DF-e / eventos</div><div className="text-[10px] text-slate-500">Ambiente: {status.ambienteConfigurado}</div></div>

@@ -269,15 +269,17 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
     const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
       const [company, certificate, cursor, count] = await Promise.all([
         client.query('SELECT id FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]),
-        client.query('SELECT uploaded_at FROM fiscoia.company_fiscal_certificates WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
-        client.query('SELECT last_nsu, max_nsu, last_status, last_message, last_response_at, blocked_until FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
+        client.query('SELECT uploaded_at, pfx_sha256 FROM fiscoia.company_fiscal_certificates WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
+        client.query('SELECT last_nsu, max_nsu, last_status, last_message, last_response_at, blocked_until, validated_certificate_sha256, certificate_validated_at FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
         client.query('SELECT count(*)::text AS total FROM fiscoia.fiscal_dfe_items WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
       ]);
       if (!company.rows[0]) return null;
       const row = cursor.rows[0];
       return {
         certificadoCadastrado: Boolean(certificate.rows[0]),
-        certificadoValidadoPelaSefaz: false,
+        certificadoValidadoPelaSefaz: Boolean(row?.validated_certificate_sha256 && certificate.rows[0]
+          && String(row.validated_certificate_sha256).trim() === String(certificate.rows[0].pfx_sha256).trim()),
+        certificadoValidadoEm: row?.certificate_validated_at ?? null,
         consultaOficialAtiva: false,
         ambienteConfigurado: process.env.FISCOIA_SEFAZ_DFE_ENV === 'homologacao' ? 'homologacao' : 'producao',
         ultimoNsu: row ? String(row.last_nsu) : '0',
@@ -317,6 +319,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
     const certificate = await obterCertificadoFiscalDaEmpresa(user.id, tenantId, companyId);
     if (!certificate) return res.status(409).json({ mensagem: 'Cadastre o certificado A1 desta empresa antes da consulta. Nenhuma conexão foi iniciada.' });
     pfx = certificate.pfx;
+    const certificateFingerprint = createHash('sha256').update(pfx).digest('hex');
     if (!/^\d{14}$/.test(certificate.cnpj)) return res.status(422).json({ mensagem: 'O CNPJ precisa estar normalizado com 14 dígitos para consultar este WebService.' });
 
     // O lock da posição NSU serializa consultas concorrentes desta empresa. A transação
@@ -446,9 +449,13 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       const cursorResult = await client.query(
         `UPDATE fiscoia.fiscal_dfe_cursors
             SET last_nsu=$3, max_nsu=$4, last_status=$5, last_message=$6, last_response_at=now(),
-                blocked_until=CASE WHEN $7 THEN now() + interval '1 hour' ELSE NULL END, updated_at=now()
+                blocked_until=CASE WHEN $7 THEN now() + interval '1 hour' ELSE NULL END,
+                validated_certificate_sha256=COALESCE($8, validated_certificate_sha256),
+                certificate_validated_at=CASE WHEN $8 IS NULL THEN certificate_validated_at ELSE now() END,
+                updated_at=now()
           WHERE tenant_id=$1 AND company_id=$2 RETURNING last_nsu, max_nsu, blocked_until, last_response_at`,
-        [tenantId, companyId, retorno.ultNsu, retorno.maxNsu, retorno.cStat, mensagem, bloqueio],
+        [tenantId, companyId, retorno.ultNsu, retorno.maxNsu, retorno.cStat, mensagem, bloqueio,
+          retorno.cStat === 137 || retorno.cStat === 138 ? certificateFingerprint : null],
       );
       await client.query(
         `INSERT INTO fiscoia.audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id, details)
@@ -474,7 +481,8 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
     if (scoped.resultado.kind === 'erro') return res.status(404).json({ mensagem: scoped.resultado.erro });
     if (scoped.resultado.kind === 'bloqueado') return res.status(429).json({ mensagem: 'Consulta suspensa até cumprir o intervalo indicado pela SEFAZ.', bloqueadoAte: scoped.resultado.ate });
     if (scoped.resultado.kind === 'ocupado') return res.status(429).json({ mensagem: 'Já há uma consulta recente em processamento. Aguarde antes de tentar novamente.' });
-    return res.json({ sucesso: true, ...scoped.resultado, observacao: 'Consulta oficial concluída e persistida. O certificado ainda não é declarado validado além desta resposta específica.' });
+    return res.json({ sucesso: true, ...scoped.resultado,
+      observacao: 'A resposta oficial foi persistida. Validação do certificado significa apenas que este A1 recebeu resposta válida da SEFAZ nesta consulta; não confirma autorização para outros serviços.' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Não foi possível concluir a consulta oficial. O NSU foi preservado.';
     return res.status(502).json({ sucesso: false, mensagem: message });

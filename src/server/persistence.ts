@@ -14,6 +14,7 @@ const MIGRACOES_ESPERADAS = [
   '006_tenant_provisioning',
   '007_company_fiscal_certificate_vault',
   '008_sefaz_dfe_distribution',
+  '009_sefaz_certificate_validation',
 ];
 
 const hasScopedDatabaseConfig = Boolean(
