@@ -35,7 +35,6 @@ try {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE fiscoia_schema_owner');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('murade-fisco-ia-migrations'))");
     await client.query('CREATE SCHEMA IF NOT EXISTS fiscoia');
     await client.query(`
@@ -74,9 +73,9 @@ try {
     await client.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fiscoia TO fiscoia_runtime');
     await client.query('REVOKE INSERT, UPDATE, DELETE ON fiscoia.schema_migrations FROM fiscoia_runtime');
     await client.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA fiscoia TO fiscoia_runtime');
-    await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE fiscoia_schema_owner IN SCHEMA fiscoia
+    await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA fiscoia
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fiscoia_runtime`);
-    await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE fiscoia_schema_owner IN SCHEMA fiscoia
+    await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA fiscoia
       GRANT USAGE, SELECT ON SEQUENCES TO fiscoia_runtime`);
     await client.query('COMMIT');
   } catch (error) {
