@@ -135,8 +135,9 @@ function consultarSefaz(endpoint: string, pfx: Buffer, passphrase: string, body:
   });
 }
 
-function lerRespostaSefaz(xml: string) {
-  if (!xml.trim() || /<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) throw new Error('Resposta SOAP vazia ou não suportada.');
+export function lerRespostaSefaz(xml: string) {
+  if (!xml.trim()) throw new Error('Resposta SOAP vazia.');
+  if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) throw new Error('Resposta SOAP contém DTD/ENTITY não suportado.');
   const fault = extrairTag(xml, 'Fault');
   if (fault) throw new Error('O WebService da SEFAZ retornou uma falha SOAP.');
   const ret = extrairTag(xml, 'retDistDFeInt');
@@ -185,6 +186,34 @@ function lerRespostaSefaz(xml: string) {
       });
     })(),
   };
+}
+
+export function validarSequenciaDistribuicao(
+  retorno: ReturnType<typeof lerRespostaSefaz>,
+  ultimoNsuSalvo: string,
+): void {
+  const anterior = BigInt(validarNsu(ultimoNsuSalvo));
+  const ult = BigInt(retorno.ultNsu);
+  const max = BigInt(retorno.maxNsu);
+  if (ult < anterior) throw new Error('A SEFAZ retornou ultNSU anterior à posição armazenada.');
+  if (max < ult) throw new Error('A SEFAZ retornou maxNSU inferior a ultNSU.');
+  if (retorno.cStat === 137 && (ult !== max || retorno.documentos.length !== 0)) {
+    throw new Error('Resposta cStat 137 inconsistente com o lote/NSU.');
+  }
+  if (retorno.cStat === 138 && retorno.documentos.length === 0) {
+    throw new Error('Resposta cStat 138 sem docZip.');
+  }
+  if (retorno.cStat !== 137 && retorno.cStat !== 138) return;
+  const vistos = new Set<string>();
+  let nsuAnteriorNoLote = anterior;
+  for (const item of retorno.documentos) {
+    const atual = BigInt(item.nsu);
+    if (atual <= anterior || atual > ult || atual <= nsuAnteriorNoLote || vistos.has(item.nsu)) {
+      throw new Error('NSU de docZip fora da sequência esperada.');
+    }
+    vistos.add(item.nsu);
+    nsuAnteriorNoLote = atual;
+  }
 }
 
 function idsValidos(tenantId: unknown, companyId: string): tenantId is string {
@@ -313,26 +342,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       }
 
       const nsuAtual = BigInt(String(cursor.last_nsu));
-      const novoNsu = BigInt(retorno.ultNsu);
-      if (novoNsu < nsuAtual) throw new Error('A SEFAZ retornou ultNSU anterior à posição armazenada; o lote foi recusado.');
-      const maxNsu = BigInt(retorno.maxNsu);
-      if (maxNsu < novoNsu) throw new Error('A SEFAZ retornou maxNSU inferior a ultNSU; o lote foi recusado.');
-      if (retorno.cStat === 137 && (novoNsu !== maxNsu || retorno.documentos.length !== 0)) {
-        throw new Error('Resposta cStat 137 inconsistente com o lote/NSU; nenhum dado nem cursor foi alterado.');
-      }
-      if (retorno.cStat === 138 && retorno.documentos.length === 0) {
-        throw new Error('Resposta cStat 138 sem docZip; nenhum dado nem cursor foi alterado.');
-      }
-      const nsusDoLote = new Set<string>();
-      let nsuAnteriorNoLote = nsuAtual;
-      for (const item of retorno.documentos) {
-        const nsuItem = BigInt(item.nsu);
-        if (nsuItem <= nsuAtual || nsuItem > novoNsu || nsuItem <= nsuAnteriorNoLote || nsusDoLote.has(item.nsu)) {
-          throw new Error('NSU de docZip fora da sequência esperada; nenhum dado nem cursor foi alterado.');
-        }
-        nsusDoLote.add(item.nsu);
-        nsuAnteriorNoLote = nsuItem;
-      }
+      validarSequenciaDistribuicao(retorno, String(cursor.last_nsu));
 
       let novos = 0;
       let notasFiscalNormalizadas = 0;
