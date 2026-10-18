@@ -536,12 +536,18 @@ router.get('/companies/:companyId/sefaz-dfe/items', async (req, res) => {
     if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
       const result = await client.query(
-        `SELECT id, document_nsu, schema_name, access_key, content_sha256, metadata, received_at
-           FROM fiscoia.fiscal_dfe_items WHERE tenant_id=$1 AND company_id=$2
-          ORDER BY document_nsu DESC LIMIT 100`, [tenantId, companyId],
+        `SELECT i.id, i.document_nsu, i.schema_name, i.access_key, i.content_sha256, i.metadata, i.received_at,
+                d.id AS related_document_id, d.status AS related_document_status
+           FROM fiscoia.fiscal_dfe_items i
+           LEFT JOIN fiscoia.fiscal_documents d
+             ON d.tenant_id=i.tenant_id AND d.company_id=i.company_id
+            AND d.access_key=i.access_key AND i.metadata->>'tipo'='EVENTO'
+          WHERE i.tenant_id=$1 AND i.company_id=$2
+          ORDER BY i.document_nsu DESC LIMIT 100`, [tenantId, companyId],
       );
       return result.rows.map((row) => ({ id: String(row.id), nsu: String(row.document_nsu), schema: row.schema_name,
-        chave: row.access_key || null, hashXml: String(row.content_sha256).trim(), metadata: row.metadata, recebidoEm: row.received_at }));
+        chave: row.access_key || null, hashXml: String(row.content_sha256).trim(), metadata: row.metadata, recebidoEm: row.received_at,
+        notaVinculada: row.related_document_id ? { status: String(row.related_document_status) } : null }));
     });
     if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     return res.json({ documentos: scoped.resultado || [], limite: 100 });
