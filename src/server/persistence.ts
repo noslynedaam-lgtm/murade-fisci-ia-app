@@ -15,6 +15,7 @@ const MIGRACOES_ESPERADAS = [
   '007_company_fiscal_certificate_vault',
   '008_sefaz_dfe_distribution',
   '009_sefaz_certificate_validation',
+  '010_sefaz_dfe_global_cnpj_rate_limit',
 ];
 
 const hasScopedDatabaseConfig = Boolean(

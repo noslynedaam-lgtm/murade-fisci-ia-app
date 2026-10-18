@@ -22,7 +22,6 @@ const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const MAX_BATCH_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
 const MAX_SEFAZ_REQUEST_MS = 45_000;
 const MIN_SEFAZ_REQUEST_GAP_MS = 60_000;
-const MAX_SEFAZ_REQUESTS_PER_HOUR = 20;
 
 router.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -358,19 +357,15 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       const lastRequest = cursor.last_request_at ? new Date(cursor.last_request_at).getTime() : 0;
       if (Date.now() - lastRequest < MIN_SEFAZ_REQUEST_GAP_MS) return { kind: 'ocupado' as const };
 
-      // Limite rolling persistido por tenant/empresa: espaçar por 60 s sozinho
-      // permitiria até 60 consultas/hora. Cada tentativa iniciada é auditada
-      // antes da rede, então falhas TLS também contam para evitar consumo excessivo.
+      // A cota e o bloqueio oficial são por CNPJ, inclusive se ele estiver
+      // cadastrado em mais de um tenant. A função serializa e grava a reserva
+      // antes de iniciar a chamada externa; falhas de rede também contam.
       const rate = await client.query(
-        `SELECT count(*)::int AS total, min(created_at) + interval '1 hour' AS proxima_tentativa
-           FROM fiscoia.audit_events
-          WHERE tenant_id=$1 AND entity_type='company' AND entity_id=$2
-            AND event_type='sefaz.dfe.consult_started'
-            AND created_at > now() - interval '1 hour'`,
-        [tenantId, companyId],
+        'SELECT allowed, retry_at, requests_in_window FROM fiscoia.reserve_sefaz_dfe_request($1, $2, $3)',
+        [certificate.cnpj, tenantId, companyId],
       );
-      if (Number(rate.rows[0]?.total || 0) >= MAX_SEFAZ_REQUESTS_PER_HOUR) {
-        const retryAt = rate.rows[0]?.proxima_tentativa || new Date(Date.now() + 60 * 60_000).toISOString();
+      if (rate.rows[0]?.allowed !== true) {
+        const retryAt = rate.rows[0]?.retry_at || new Date(Date.now() + 60 * 60_000).toISOString();
         await client.query(
           'UPDATE fiscoia.fiscal_dfe_cursors SET blocked_until=$3, updated_at=now() WHERE tenant_id=$1 AND company_id=$2',
           [tenantId, companyId, retryAt],
@@ -411,12 +406,19 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       try { retorno = lerRespostaSefaz(response.xml); }
       catch (error) { throw error instanceof Error ? error : new Error('Resposta oficial inválida; posição NSU preservada.'); }
       if (retorno.cStat !== 137 && retorno.cStat !== 138) {
+        const globalBlock = retorno.cStat === 656
+          ? await client.query(
+            'SELECT fiscoia.block_sefaz_dfe_cnpj($1, $2, $3, now() + interval \'1 hour\') AS blocked_until',
+            [certificate.cnpj, tenantId, companyId],
+          )
+          : null;
+        const bloqueadoAte = globalBlock?.rows[0]?.blocked_until || null;
         await client.query(
           `UPDATE fiscoia.fiscal_dfe_cursors
               SET last_status=$3, last_message=$4, last_response_at=now(),
-                  blocked_until=CASE WHEN $5 THEN now() + interval '1 hour' ELSE NULL END, updated_at=now()
+                  blocked_until=$5, updated_at=now()
             WHERE tenant_id=$1 AND company_id=$2`,
-          [tenantId, companyId, retorno.cStat, retorno.motivo || 'A SEFAZ não confirmou a distribuição; NSU preservado.', retorno.cStat === 656],
+          [tenantId, companyId, retorno.cStat, retorno.motivo || 'A SEFAZ não confirmou a distribuição; NSU preservado.', bloqueadoAte],
         );
         await client.query(
           `INSERT INTO fiscoia.audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id, details)
@@ -427,7 +429,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
         return { kind: 'concluido' as const, ambiente, cStat: retorno.cStat,
           mensagem: retorno.motivo || 'A SEFAZ não confirmou a distribuição; a posição NSU foi preservada.',
           documentosRecebidos: 0, documentosNovos: 0, ultimoNsu: String(cursor.last_nsu), maiorNsu: String(cursor.max_nsu),
-          bloqueadoAte: retorno.cStat === 656 ? new Date(Date.now() + 60 * 60_000).toISOString() : null,
+          bloqueadoAte,
           consultadoEm: new Date().toISOString(),
           proximaAcao: retorno.cStat === 656 ? 'Consumo indevido: aguardar uma hora antes de nova consulta.' : 'Confira o cStat antes de tentar novamente.' };
       }
@@ -502,15 +504,22 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
 
       const mensagem = retorno.motivo || 'Resposta recebida da SEFAZ.';
       const bloqueio = retorno.cStat === 137 || retorno.cStat === 656;
+      const globalBlock = bloqueio
+        ? await client.query(
+          'SELECT fiscoia.block_sefaz_dfe_cnpj($1, $2, $3, now() + interval \'1 hour\') AS blocked_until',
+          [certificate.cnpj, tenantId, companyId],
+        )
+        : null;
+      const bloqueadoAte = globalBlock?.rows[0]?.blocked_until || null;
       const cursorResult = await client.query(
         `UPDATE fiscoia.fiscal_dfe_cursors
             SET last_nsu=$3, max_nsu=$4, last_status=$5, last_message=$6, last_response_at=now(),
-                blocked_until=CASE WHEN $7 THEN now() + interval '1 hour' ELSE NULL END,
+                blocked_until=$7,
                 validated_certificate_sha256=COALESCE($8, validated_certificate_sha256),
                 certificate_validated_at=CASE WHEN $8 IS NULL THEN certificate_validated_at ELSE now() END,
                 updated_at=now()
           WHERE tenant_id=$1 AND company_id=$2 RETURNING last_nsu, max_nsu, blocked_until, last_response_at`,
-        [tenantId, companyId, retorno.ultNsu, retorno.maxNsu, retorno.cStat, mensagem, bloqueio,
+        [tenantId, companyId, retorno.ultNsu, retorno.maxNsu, retorno.cStat, mensagem, bloqueadoAte,
           retorno.cStat === 137 || retorno.cStat === 138 ? certificateFingerprint : null],
       );
       await client.query(
