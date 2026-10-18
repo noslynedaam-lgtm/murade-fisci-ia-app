@@ -7,6 +7,7 @@ import { obterCertificadoFiscalDaEmpresa } from './companyCertificate.routes';
 import { criptografarSegredoEmpresa, descriptografarSegredoEmpresa, criptografarXml } from './encryption';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 import { chaveNfeTemDigitoValido } from '../services/fiscal/chaveNfe.service';
+import { revisarNfeDistribuida } from './nfeDistributionReview';
 
 const router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -113,9 +114,10 @@ function classificar(schema: string, xml: string, companyCnpj: string) {
   const emissao = extrairTag(xml, 'dhEmi') || extrairTag(xml, 'dEmi');
   const date = /^\d{4}-\d{2}-\d{2}/.exec(emissao)?.[0] || null;
   const evento = tipo === 'EVENTO' ? metadadosEvento(xml) : null;
+  const revisaoEstrutural = tipo === 'NFE_COMPLETA' ? revisarNfeDistribuida(xml, companyCnpj) : null;
   return { tipo, direcao, emitente: emitente || null, destinatario: destinatario || null,
     chave: evento?.chave || extrairChave(xml), valor: /^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(valor) ? valor : null,
-    emissao: date, ...(evento ? { evento } : {}) };
+    emissao: date, ...(evento ? { evento } : {}), ...(revisaoEstrutural ? { revisaoEstrutural } : {}) };
 }
 
 function dataCivilValida(value: string | null): string | null {
@@ -468,7 +470,8 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
                 fullXml ? digest : null,
                 JSON.stringify({ ...item.metadata, nsu: item.nsu, schema: item.schema,
                   direction: item.metadata.direcao, xmlCompletoDisponivel: Boolean(fullXml),
-                  origemOficial: 'DISTRIBUICAO_DFE', statusConferencia: 'PENDENTE' })],
+                  origemOficial: 'DISTRIBUICAO_DFE', statusConferencia: 'PENDENTE',
+                  revisaoEstrutural: item.metadata.revisaoEstrutural ?? null })],
             );
             if (normalized.rowCount) notasFiscalNormalizadas += 1;
           }

@@ -120,6 +120,7 @@ router.get('/companies/:companyId/fiscal-documents', async (req, res) => {
         status: String(row.status), origem: String(row.source),
         hashXml: row.xml_sha256 ? String(row.xml_sha256).trim() : null,
         direcao: row.metadata?.direction === 'SAIDA' || row.metadata?.direction === 'ENTRADA' ? row.metadata.direction : null,
+        revisaoEstrutural: row.metadata?.revisaoEstrutural ?? null,
         criadoEm: row.created_at, xmlDisponivel: row.has_xml === true,
       }));
     });
