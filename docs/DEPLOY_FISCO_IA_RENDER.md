@@ -42,6 +42,8 @@ Configure o serviço web apenas com `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA
 
 Execute migração e bootstrap em jobs privados separados com `FISCOIA_MIGRATION_DATABASE_URL` administrativa. O runner aplica as migrações, confere checksums, concede ao runtime somente DML/uso de sequência dentro de `fiscoia` e mantém o log de migração somente para leitura. O runtime não é dono das tabelas, não tem privilégios de DDL, e as políticas RLS continuam ativas. O bootstrap usa a conexão administrativa temporária para inserir a primeira conta; nunca use a credencial de runtime para essa tarefa.
 
+**Importante no Render:** um One-Off Job herda uma fotografia da configuração e das variáveis de ambiente do serviço-base. Portanto, não adicione `FISCOIA_MIGRATION_DATABASE_URL` ao serviço Web público para tentar executar o job por ele. Use um serviço-base privado, sem URL pública, dedicado à migração, com o mesmo repositório/build e somente os segredos estritamente necessários; execute `npm run db:migrate` nele e remova a variável administrativa do serviço privado assim que a migração terminar. Mantenha a credencial `FISCOIA_PG*` de runtime apenas no Web Service. A documentação do Render descreve essa herança de configuração dos One-Off Jobs: https://render.com/docs/one-off-jobs.
+
 Não coloque URLs administrativas, senhas de banco, chave de criptografia ou credenciais SERPRO em variáveis `VITE_*`. Não copie a senha para logs nem para o Git. O PostgreSQL compartilhado mantém backups, restaurações, capacidade e disponibilidade no nível do serviço inteiro; durante essa fase o Fisco IA continua dependente operacionalmente do banco do Fiscal. Após contratar o plano dedicado, provisionar o PostgreSQL próprio do Fisco IA e migrar os dados.
 
 A migração `004_reforma_company_scenarios.sql` cria o armazenamento de cenários da Reforma Tributária, isolado por escritório/empresa e com política RLS. A migração `005_reforma_rules_version_day.sql` permite versionar a base legal por data e mantém válidos cenários salvos na versão antiga. A migração `006_tenant_provisioning.sql` mantém a criação de escritórios restrita ao administrador central. `/api/ready` deve retornar HTTP 200 e informar schema migrado antes de considerar a persistência ativa.
@@ -60,10 +62,11 @@ A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) ainda
 
 ### Ordem segura para ativar a PR #3
 
-1. Integrar a PR à branch implantada e impedir que a aplicação nova seja promovida antes da migração.
-2. Executar `npm run db:migrate` uma única vez em job privado que tenha `FISCOIA_MIGRATION_DATABASE_URL` administrativa e o código já integrado. O script aplica apenas migrações pendentes e verifica os checksums.
-3. Confirmar que o job concluiu e que o schema contém as versões 007–009.
-4. Implantar o serviço web com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 9/9.
-5. Só então realizar uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela.
+1. Conferir se o Auto-Deploy do Web Service está ativo. Se estiver, suspendê-lo antes de integrar a PR; a versão nova espera as nove migrações e pode ficar indisponível enquanto o banco ainda estiver em 6/9.
+2. Integrar a PR à branch implantada e garantir que o serviço Web ainda não foi promovido.
+3. Criar/usar um serviço-base privado de migração, com o código já integrado e `FISCOIA_MIGRATION_DATABASE_URL` administrativa somente nesse serviço privado. Executar `npm run db:migrate` uma única vez. O script aplica apenas migrações pendentes e verifica os checksums. Não usar como base o Web Service público se isso exigir colocar a URL administrativa nas variáveis dele.
+4. Confirmar que o job concluiu e que o schema contém as versões 007–009; remover a variável administrativa do serviço privado.
+5. Reativar o Auto-Deploy ou implantar manualmente o serviço Web com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 9/9.
+6. Só então realizar uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela.
 
 Não executar migração com o usuário runtime nem manter `FISCOIA_MIGRATION_DATABASE_URL` no serviço web público.
