@@ -52,6 +52,18 @@ Os resumos e links oficiais ficam em `src/data/reformaTributariaRegras.ts`. Uma 
 
 O cadastro inicial do administrador deve ser feito somente depois das migrações, com `FISCOIA_BOOTSTRAP_EMAIL`, `FISCOIA_BOOTSTRAP_NAME` e `FISCOIA_BOOTSTRAP_PASSWORD` temporários em um job privado, executando `npm run db:bootstrap-admin` uma vez. A senha deve ter pelo menos 16 caracteres; a conta exige troca de senha no primeiro login. O script aborta sem alterações se já houver qualquer conta. Remova a URL administrativa e as três variáveis de bootstrap ao terminar.
 
-## Estado de validação
+## Estado observado em produção
 
-O deploy e a conexão com PostgreSQL foram validados em produção por `/api/ready`: banco conectado, seis de seis migrações aplicadas e chave de criptografia válida. A conta inicial de administrador ainda precisa ser criada pelo bootstrap único; a tela pública de login não oferece cadastro aberto.
+Em 18/10/2026, `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. O usuário já confirmou o primeiro acesso; não executar o bootstrap novamente.
+
+A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) ainda está aberta e contém as migrações 007, 008 e 009. Portanto, o endpoint público de produção ainda comprova somente o schema implantado com seis migrações; não comprova a disponibilidade das novas rotas DF-e, do cofre A1 ou do registro de validação do certificado.
+
+### Ordem segura para ativar a PR #3
+
+1. Integrar a PR à branch implantada e impedir que a aplicação nova seja promovida antes da migração.
+2. Executar `npm run db:migrate` uma única vez em job privado que tenha `FISCOIA_MIGRATION_DATABASE_URL` administrativa e o código já integrado. O script aplica apenas migrações pendentes e verifica os checksums.
+3. Confirmar que o job concluiu e que o schema contém as versões 007–009.
+4. Implantar o serviço web com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 9/9.
+5. Só então realizar uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela.
+
+Não executar migração com o usuário runtime nem manter `FISCOIA_MIGRATION_DATABASE_URL` no serviço web público.
