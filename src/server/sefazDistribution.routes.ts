@@ -61,6 +61,41 @@ function extrairCpfCnpj(xml: string, parent: string): string {
   return extrairTag(content, 'CNPJ') || extrairTag(content, 'CPF');
 }
 
+function textoXml(xml: string, tag: string): string | null {
+  const value = extrairTag(xml, tag);
+  if (!value) return null;
+  const decoded = decodificarEntidadesBasicas(value).trim();
+  return decoded || null;
+}
+
+function metadadosEvento(xml: string) {
+  // procEventoNFe contém um infEvento no pedido e outro em retEvento.
+  // Separar os blocos evita confundir dados informados no evento com o retorno SEFAZ.
+  const evento = extrairTag(xml, 'evento');
+  const infoPedido = extrairTag(evento, 'infEvento');
+  const retornoEvento = extrairTag(xml, 'retEvento');
+  const infoRetorno = extrairTag(retornoEvento, 'infEvento');
+  const detalhe = extrairTag(infoPedido, 'detEvento');
+  const chave = textoXml(infoPedido, 'chNFe') || textoXml(xml, 'chNFe');
+  const chaveValida = chave && /^[0-9]{44}$/.test(chave) ? chave : null;
+  const codigo = textoXml(infoPedido, 'tpEvento');
+  const dataHora = textoXml(infoPedido, 'dhEvento');
+  const seq = textoXml(infoPedido, 'nSeqEvento');
+  const protocolo = textoXml(infoRetorno, 'nProt');
+  const cStat = textoXml(infoRetorno, 'cStat');
+  const motivo = textoXml(infoRetorno, 'xMotivo');
+  return {
+    codigoEvento: codigo && /^\d{6}$/.test(codigo) ? codigo : null,
+    descricaoEvento: textoXml(detalhe, 'descEvento'),
+    dataEvento: dataHora && /^\d{4}-\d{2}-\d{2}T/.test(dataHora) ? dataHora : null,
+    sequenciaEvento: seq && /^\d{1,2}$/.test(seq) ? seq : null,
+    protocoloEvento: protocolo && /^\d{1,20}$/.test(protocolo) ? protocolo : null,
+    cStatEvento: cStat && /^\d{3}$/.test(cStat) ? cStat : null,
+    motivoEvento: motivo,
+    chave: chaveValida,
+  };
+}
+
 function classificar(schema: string, xml: string, companyCnpj: string) {
   const lower = schema.toLowerCase();
   const tipo = lower.includes('evento') ? 'EVENTO'
@@ -75,8 +110,10 @@ function classificar(schema: string, xml: string, companyCnpj: string) {
   const valor = extrairTag(extrairTag(xml, 'ICMSTot'), 'vNF');
   const emissao = extrairTag(xml, 'dhEmi') || extrairTag(xml, 'dEmi');
   const date = /^\d{4}-\d{2}-\d{2}/.exec(emissao)?.[0] || null;
+  const evento = tipo === 'EVENTO' ? metadadosEvento(xml) : null;
   return { tipo, direcao, emitente: emitente || null, destinatario: destinatario || null,
-    chave: extrairChave(xml), valor: /^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(valor) ? valor : null, emissao: date };
+    chave: evento?.chave || extrairChave(xml), valor: /^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(valor) ? valor : null,
+    emissao: date, ...(evento ? { evento } : {}) };
 }
 
 function dataCivilValida(value: string | null): string | null {

@@ -20,7 +20,19 @@ type DfeItem = {
   schema: string;
   chave: string | null;
   hashXml: string;
-  metadata: { tipo?: string; direcao?: string | null };
+  metadata: {
+    tipo?: string;
+    direcao?: string | null;
+    evento?: {
+      codigoEvento?: string | null;
+      descricaoEvento?: string | null;
+      dataEvento?: string | null;
+      sequenciaEvento?: string | null;
+      protocoloEvento?: string | null;
+      cStatEvento?: string | null;
+      motivoEvento?: string | null;
+    };
+  };
   recebidoEm: string;
 };
 
@@ -127,7 +139,7 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
     {mensagem && <p role="status" className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">{mensagem}</p>}
     {items.length > 0 && <div className="overflow-x-auto rounded-lg border border-blue-200 bg-white">
       <table className="w-full text-left text-xs"><thead className="bg-blue-100 text-blue-950"><tr><th className="p-2">NSU</th><th className="p-2">Tipo / schema</th><th className="p-2">Direção identificada</th><th className="p-2">Chave</th><th className="p-2">Recebido</th><th className="p-2">Arquivo</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{items.map(item => <tr key={item.id}><td className="p-2 font-mono">{item.nsu}</td><td className="p-2">{item.metadata?.tipo || item.schema}<div className="text-[10px] text-slate-500">{item.schema}</div></td><td className="p-2">{item.metadata?.direcao || 'Não identificado no XML'}</td><td className="p-2 font-mono">{item.chave || '—'}</td><td className="p-2">{new Date(item.recebidoEm).toLocaleString('pt-BR')}</td><td className="p-2"><button type="button" onClick={() => void baixar(item)} disabled={busy} className="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-800 disabled:opacity-50"><Download className="mr-1 inline h-3 w-3"/>XML</button></td></tr>)}</tbody>
+        <tbody className="divide-y divide-slate-100">{items.map(item => <tr key={item.id}><td className="p-2 font-mono">{item.nsu}</td><td className="p-2">{item.metadata?.tipo || item.schema}<div className="text-[10px] text-slate-500">{item.schema}</div>{item.metadata?.evento && <div className="mt-1 max-w-64 text-[10px] text-amber-800">{item.metadata.evento.descricaoEvento || `Evento ${item.metadata.evento.codigoEvento || ''}`} · sequência {item.metadata.evento.sequenciaEvento || '—'}<br/>{item.metadata.evento.dataEvento ? new Date(item.metadata.evento.dataEvento).toLocaleString('pt-BR') : 'Data não identificada'}<br/>Retorno SEFAZ: cStat {item.metadata.evento.cStatEvento || 'não identificado'}{item.metadata.evento.motivoEvento ? ` — ${item.metadata.evento.motivoEvento}` : ''}{item.metadata.evento.protocoloEvento ? <><br/>Protocolo {item.metadata.evento.protocoloEvento}</> : null}<br/><span className="font-semibold">Confira o efeito do evento antes de atualizar a situação da nota.</span></div>}</td><td className="p-2">{item.metadata?.direcao || 'Não identificado no XML'}</td><td className="p-2 font-mono">{item.chave || '—'}</td><td className="p-2">{new Date(item.recebidoEm).toLocaleString('pt-BR')}</td><td className="p-2"><button type="button" onClick={() => void baixar(item)} disabled={busy} className="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-800 disabled:opacity-50"><Download className="mr-1 inline h-3 w-3"/>XML</button></td></tr>)}</tbody>
       </table>
     </div>}
   </section>;
