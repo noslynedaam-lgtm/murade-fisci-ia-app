@@ -317,6 +317,22 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       if (novoNsu < nsuAtual) throw new Error('A SEFAZ retornou ultNSU anterior à posição armazenada; o lote foi recusado.');
       const maxNsu = BigInt(retorno.maxNsu);
       if (maxNsu < novoNsu) throw new Error('A SEFAZ retornou maxNSU inferior a ultNSU; o lote foi recusado.');
+      if (retorno.cStat === 137 && (novoNsu !== maxNsu || retorno.documentos.length !== 0)) {
+        throw new Error('Resposta cStat 137 inconsistente com o lote/NSU; nenhum dado nem cursor foi alterado.');
+      }
+      if (retorno.cStat === 138 && retorno.documentos.length === 0) {
+        throw new Error('Resposta cStat 138 sem docZip; nenhum dado nem cursor foi alterado.');
+      }
+      const nsusDoLote = new Set<string>();
+      let nsuAnteriorNoLote = nsuAtual;
+      for (const item of retorno.documentos) {
+        const nsuItem = BigInt(item.nsu);
+        if (nsuItem <= nsuAtual || nsuItem > novoNsu || nsuItem <= nsuAnteriorNoLote || nsusDoLote.has(item.nsu)) {
+          throw new Error('NSU de docZip fora da sequência esperada; nenhum dado nem cursor foi alterado.');
+        }
+        nsusDoLote.add(item.nsu);
+        nsuAnteriorNoLote = nsuItem;
+      }
 
       let novos = 0;
       let notasFiscalNormalizadas = 0;
@@ -336,6 +352,17 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
             encrypted.authTag, encrypted.keyVersion, digest, JSON.stringify({ ...item.metadata, origem: 'SEFAZ_DISTRIBUICAO_DFE' })],
         );
         if (saved.rowCount) novos += 1;
+        else {
+          const existing = await client.query(
+            `SELECT content_sha256 FROM fiscoia.fiscal_dfe_items
+              WHERE tenant_id=$1 AND company_id=$2 AND document_nsu=$3 LIMIT 1`,
+            [tenantId, companyId, item.nsu],
+          );
+          const existingHash = existing.rows[0]?.content_sha256 ? String(existing.rows[0].content_sha256).trim() : '';
+          if (existingHash !== digest) {
+            throw new Error('O mesmo NSU já existe com conteúdo diferente. O lote foi recusado e a posição NSU não avançou.');
+          }
+        }
 
         // Só normaliza NF-e quando modelo, chave válida e participante estão
         // explícitos no XML. Resumos incompletos e eventos permanecem no arquivo DF-e.
