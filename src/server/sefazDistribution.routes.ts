@@ -22,6 +22,7 @@ const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const MAX_BATCH_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
 const MAX_SEFAZ_REQUEST_MS = 45_000;
 const MIN_SEFAZ_REQUEST_GAP_MS = 60_000;
+const MAX_SEFAZ_REQUESTS_PER_HOUR = 20;
 
 router.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -356,6 +357,26 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       if (blockedUntil > Date.now()) return { kind: 'bloqueado' as const, ate: cursor.blocked_until };
       const lastRequest = cursor.last_request_at ? new Date(cursor.last_request_at).getTime() : 0;
       if (Date.now() - lastRequest < MIN_SEFAZ_REQUEST_GAP_MS) return { kind: 'ocupado' as const };
+
+      // Limite rolling persistido por tenant/empresa: espaçar por 60 s sozinho
+      // permitiria até 60 consultas/hora. Cada tentativa iniciada é auditada
+      // antes da rede, então falhas TLS também contam para evitar consumo excessivo.
+      const rate = await client.query(
+        `SELECT count(*)::int AS total, min(created_at) + interval '1 hour' AS proxima_tentativa
+           FROM fiscoia.audit_events
+          WHERE tenant_id=$1 AND entity_type='company' AND entity_id=$2
+            AND event_type='sefaz.dfe.consult_started'
+            AND created_at > now() - interval '1 hour'`,
+        [tenantId, companyId],
+      );
+      if (Number(rate.rows[0]?.total || 0) >= MAX_SEFAZ_REQUESTS_PER_HOUR) {
+        const retryAt = rate.rows[0]?.proxima_tentativa || new Date(Date.now() + 60 * 60_000).toISOString();
+        await client.query(
+          'UPDATE fiscoia.fiscal_dfe_cursors SET blocked_until=$3, updated_at=now() WHERE tenant_id=$1 AND company_id=$2',
+          [tenantId, companyId, retryAt],
+        );
+        return { kind: 'bloqueado' as const, ate: retryAt };
+      }
 
       const ambiente = process.env.FISCOIA_SEFAZ_DFE_ENV === 'homologacao' ? 'homologacao' : 'producao';
       const endpoint = ENDPOINTS[ambiente];
