@@ -32,3 +32,23 @@
   transform: perspective(600px) translateY(-4px) translateZ(10px) rotateX(1.5deg);
   box-shadow: 0 18px 45px rgba(10, 22, 40, 0.15), 0 4px 16px rgba(22, 93, 255, 0.12);
 }
+
+@media print {
+  @page { margin: 12mm; }
+  html, body { height: auto !important; overflow: visible !important; }
+  body * { visibility: hidden !important; }
+  #cnd-print-report, #cnd-print-report * { visibility: visible !important; }
+  #cnd-print-report {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  .no-print { display: none !important; }
+}

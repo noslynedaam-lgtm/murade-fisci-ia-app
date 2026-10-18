@@ -2,19 +2,21 @@ import { useState, FormEvent } from 'react';
 import { Shield, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2, Crown } from 'lucide-react';
 import { login } from '../../services/auth/auth.service';
 import { UsuarioAuth } from '../../types';
-import { TIPOS_USUARIO, ehUsuarioAdmin, TipoUsuario } from '../../config/Permissoes';
+import { TIPOS_USUARIO, TipoUsuario } from '../../config/Permissoes';
 import SimboloContabil from '../../components/SimboloContabil';
 
 interface LoginScreenProps {
   onLoginSucesso: (usuario: UsuarioAuth) => void;
   onPedirPrimeiroAcesso: (email: string) => void;
   onEsqueciSenha: (emailAtual?: string) => void;
+  mensagemSistema?: string | null;
 }
 
 export default function LoginScreen({
   onLoginSucesso,
   onPedirPrimeiroAcesso,
-  onEsqueciSenha
+  onEsqueciSenha,
+  mensagemSistema
 }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -32,13 +34,6 @@ export default function LoginScreen({
     setCarregando(true);
     setErro(null);
 
-    // ✅ AQUI O SISTEMA SABE QUEM É QUEM!
-    // No banco de dados / autenticação, cada usuário tem um "tipo" salvo:
-    // - Se for SEU e-mail (Murade) → ADMINISTRADOR (vê TUDO: Painel Murade, Faturamento, Bloqueio, Preços)
-    // - Se for cliente → CONTADOR (não vê Painel Murade!)
-    const isAdmin = ehUsuarioAdmin(email);
-    const tipoUsuario: TipoUsuario = isAdmin ? TIPOS_USUARIO.ADMIN : TIPOS_USUARIO.CONTADOR;
-
     const resposta = await login(email, senha);
     setCarregando(false);
 
@@ -49,6 +44,7 @@ export default function LoginScreen({
     }
 
     if (resposta.sucesso && resposta.usuario) {
+      const tipoUsuario: TipoUsuario = resposta.usuario.ehAdmin ? TIPOS_USUARIO.ADMIN : TIPOS_USUARIO.CONTADOR;
       const usuarioFinal: UsuarioAuth = {
         ...resposta.usuario,
         tipo: tipoUsuario,
@@ -59,13 +55,13 @@ export default function LoginScreen({
         setNotificacaoTipo({
           tipo: 'ADMIN',
           msg: '👑 Bem-vindo, Administrador!',
-          subtitulo: 'Painel Murade liberado! Faturamento, Bloqueio, Preços e Controle Total ativos.'
+          subtitulo: 'Sua conta foi validada pelo servidor.'
         });
       } else {
         setNotificacaoTipo({
           tipo: 'CONTADOR',
           msg: '✅ Bem-vindo ao FISCOIA!',
-          subtitulo: 'Acesso liberado. Ambiente contábil ativo.'
+          subtitulo: 'Sua conta foi validada pelo servidor.'
         });
       }
 
@@ -96,6 +92,7 @@ export default function LoginScreen({
             <p className="text-xs text-indigo-900 font-semibold mt-0.5">
               Compliance Fiscal com IA
             </p>
+            <p role="note" className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg p-2 mt-3">Acesso validado no servidor, com sessão protegida por cookie seguro.</p>
           </div>
         </div>
 
@@ -126,6 +123,13 @@ export default function LoginScreen({
           </div>
         )}
 
+        {mensagemSistema && !erro && (
+          <div role="status" className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <span>{mensagemSistema}</span>
+          </div>
+        )}
+
         {/* Formulário de Login */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
@@ -151,7 +155,10 @@ export default function LoginScreen({
               </label>
               <button
                 type="button"
-                onClick={() => onEsqueciSenha(email)}
+                onClick={() => {
+                  setErro('Recuperação por e-mail ainda não está configurada. Peça ao administrador para iniciar uma redefinição segura.');
+                  onEsqueciSenha(email);
+                }}
                 className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline text-[11px]"
               >
                 Esqueci minha senha
@@ -181,7 +188,7 @@ export default function LoginScreen({
         {/* Rodapé de Segurança */}
         <div className="pt-4 border-t border-slate-100 text-center space-y-1">
           <p className="text-[11px] text-slate-500 font-medium">
-            🔒 Ambiente Seguro & Criptografado • FISCOIA Contábil
+            Senhas verificadas pelo servidor · sessão em cookie HttpOnly
           </p>
           <p className="text-[10px] text-slate-400">
             Acesso confidencial restrito a operadores e contadores autorizados.

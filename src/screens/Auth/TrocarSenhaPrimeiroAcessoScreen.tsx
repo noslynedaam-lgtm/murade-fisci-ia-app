@@ -35,8 +35,8 @@ export default function TrocarSenhaPrimeiroAcessoScreen({
       return;
     }
 
-    if (novaSenha.length < 6) {
-      setErro('A nova senha deve possuir pelo menos 6 caracteres!');
+    if (novaSenha.length < 12) {
+      setErro('A nova senha deve possuir pelo menos 12 caracteres.');
       return;
     }
 
@@ -85,14 +85,14 @@ export default function TrocarSenhaPrimeiroAcessoScreen({
           <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3.5">
             <div>
               <label className="font-semibold text-slate-700 block mb-1">
-                Senha Provisória / Temporária (recebida no e-mail)
+                Senha temporária (fornecida pelo administrador)
               </label>
               <input
                 type="text"
                 required
                 value={senhaTemporaria}
                 onChange={(e) => setSenhaTemporaria(e.target.value)}
-                placeholder="Ex: Fiscoia#2026"
+                placeholder="Senha temporária recebida do administrador"
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl font-mono bg-white outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </div>
@@ -106,7 +106,7 @@ export default function TrocarSenhaPrimeiroAcessoScreen({
                 required
                 value={novaSenha}
                 onChange={(e) => setNovaSenha(e.target.value)}
-                placeholder="Mínimo de 6 caracteres"
+                placeholder="Mínimo de 12 caracteres"
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl bg-white outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </div>

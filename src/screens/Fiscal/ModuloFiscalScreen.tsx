@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { 
   ArrowLeft, 
   Upload, 
@@ -26,27 +26,87 @@ import {
   NotaFiscalItem, 
   RegimeTributario, 
   UF,
-  ResultadoApuracao 
+  ResumoTributosInformados,
+  lerNotasFiscaisEmpresa,
+  salvarNotasFiscaisEmpresa,
+  notificarAtualizacaoDadosFiscais,
+  vencimentoInformadoPassou,
+  obterValorPagoInformado,
+  registrarPagamentoInformado
 } from '../../services/fiscal/fiscoiaFiscal.service';
 import { ModalCalculadoraFiscal } from '../../components/ModalCalculadoraFiscal';
-import { 
-  FiltroDadosReais, 
-  sistema as SISTEMA_MURADE_FISCAL_REAIS,
-  CONFIG as CONFIG_MURADE_FISCAL 
-} from '../../services/fiscal/muradeFiscalDadosReais.service';
 import { useEmpresa } from '../../context/EmpresaContext';
+import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
+import {
+  apagarArquivoFiscalPendenteLocal,
+  apagarXmlFiscalLocal,
+  apagarXmlsFiscaisEmpresa,
+  listarArquivosFiscaisPendentesEmpresa,
+  obterArquivoFiscalPendenteLocal,
+  obterXmlFiscalLocal,
+  obterXmlFiscalPorChaveEmpresa,
+  salvarArquivoFiscalPendenteLocal,
+  salvarXmlFiscalLocal,
+  type ArquivoFiscalPendenteResumo
+} from '../../services/fiscal/xmlFiscalStorage.service';
+import { lerLivroFiscalEmpresa, lerRadarFiscalEmpresa, marcarMigracaoLivroCnpjConcluida, marcarMigracaoRadarCnpjConcluida } from '../../services/fiscal/empresaFiscalStorage.service';
 
 interface ModuloFiscalScreenProps {
   onVoltar?: () => void;
   abaInicial?: 'saida' | 'entrada' | 'baixa' | 'apuracao' | 'calculadora';
 }
 
+const hojeLocalISO = () => {
+  const hoje = new Date();
+  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+};
+
+const rotuloStatusPagamentoLocal = (nota: NotaFiscalItem) => {
+  const vencimentoPassou = vencimentoInformadoPassou(nota.dataVencimento);
+  if (nota.status === 'PAGA_INFORMADA') return 'PAGAMENTO TOTAL INFORMADO';
+  if (nota.status === 'PAGAMENTO_PARCIAL_INFORMADO') {
+    return `PAGAMENTO PARCIAL INFORMADO · R$ ${(nota.valorPago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}${vencimentoPassou ? ' · VENCIMENTO PASSOU' : ''}`;
+  }
+  if (nota.status === 'PAGA') return `STATUS ANTIGO NÃO VERIFICADO${vencimentoPassou ? ' · VENCIMENTO PASSOU' : ''}`;
+  return vencimentoPassou ? 'VENCIMENTO INFORMADO PASSOU' : 'PENDENTE';
+};
+
+const classeStatusPagamentoLocal = (nota: NotaFiscalItem) => {
+  if (nota.status === 'PAGA_INFORMADA' || nota.status === 'PAGAMENTO_PARCIAL_INFORMADO') return 'bg-blue-100 text-blue-800 border border-blue-300';
+  if (vencimentoInformadoPassou(nota.dataVencimento)) return 'bg-rose-100 text-rose-800 border border-rose-300';
+  return 'bg-amber-100 text-amber-800 border border-amber-300';
+};
+
+type CampoTributoInformado = 'ICMS' | 'PIS' | 'COFINS';
+
+const formatarMoedaInformada = (valor: number) => Number.isFinite(valor)
+  ? `R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+  : 'Não informado';
+
+const formatarTotalInformado = (nota: NotaFiscalItem) =>
+  nota.camposNumericosIndisponiveis?.includes('VNF') ? 'Não informado' : formatarMoedaInformada(nota.valorTotal);
+
+const formatarTributoInformado = (nota: NotaFiscalItem, campo: CampoTributoInformado, valor: number) => {
+  if (nota.camposNumericosIndisponiveis?.includes(campo) || !Number.isFinite(valor)) return 'Não informado';
+  return formatarMoedaInformada(valor);
+};
+
+const lerValorMoeda = (entrada: string) => {
+  const limpo = entrada.trim().replace(/^R\$\s*/i, '').replace(/\s/g, '');
+  const formatoBrasileiro = /^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?$/;
+  const formatoDecimalPonto = /^\d+\.\d{1,2}$/;
+  if (!formatoBrasileiro.test(limpo) && !formatoDecimalPonto.test(limpo)) return Number.NaN;
+  const normalizado = limpo.includes(',') ? limpo.replace(/\./g, '').replace(',', '.') : limpo;
+  const valor = Number(normalizado);
+  return Number.isFinite(valor) ? valor : 0;
+};
+
 export function ModuloFiscalScreen({ 
   onVoltar,
   abaInicial = 'saida'
 }: ModuloFiscalScreenProps) {
   const { empresaAtiva, salvarNovaEmpresa, selecionarEmpresa } = useEmpresa();
-  const [abaAtiva, setAbaAtiva] = useState<'saida' | 'entrada' | 'baixa' | 'apuracao' | 'calculadora'>(abaInicial);
+  const [abaAtiva, setAbaAtiva] = useState<'radar' | 'saida' | 'entrada' | 'baixa' | 'apuracao' | 'calculadora'>(abaInicial);
   const [modalCalcAberta, setModalCalcAberta] = useState(false);
 
   // Mapeamento bidirecional entre o regime da Empresa e o motor do Módulo Fiscal
@@ -67,17 +127,14 @@ export function ModuloFiscalScreen({
   // Inicializa regime com base na empresa ativa salva ou na preferência gravada
   const getRegimeInicial = (): RegimeTributario => {
     if (empresaAtiva?.id) {
-      const salvoEmpresa = localStorage.getItem(`fiscoia_regime_fiscal_${empresaAtiva.id}`);
+      let salvoEmpresa: string | null = null;
+      try { salvoEmpresa = localStorage.getItem(`fiscoia_regime_fiscal_${empresaAtiva.id}`); } catch { /* Usa os dados da empresa como fallback. */ }
       if (salvoEmpresa === 'SIMPLES' || salvoEmpresa === 'REAL' || salvoEmpresa === 'PRESUMIDO') {
         return salvoEmpresa as RegimeTributario;
       }
       if (empresaAtiva.regimeTributario) {
         return mapEmpresaRegimeToFiscal(empresaAtiva.regimeTributario);
       }
-    }
-    const salvoGlobal = localStorage.getItem('fiscoia_regime_fiscal_selecionado');
-    if (salvoGlobal === 'SIMPLES' || salvoGlobal === 'REAL' || salvoGlobal === 'PRESUMIDO') {
-      return salvoGlobal as RegimeTributario;
     }
     return 'SIMPLES';
   };
@@ -86,19 +143,52 @@ export function ModuloFiscalScreen({
   const [notasSaida, setNotasSaida] = useState<NotaFiscalItem[]>([]);
   const [notasEntrada, setNotasEntrada] = useState<NotaFiscalItem[]>([]);
   const [ufFiltro, setUfFiltro] = useState<UF>(() => {
-    if (empresaAtiva?.uf && Object.keys(FISCOIA_FISCAL.ALIQ_ICMS).includes(empresaAtiva.uf.toUpperCase())) {
+    if (empresaAtiva?.uf && FISCOIA_FISCAL.UFS.includes(empresaAtiva.uf.toUpperCase() as UF)) {
       return empresaAtiva.uf.toUpperCase() as UF;
     }
     return 'GO';
   });
   const [regimeFiltro, setRegimeFiltro] = useState<RegimeTributario>(getRegimeInicial);
   const [termoBusca, setTermoBusca] = useState('');
+  const [notasRadar, setNotasRadar] = useState<NotaRadar[]>([]);
+  const [erroLeituraRadar, setErroLeituraRadar] = useState<string | null>(null);
+  const [radarEmpresaId, setRadarEmpresaId] = useState<string | null>(null);
+  const [estadoSincronizacaoCentral, setEstadoSincronizacaoCentral] = useState<string | null>(null);
+  const [filtroRadar, setFiltroRadar] = useState('');
+  const [filtroPeriodoRadar, setFiltroPeriodoRadar] = useState('');
+  const [mensagemRadar, setMensagemRadar] = useState('');
+  const [ultimaConferenciaRadar, setUltimaConferenciaRadar] = useState<string | null>(null);
+  const [arquivosPendentes, setArquivosPendentes] = useState<ArquivoFiscalPendenteResumo[]>([]);
+  const [arquivosPendentesEmpresaId, setArquivosPendentesEmpresaId] = useState<string | null>(null);
+  const [erroArquivosPendentes, setErroArquivosPendentes] = useState<string | null>(null);
+  const inputXmlRef = useRef<HTMLInputElement>(null);
+  const empresaAtivaIdRef = useRef<string | null>(empresaAtiva?.id ?? null);
+
+  useEffect(() => {
+    let atual = true;
+    const empresaId = empresaAtiva?.id;
+    setArquivosPendentes([]);
+    setArquivosPendentesEmpresaId(null);
+    setErroArquivosPendentes(null);
+    if (!empresaId) return () => { atual = false; };
+    void listarArquivosFiscaisPendentesEmpresa(empresaId).then(arquivos => {
+      if (!atual) return;
+      setArquivosPendentes(arquivos);
+      setArquivosPendentesEmpresaId(empresaId);
+    }).catch(error => {
+      if (!atual) return;
+      setErroArquivosPendentes(error instanceof Error ? error.message : 'Não foi possível ler os arquivos pendentes.');
+      setArquivosPendentesEmpresaId(empresaId);
+    });
+    return () => { atual = false; };
+  }, [empresaAtiva?.id]);
 
   // Sincroniza automaticamente quando a empresaAtiva mudar
   useEffect(() => {
     if (empresaAtiva) {
       let reg: RegimeTributario = 'SIMPLES';
-      const salvo = localStorage.getItem(`fiscoia_regime_fiscal_${empresaAtiva.id}`);
+      let salvo: string | null = null;
+      try { salvo = localStorage.getItem(`fiscoia_regime_fiscal_${empresaAtiva.id}`); } catch { /* Usa o regime salvo no cadastro local. */ }
       if (salvo === 'SIMPLES' || salvo === 'REAL' || salvo === 'PRESUMIDO') {
         reg = salvo as RegimeTributario;
       } else if (empresaAtiva.regimeTributario) {
@@ -106,7 +196,7 @@ export function ModuloFiscalScreen({
       }
       setRegimeFiltro(reg);
 
-      if (empresaAtiva.uf && Object.keys(FISCOIA_FISCAL.ALIQ_ICMS).includes(empresaAtiva.uf.toUpperCase())) {
+      if (empresaAtiva.uf && FISCOIA_FISCAL.UFS.includes(empresaAtiva.uf.toUpperCase() as UF)) {
         setUfFiltro(empresaAtiva.uf.toUpperCase() as UF);
       }
     }
@@ -115,33 +205,28 @@ export function ModuloFiscalScreen({
   // Mensagem de notificação
   const [alerta, setAlerta] = useState<{ tipo: 'sucesso' | 'info'; texto: string } | null>(null);
 
-  // Alteração e gravação definitiva do regime fiscal
+  // O regime é gravado no cadastro local da empresa; não há sincronização com servidor.
   const handleAlterarRegime = (novoRegime: RegimeTributario) => {
-    setRegimeFiltro(novoRegime);
-    localStorage.setItem('fiscoia_regime_fiscal_selecionado', novoRegime);
-
     const nomes = {
       SIMPLES: 'Simples Nacional',
       PRESUMIDO: 'Lucro Presumido',
       REAL: 'Lucro Real'
     };
 
-    if (empresaAtiva) {
-      localStorage.setItem(`fiscoia_regime_fiscal_${empresaAtiva.id}`, novoRegime);
+    if (!empresaAtiva) {
+      setAlerta({ tipo: 'info', texto: 'Selecione uma empresa para salvar o regime no cadastro local.' });
+      return;
+    }
+
+    try {
       const regEmpresa = mapFiscalRegimeToEmpresa(novoRegime);
       const empAtualizada = { ...empresaAtiva, regimeTributario: regEmpresa };
-      salvarNovaEmpresa(empAtualizada);
-      selecionarEmpresa(empAtualizada);
-
-      setAlerta({
-        tipo: 'sucesso',
-        texto: `✅ Regime da empresa "${empresaAtiva.razaoSocial}" configurado e salvo como ${nomes[novoRegime]} com sucesso!`
-      });
-    } else {
-      setAlerta({
-        tipo: 'sucesso',
-        texto: `✅ Regime fiscal configurado e salvo como ${nomes[novoRegime]}!`
-      });
+      const salva = salvarNovaEmpresa(empAtualizada);
+      selecionarEmpresa(salva);
+      setRegimeFiltro(novoRegime);
+      setAlerta({ tipo: 'info', texto: `Regime ${nomes[novoRegime]} salvo no cadastro local de ${empresaAtiva.razaoSocial}. Este navegador não sincroniza o dado com outros dispositivos.` });
+    } catch (erro) {
+      setAlerta({ tipo: 'info', texto: erro instanceof Error ? `Não foi possível salvar o regime. ${erro.message}` : 'Não foi possível salvar o regime; os dados anteriores foram preservados.' });
     }
 
     setTimeout(() => setAlerta(null), 4000);
@@ -149,144 +234,620 @@ export function ModuloFiscalScreen({
 
   // Estados da Baixa de Notas
   const [notaSelecionadaParaBaixa, setNotaSelecionadaParaBaixa] = useState<NotaFiscalItem | null>(null);
+  const [empresaIdNotaBaixa, setEmpresaIdNotaBaixa] = useState<string | null>(null);
   const [valorPagoInput, setValorPagoInput] = useState<string>('');
-  const [dataPagoInput, setDataPagoInput] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [dataPagoInput, setDataPagoInput] = useState<string>(hojeLocalISO());
 
-  // Carregar dados
-  useEffect(() => {
-    const iniciais = FISCOIA_FISCAL.obterNotasIniciais();
-    setNotasSaida(iniciais.saidas);
-    setNotasEntrada(iniciais.entradas);
-  }, []);
-
-  // Apuração automática em tempo real baseada nas notas atuais
-  const apuracaoAtual: ResultadoApuracao = FISCOIA_FISCAL.apurar(
-    notasSaida,
-    notasEntrada,
-    ufFiltro,
-    '09',
-    '2026',
-    regimeFiltro
-  );
-
-  // Função para baixar notas da SEFAZ (SÓ DADOS REAIS — Filtro Murade)
-  const handleBaixarNotasSefaz = (tipo: 'SAIDA' | 'ENTRADA') => {
-    setAlerta({
-      tipo: 'info',
-      texto: `🔄 Consultando SEFAZ ${ufFiltro} via API SERPRO Oficial para notas de ${tipo}...`
-    });
-
-    setTimeout(() => {
-      const numGerado = Math.floor(1250 + Math.random() * 50);
-      const numStr = String(numGerado).padStart(9, '0');
-      // Chave oficial de NF-e com exatamente 44 dígitos
-      const chave44 = tipo === 'SAIDA'
-        ? `3526094567890100012355001${numStr}1887766554`
-        : `3526095678901200013455001${numStr}1998877665`;
-
-      const notaBruta = tipo === 'SAIDA' ? {
-        numero: String(numGerado),
-        chave: chave44,
-        chaveAcesso: chave44,
-        fonte: 'SEFAZ',
-        clienteOuFornecedor: "Distribuidora Nacional de Bebidas S/A",
-        cnpjParceiro: "45.678.901/0001-23",
-        valorProdutos: 18500.00,
-        valorTotal: 18500.00,
-        tipo: 'SAIDA' as const,
-        ufOrigem: ufFiltro,
-        ufDestino: ufFiltro,
-        regime: regimeFiltro
-      } : {
-        numero: String(numGerado),
-        chave: chave44,
-        chaveAcesso: chave44,
-        fonte: 'SEFAZ',
-        clienteOuFornecedor: "Fornecedora de Matéria Prima Brasil",
-        cnpjParceiro: "56.789.012/0001-34",
-        valorProdutos: 9200.00,
-        valorTotal: 9200.00,
-        tipo: 'ENTRADA' as const,
-        ufOrigem: 'SP' as UF,
-        ufDestino: ufFiltro,
-        regime: regimeFiltro
-      };
-
-      // FILTRO OFICIAL MURADE — SÓ DADOS REAIS (Bloqueia qualquer mock/simulação)
-      const notaValidada = FiltroDadosReais.verificar(notaBruta);
-
-      if (!notaValidada) {
-        setAlerta({
-          tipo: 'alerta',
-          texto: '❌ BLOQUEADO PELO MURADE FISCAL — Dado falso, fonte não oficial ou chave inválida rejeitada!'
-        });
-        return;
-      }
-
-      const notaFinal = FISCOIA_FISCAL.calcularImpostos(notaValidada, ufFiltro, regimeFiltro);
-
-      if (tipo === 'SAIDA') {
-        setNotasSaida(prev => [notaFinal, ...prev]);
-      } else {
-        setNotasEntrada(prev => [notaFinal, ...prev]);
-      }
-
-      setAlerta({
-        tipo: 'sucesso',
-        texto: `✅ MURADE FISCAL: Nota de ${tipo} (Chave 44 dígitos) validada e sincronizada com sucesso na SEFAZ ${ufFiltro}!`
-      });
-      setTimeout(() => setAlerta(null), 4500);
-    }, 1000);
+  const fecharModalBaixa = () => {
+    setNotaSelecionadaParaBaixa(null);
+    setEmpresaIdNotaBaixa(null);
   };
 
-  // Testar Bloqueio de Dado Falso/Simulação
-  const handleTestarBloqueioFalso = () => {
-    const dadoFalso = {
-      numero: '9999',
-      chaveAcesso: '12345', // Inválido (menos de 44 dígitos)
-      fonte: 'simulacao',    // Proibido
-      valorTotal: 5000.00
-    };
-
-    const resultado = FiltroDadosReais.verificar(dadoFalso);
-    if (resultado === null) {
-      setAlerta({
-        tipo: 'alerta',
-        texto: '🛡️ BLOQUEIO CONFIRMADO PELO MURADE FISCAL: Dado de teste com fonte "simulacao" e chave incompleta foi 100% rejeitado!'
-      });
-      setTimeout(() => setAlerta(null), 5000);
+  useEffect(() => {
+    if (empresaIdNotaBaixa && empresaIdNotaBaixa !== empresaAtiva?.id) {
+      fecharModalBaixa();
+      setAlerta({ tipo: 'info', texto: 'A empresa ativa mudou. O lançamento de pagamento foi cancelado e nada foi salvo.' });
     }
+  }, [empresaAtiva?.id, empresaIdNotaBaixa]);
+
+  // Cada livro fiscal local fica isolado pela empresa ativa neste navegador.
+  useLayoutEffect(() => {
+    if (!empresaAtiva?.id) {
+      setNotasSaida([]);
+      setNotasEntrada([]);
+      return;
+    }
+    const empresaId = empresaAtiva.id;
+    const leitura = lerLivroFiscalEmpresa(empresaId, empresaAtiva.cnpj);
+    if ('erro' in leitura) {
+      setNotasSaida([]);
+      setNotasEntrada([]);
+      setMensagemRadar(`Livro fiscal local indisponível (${leitura.erro}). Os dados armazenados foram preservados e não foram tratados como livro vazio.`);
+      return;
+    }
+    const salvas = leitura.notas;
+    const migrarXmlLocalNaoVerificado = (nota: NotaFiscalItem): nota is NotaFiscalItem & { origemArquivo: string } =>
+      Boolean(nota.origemArquivo);
+    const xmlsLegados = [...salvas.saidas, ...salvas.entradas].filter(migrarXmlLocalNaoVerificado);
+    if (!xmlsLegados.length) {
+      if (leitura.fonteChave && leitura.fonteChave !== empresaId) {
+        if (!salvarNotasFiscaisEmpresa(empresaId, salvas)) {
+          setNotasSaida(salvas.saidas);
+          setNotasEntrada(salvas.entradas);
+          setMensagemRadar('Dados fiscais antigos foram encontrados pela chave CNPJ, mas não puderam ser copiados para o ID atual. A origem antiga foi preservada.');
+          return;
+        }
+        if (!marcarMigracaoLivroCnpjConcluida(empresaId)) {
+          setNotasSaida(salvas.saidas);
+          setNotasEntrada(salvas.entradas);
+          setMensagemRadar('Livro fiscal copiado para a chave atual, mas não foi possível registrar o fim da migração. A origem antiga foi preservada.');
+          return;
+        }
+        setMensagemRadar('Livro fiscal legado encontrado pelo CNPJ e copiado para o cadastro atual. A cópia antiga foi preservada como referência local.');
+      }
+      setNotasSaida(salvas.saidas);
+      setNotasEntrada(salvas.entradas);
+      return;
+    }
+
+    try {
+      const chaveRadar = `fiscoia_radar_xml_${empresaId}`;
+      const leituraRadar = lerRadarFiscalEmpresa(empresaId, empresaAtiva.cnpj);
+      if (leituraRadar.erro) throw new Error(leituraRadar.erro);
+      const radarAtual = leituraRadar.notas;
+      const chavesRadar = new Set(radarAtual.map(nota => nota.chave).filter(Boolean));
+      const notasMigradas: NotaRadar[] = xmlsLegados
+        .filter(nota => !nota.chave || !chavesRadar.has(nota.chave))
+        .map(nota => {
+          const antiga = nota as NotaFiscalItem & { situacaoProtocolo?: string; codigoProtocolo?: string; numeroProtocolo?: string };
+          const protocoloDeclarado = antiga.situacaoProtocolo === 'AUTORIZADA_NO_XML' || Boolean(antiga.codigoProtocolo || antiga.numeroProtocolo);
+          return {
+            ...nota,
+            origemArquivo: nota.origemArquivo,
+            origemVerificada: false,
+            situacaoProtocolo: protocoloDeclarado ? 'PROTOCOLO_DECLARADO_NO_XML' : 'SEM_PROTOCOLO',
+            codigoProtocolo: antiga.codigoProtocolo,
+            numeroProtocolo: antiga.numeroProtocolo,
+            ocorrencias: [{ severidade: 'ATENCAO', codigo: 'MIGRADA_PARA_REVISAO', mensagem: 'XML legado movido do livro para o Radar: o arquivo não teve assinatura nem origem oficial verificadas.' }]
+          };
+        });
+      const radarAtualizado = [...notasMigradas, ...radarAtual];
+      localStorage.setItem(chaveRadar, JSON.stringify(radarAtualizado));
+      if (leituraRadar.fonteChave && leituraRadar.fonteChave !== empresaId && !marcarMigracaoRadarCnpjConcluida(empresaId)) {
+        throw new Error('não foi possível registrar o fim da migração do Radar legado');
+      }
+      const novasSaidas = salvas.saidas.filter(nota => !migrarXmlLocalNaoVerificado(nota));
+      const novasEntradas = salvas.entradas.filter(nota => !migrarXmlLocalNaoVerificado(nota));
+      if (!salvarNotasFiscaisEmpresa(empresaId, { saidas: novasSaidas, entradas: novasEntradas })) {
+        notificarAtualizacaoDadosFiscais();
+        setNotasSaida(salvas.saidas);
+        setNotasEntrada(salvas.entradas);
+        setMensagemRadar('A cópia de segurança dos XMLs foi criada no Radar, mas não foi possível concluir a retirada dos registros não verificados do livro. Revise o armazenamento local.');
+        return;
+      }
+      if (leitura.fonteChave && leitura.fonteChave !== empresaId && !marcarMigracaoLivroCnpjConcluida(empresaId)) {
+        setNotasSaida(novasSaidas);
+        setNotasEntrada(novasEntradas);
+        setMensagemRadar('Os dados fiscais foram copiados, mas não foi possível marcar a migração antiga como concluída. Confira o Radar e a chave CNPJ legada antes de novas mudanças.');
+        return;
+      }
+      setNotasSaida(novasSaidas);
+      setNotasEntrada(novasEntradas);
+      setMensagemRadar(`${xmlsLegados.length} XML(s) antigo(s) movido(s) do livro para o Radar, preservando os dados para revisão. A assinatura e a autorização oficial não foram verificadas.`);
+    } catch {
+      setNotasSaida(salvas.saidas);
+      setNotasEntrada(salvas.entradas);
+      setMensagemRadar('Não foi possível migrar os XMLs antigos com segurança. Nenhum registro foi removido do livro local.');
+    }
+  }, [empresaAtiva?.id, empresaAtiva?.cnpj]);
+
+  useLayoutEffect(() => {
+    // Guarda a empresa efetivamente selecionada para callbacks de importação assíncronos.
+    empresaAtivaIdRef.current = empresaAtiva?.id ?? null;
+    setErroLeituraRadar(null);
+    setUltimaConferenciaRadar(null);
+    setMensagemRadar('');
+    if (!empresaAtiva?.id) { setNotasRadar([]); setRadarEmpresaId(null); return; }
+    try {
+      const leitura = lerRadarFiscalEmpresa(empresaAtiva.id, empresaAtiva.cnpj);
+      if (leitura.erro) throw new Error(leitura.erro);
+      if (leitura.fonteChave && leitura.fonteChave !== empresaAtiva.id) {
+        localStorage.setItem(`fiscoia_radar_xml_${empresaAtiva.id}`, JSON.stringify(leitura.notas));
+        if (!marcarMigracaoRadarCnpjConcluida(empresaAtiva.id)) throw new Error('não foi possível registrar o fim da migração legada');
+      }
+      setNotasRadar(leitura.notas);
+      setRadarEmpresaId(empresaAtiva.id);
+    } catch (error) {
+      setNotasRadar([]);
+      setRadarEmpresaId(empresaAtiva.id);
+      setErroLeituraRadar(error instanceof Error ? error.message : 'não foi possível ler os registros salvos');
+    }
+  }, [empresaAtiva?.id, empresaAtiva?.cnpj]);
+
+  const radarPronto = Boolean(empresaAtiva?.id && radarEmpresaId === empresaAtiva.id);
+  const arquivosPendentesVisiveis = arquivosPendentesEmpresaId === empresaAtiva?.id ? arquivosPendentes : [];
+
+  const salvarNotasRadar = (novas: NotaRadar[]) => {
+    if (!empresaAtiva?.id || empresaAtivaIdRef.current !== empresaAtiva.id || radarEmpresaId !== empresaAtiva.id) return false;
+    if (erroLeituraRadar) return false;
+    try {
+      validarListaNotasRadar(novas);
+      localStorage.setItem(`fiscoia_radar_xml_${empresaAtiva.id}`, JSON.stringify(novas));
+      setNotasRadar(novas);
+      setErroLeituraRadar(null);
+      notificarAtualizacaoDadosFiscais();
+      return true;
+    } catch (error) {
+      console.error('Não foi possível salvar os XMLs do Radar neste navegador:', error);
+      return false;
+    }
+  };
+
+  // Reidrata no Radar desta sessão os XMLs já persistidos no PostgreSQL,
+  // mantendo a lista local como cache e nunca alterando documentos existentes.
+  useEffect(() => {
+    const empresa = empresaAtiva;
+    if (!radarPronto || !empresa?.idCentral || !empresa.tenantIdCentral || erroLeituraRadar) {
+      setEstadoSincronizacaoCentral(null);
+      return;
+    }
+    let cancelado = false;
+    const atual = () => !cancelado && empresaAtivaIdRef.current === empresa.id;
+    const sincronizar = async () => {
+      setEstadoSincronizacaoCentral('Consultando documentos fiscais guardados no servidor…');
+      try {
+        const query = new URLSearchParams({ tenantId: empresa.tenantIdCentral!, limit: '100' });
+        const resposta = await fetch(`/api/companies/${encodeURIComponent(empresa.idCentral!)}/fiscal-documents?${query}`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        });
+        const resultado = await resposta.json().catch(() => ({}));
+        if (!resposta.ok || !Array.isArray(resultado?.documentos)) {
+          throw new Error(resultado?.mensagem || 'a lista central não pôde ser carregada');
+        }
+        if (!atual()) return;
+        const leitura = lerRadarFiscalEmpresa(empresa.id, empresa.cnpj);
+        if (leitura.erro) throw new Error(leitura.erro);
+        const porChave = new Map(leitura.notas.map(nota => [nota.chave, nota]));
+        let recuperadas = 0;
+        let semLeitor = 0;
+        for (const documento of resultado.documentos as Array<{ id: string; chave: string; tipo: string; direcao: string | null; xmlDisponivel: boolean }>) {
+          if (!atual()) return;
+          if (!documento.xmlDisponivel) continue;
+          if (documento.tipo !== 'NFE' && documento.tipo !== 'NFCE') { semLeitor += 1; continue; }
+          const xmlLocalExistente = await obterXmlFiscalPorChaveEmpresa(empresa.id, documento.chave);
+          if (xmlLocalExistente) continue;
+          const url = `/api/companies/${encodeURIComponent(empresa.idCentral!)}/fiscal-documents/${encodeURIComponent(documento.id)}/xml?tenantId=${encodeURIComponent(empresa.tenantIdCentral!)}`;
+          const xmlResponse = await fetch(url, { credentials: 'include', headers: { Accept: 'application/xml' } });
+          if (!xmlResponse.ok) throw new Error('não foi possível recuperar um XML central; nenhum dado existente foi substituído');
+          const xml = await xmlResponse.text();
+          const nota = importarXmlNfe(xml, 'XML recuperado do PostgreSQL', empresa.cnpj || '', regimeFiltro, ufFiltro);
+          if (nota.chave !== documento.chave || (documento.direcao && nota.tipo !== documento.direcao)) {
+            throw new Error('a identidade do XML recuperado diverge dos metadados centrais; o conteúdo foi preservado');
+          }
+          const xmlLocalId = await salvarXmlFiscalLocal({ empresaId: empresa.id, chave: nota.chave, nomeArquivo: `${nota.chave}.xml`, conteudo: xml });
+          const existente = porChave.get(nota.chave);
+          if (existente) {
+            porChave.set(nota.chave, { ...existente, xmlLocalId });
+          } else {
+            nota.xmlLocalId = xmlLocalId;
+            porChave.set(nota.chave, nota);
+          }
+          recuperadas += 1;
+        }
+        if (!atual()) return;
+        if (recuperadas) {
+          const merge = validarListaNotasRadar([...porChave.values()]);
+          if (!salvarNotasRadar(merge)) throw new Error('o Radar não pôde salvar as cópias recuperadas neste navegador');
+        }
+        const quantidade = (resultado.documentos as unknown[]).length;
+        setEstadoSincronizacaoCentral(`Armazenamento central consultado: ${quantidade} documento(s), ${recuperadas} XML(s) recuperado(s) para este navegador${semLeitor ? `; ${semLeitor} documento(s) sem leitor neste Radar` : ''}. Todos continuam pendentes de revisão; consulta/autorização SEFAZ não foi realizada.`);
+      } catch (error) {
+        if (atual()) setEstadoSincronizacaoCentral(`Não foi possível concluir a leitura do armazenamento central. Os dados locais foram preservados. ${error instanceof Error ? error.message : ''}`.trim());
+      }
+    };
+    void sincronizar();
+    return () => { cancelado = true; };
+  }, [radarPronto, empresaAtiva?.id, empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral, empresaAtiva?.cnpj, erroLeituraRadar]);
+
+  const recarregarArquivosPendentes = async (empresaId: string) => {
+    const arquivos = await listarArquivosFiscaisPendentesEmpresa(empresaId);
+    if (empresaAtiva?.id === empresaId) {
+      setArquivosPendentes(arquivos);
+      setArquivosPendentesEmpresaId(empresaId);
+      setErroArquivosPendentes(null);
+    }
+  };
+
+  const baixarArquivoPendente = async (arquivo: ArquivoFiscalPendenteResumo) => {
+    try {
+      const registro = await obterArquivoFiscalPendenteLocal(arquivo.id, arquivo.empresaId);
+      if (!registro) throw new Error('O arquivo original não foi encontrado neste navegador.');
+      const url = URL.createObjectURL(registro.conteudo);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = registro.nomeArquivo.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'documento-fiscal';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMensagemRadar(`Download do original ${registro.nomeArquivo} solicitado ao navegador. O arquivo continua pendente de interpretação.`);
+    } catch (error) {
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível recuperar o arquivo original.');
+    }
+  };
+
+  const excluirArquivoPendente = async (arquivo: ArquivoFiscalPendenteResumo) => {
+    const nomeEmpresa = empresaAtiva?.id === arquivo.empresaId ? empresaAtiva.razaoSocial : `empresa ${arquivo.empresaId}`;
+    if (!window.confirm(`Excluir o original "${arquivo.nomeArquivo}" de ${nomeEmpresa}, guardado localmente? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await apagarArquivoFiscalPendenteLocal(arquivo.id, arquivo.empresaId);
+      await recarregarArquivosPendentes(arquivo.empresaId);
+      notificarAtualizacaoDadosFiscais();
+      setMensagemRadar(`Arquivo pendente ${arquivo.nomeArquivo} excluído deste navegador.`);
+    } catch (error) {
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível excluir o arquivo pendente.');
+    }
+  };
+
+  const handleImportarXmlRadar = async (files: FileList | null) => {
+    if (!files?.length) return;
+    if (!empresaAtiva?.id) { setMensagemRadar('Selecione uma empresa cadastrada antes de importar XML.'); return; }
+    if (!radarPronto) {
+      setMensagemRadar('Importação aguardando a leitura do Radar da empresa selecionada. Tente novamente em instantes.');
+      if (inputXmlRef.current) inputXmlRef.current.value = '';
+      return;
+    }
+    if (erroLeituraRadar) {
+      setMensagemRadar(`Importação bloqueada: a lista atual do Radar não pôde ser validada (${erroLeituraRadar}). Limpe o Radar desta empresa somente se aceitar apagar a lista ilegível e os XMLs locais.`);
+      if (inputXmlRef.current) inputXmlRef.current.value = '';
+      return;
+    }
+    const empresaId = empresaAtiva.id;
+    const empresaCnpj = empresaAtiva.cnpj ?? '';
+    const regimeEmpresa = regimeFiltro;
+    const ufEmpresa = ufFiltro;
+    const importadas: NotaRadar[] = [];
+    const erros: string[] = [];
+    const preservados: string[] = [];
+    let persistidasNoPostgres = 0;
+    let radarPersistido = [...notasRadar];
+    const leituraLivro = lerNotasFiscaisEmpresa(empresaId);
+    if ('erro' in leituraLivro) {
+      setMensagemRadar(`Importação interrompida: não foi possível ler o livro fiscal local (${leituraLivro.erro}). Nenhum XML foi salvo.`);
+      if (inputXmlRef.current) inputXmlRef.current.value = '';
+      return;
+    }
+    const livrosSalvos = leituraLivro.notas;
+    const chavesNoLivro = new Set([...livrosSalvos.saidas, ...livrosSalvos.entradas].map(n => n.chave).filter(Boolean));
+    for (const file of Array.from(files)) {
+      if (empresaAtivaIdRef.current !== empresaId) {
+        setMensagemRadar('Importação cancelada porque a empresa selecionada mudou. Nenhum arquivo restante foi associado à nova empresa.');
+        if (inputXmlRef.current) inputXmlRef.current.value = '';
+        return;
+      }
+      try {
+        if (!/\.xml$/i.test(file.name)) {
+          const motivo = 'Formato recebido, mas ainda sem leitor neste Radar. Nenhum lançamento ou classificação fiscal foi feito.';
+          try {
+            await salvarArquivoFiscalPendenteLocal({ empresaId, nomeArquivo: file.name, motivo, arquivo: file });
+            preservados.push(file.name);
+          } catch (error) {
+            erros.push(`${file.name}: formato não interpretado e o original não pôde ser preservado (${error instanceof Error ? error.message : 'falha no armazenamento local'}).`);
+          }
+          continue;
+        }
+        if (file.size > 25 * 1024 * 1024) {
+          erros.push(`${file.name}: arquivo acima do limite local de 25 MB; não foi lido nem salvo.`);
+          continue;
+        }
+        const xml = await file.text();
+        if (empresaAtivaIdRef.current !== empresaId) {
+          setMensagemRadar('Importação cancelada porque a empresa selecionada mudou durante a leitura. O arquivo não foi associado à empresa nova.');
+          if (inputXmlRef.current) inputXmlRef.current.value = '';
+          return;
+        }
+        const nota = importarXmlNfe(xml, file.name, empresaCnpj, regimeEmpresa, ufEmpresa);
+        const duplicadaNoRadar = Boolean(nota.chave && radarPersistido.some(n => n.chave === nota.chave));
+        const duplicadaNoLivro = Boolean(nota.chave && chavesNoLivro.has(nota.chave));
+        if (duplicadaNoRadar) {
+          const original = await obterXmlFiscalPorChaveEmpresa(empresaId, nota.chave);
+          if (original && original.conteudo !== xml) {
+            const motivo = 'A chave já existe no Radar com conteúdo diferente. O XML anterior foi preservado e este arquivo foi separado para revisão.';
+            await salvarArquivoFiscalPendenteLocal({ empresaId, nomeArquivo: file.name, motivo, arquivo: file });
+            preservados.push(file.name);
+            continue;
+          }
+          erros.push(`${file.name}: ${original ? 'XML idêntico já importado' : 'chave já existe no Radar'}; nenhum registro foi duplicado.`);
+          continue;
+        }
+        if (empresaAtiva.idCentral && empresaAtiva.tenantIdCentral
+          && !nota.ocorrencias.some(ocorrencia => ocorrencia.severidade === 'ERRO')) {
+          try {
+            const resposta = await fetch(`/api/companies/${encodeURIComponent(empresaAtiva.idCentral)}/fiscal-documents`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/xml',
+                'X-FiscoIA-Tenant-Id': empresaAtiva.tenantIdCentral,
+              },
+              body: xml,
+            });
+            const resultado = await resposta.json().catch(() => ({}));
+            if (!resposta.ok || resultado?.documento?.status !== 'PENDING_REVIEW' || resultado?.xmlCriptografadoNoPostgreSQL !== true) {
+              erros.push(`${file.name}: o XML não foi confirmado no banco permanente (${resultado?.mensagem || 'resposta inválida do servidor'}). A cópia local será mantida separadamente.`);
+            } else {
+              persistidasNoPostgres += 1;
+            }
+          } catch {
+            erros.push(`${file.name}: não foi possível confirmar o armazenamento permanente. A cópia local será mantida separadamente.`);
+          }
+        }
+        let xmlLocalId: string;
+        try {
+          xmlLocalId = await salvarXmlFiscalLocal({ empresaId, chave: nota.chave, nomeArquivo: file.name, conteudo: xml });
+        } catch (error) {
+          const motivo = error instanceof Error ? error.message : 'chave já associada a outro XML';
+          await salvarArquivoFiscalPendenteLocal({ empresaId, nomeArquivo: file.name, motivo: `Conflito de chave NF-e: ${motivo}`, arquivo: file });
+          preservados.push(file.name);
+          continue;
+        }
+        nota.xmlLocalId = xmlLocalId;
+        if (empresaAtivaIdRef.current !== empresaId || !salvarNotasRadar([nota, ...radarPersistido])) {
+          try {
+            await apagarXmlFiscalLocal(xmlLocalId);
+            erros.push(`${file.name}: XML removido do armazenamento porque não foi possível registrar o documento no Radar.`);
+          } catch {
+            erros.push(`${file.name}: não foi possível atualizar o Radar nem remover o XML original isolado do armazenamento local (ID ${xmlLocalId}).`);
+          }
+          continue;
+        }
+        radarPersistido = [nota, ...radarPersistido];
+        importadas.push(nota);
+        if (duplicadaNoLivro) {
+          erros.push(`${file.name}: a chave já existe no livro local; o XML foi mantido no Radar para revisão.`);
+        } else if (nota.situacaoProtocolo === 'PROTOCOLO_DECLARADO_NO_XML' || nota.situacaoProtocolo === 'AUTORIZADA_NO_XML') {
+          erros.push(`${file.name}: protocolo consta no XML, mas não foi autenticado. O documento ficou somente no Radar e não alterou o livro fiscal.`);
+        } else {
+          erros.push(`${file.name}: documento mantido somente no Radar; resposta/autorização não confirmada no XML.`);
+        }
+      } catch (error) {
+        const motivoErro = error instanceof Error ? error.message : 'falha de leitura';
+        if (motivoErro.includes('não consta como emitente nem destinatário')) {
+          erros.push(`${file.name}: o CNPJ da empresa selecionada não consta no documento; não foi associado nem armazenado nesta empresa.`);
+          continue;
+        }
+        try {
+          const motivo = `Leitura não concluída: ${motivoErro}. O original foi guardado para revisão; não houve lançamento fiscal.`;
+          await salvarArquivoFiscalPendenteLocal({ empresaId, nomeArquivo: file.name, motivo, arquivo: file });
+          preservados.push(file.name);
+        } catch (erroArmazenamento) {
+          erros.push(`${file.name}: falha de leitura (${motivoErro}) e o original não pôde ser preservado (${erroArmazenamento instanceof Error ? erroArmazenamento.message : 'falha no armazenamento local'}).`);
+        }
+      }
+    }
+    if (preservados.length) {
+      try {
+        await recarregarArquivosPendentes(empresaId);
+        notificarAtualizacaoDadosFiscais();
+      }
+      catch (error) { erros.push(`Os arquivos foram recebidos, mas a lista não pôde ser atualizada (${error instanceof Error ? error.message : 'erro local'}).`); }
+    }
+    if (empresaAtivaIdRef.current !== empresaId) {
+      if (inputXmlRef.current) inputXmlRef.current.value = '';
+      return;
+    }
+    const resumoPostgres = persistidasNoPostgres
+      ? `${persistidasNoPostgres} XML(s) também persistido(s), criptografado(s), no PostgreSQL e mantido(s) pendente(s) de revisão. `
+      : 'Nenhum XML foi confirmado no PostgreSQL; as cópias interpretadas permanecem apenas neste navegador. ';
+    setMensagemRadar(`${importadas.length} NF-e/NFC-e interpretada(s) e salva(s) no Radar local; ${preservados.length} arquivo(s) preservado(s) como pendente(s) de interpretação. ${resumoPostgres}Nada foi transmitido, autenticado ou escriturado. Formatos pendentes não foram classificados como notas.${erros.length ? ` ${erros.join(' ')}` : ''}`);
+    if (inputXmlRef.current) inputXmlRef.current.value = '';
+  };
+
+  const baixarXmlRadarLocal = async (nota: NotaRadar) => {
+    if (!nota.xmlLocalId) {
+      setMensagemRadar(`O XML original de ${nota.origemArquivo} não está disponível neste navegador. Registros migrados de versões anteriores guardam apenas os dados extraídos.`);
+      return;
+    }
+    try {
+      const registro = await obterXmlFiscalLocal(nota.xmlLocalId);
+      if (!registro) throw new Error('O original não foi encontrado no armazenamento deste navegador.');
+      const blob = new Blob([registro.conteudo], { type: 'application/xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const nomeSeguro = registro.nomeArquivo.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'nota-fiscal.xml';
+      link.download = nomeSeguro;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMensagemRadar(`Download do XML ${nomeSeguro} solicitado ao navegador a partir do armazenamento local.`);
+    } catch (error) {
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível recuperar o XML original deste navegador.');
+    }
+  };
+
+  const limparRadarDaEmpresa = async () => {
+    if (!empresaAtiva?.id) return;
+    if (!radarPronto) {
+      setMensagemRadar('Aguarde a leitura do Radar da empresa selecionada antes de apagá-lo.');
+      return;
+    }
+    if (!window.confirm('Apagar os documentos do Radar, os XMLs originais e todos os arquivos pendentes guardados neste navegador para esta empresa? Esta ação não pode ser desfeita.')) return;
+    if (erroLeituraRadar) {
+      const chaveRadar = `fiscoia_radar_xml_${empresaAtiva.id}`;
+      let conteudoAnterior: string | null = null;
+      try {
+        conteudoAnterior = localStorage.getItem(chaveRadar);
+        localStorage.removeItem(chaveRadar);
+        await apagarXmlsFiscaisEmpresa(empresaAtiva.id);
+        setNotasRadar([]);
+        setErroLeituraRadar(null);
+        setRadarEmpresaId(empresaAtiva.id);
+        setMensagemRadar('A lista ilegível do Radar, os XMLs originais e os arquivos pendentes locais foram apagados para esta empresa.');
+      } catch (error) {
+        try {
+          if (conteudoAnterior !== null) localStorage.setItem(chaveRadar, conteudoAnterior);
+        } catch {}
+        setMensagemRadar(`Não foi possível confirmar a limpeza completa. O conteúdo anterior do Radar foi restaurado quando possível. ${error instanceof Error ? error.message : ''}`.trim());
+      }
+      return;
+    }
+    if (!salvarNotasRadar([])) {
+      setMensagemRadar('Não foi possível limpar a lista do Radar neste navegador.');
+      return;
+    }
+    try {
+      await apagarXmlsFiscaisEmpresa(empresaAtiva.id);
+      setMensagemRadar('Documentos do Radar, XMLs originais e arquivos pendentes locais apagados para esta empresa.');
+    } catch (error) {
+      if (salvarNotasRadar(notasRadar)) {
+        setMensagemRadar(`Não foi possível apagar todos os documentos locais; a lista do Radar foi restaurada para evitar perda dos registros. ${error instanceof Error ? error.message : ''}`.trim());
+      } else {
+        setNotasRadar(notasRadar);
+        setMensagemRadar(`Falha ao excluir XMLs e ao restaurar o Radar no armazenamento. Os registros ainda estão visíveis nesta sessão; exporte o relatório antes de sair. ${error instanceof Error ? error.message : ''}`.trim());
+      }
+    }
+  };
+
+  const notasRadarVisiveis = radarPronto ? notasRadar : [];
+  const radarResumoDisponivel = radarPronto && !erroLeituraRadar;
+  const resultadoRadar = conferirNotasRadar(notasRadarVisiveis);
+  const listaRadarFiltrada = notasRadarVisiveis.filter(n => {
+    const termo = filtroRadar.trim().toLowerCase();
+    const busca = !termo || [n.numero, n.chave, n.clienteOuFornecedor, n.cnpjParceiro, n.cfop].some(v => String(v ?? '').toLowerCase().includes(termo));
+    const periodo = !filtroPeriodoRadar || n.dataEmissao.startsWith(filtroPeriodoRadar);
+    return busca && periodo;
+  });
+  const quantidadeComAlerta = notasRadarVisiveis.filter(n => (resultadoRadar.get(n.chave || `${n.origemArquivo}-${n.numero}`) ?? []).length > 0).length;
+
+  const executarConferenciaRadar = useCallback(() => {
+    if (!empresaAtiva?.id || radarEmpresaId !== empresaAtiva.id) {
+      setMensagemRadar('Conferência aguardando a leitura do Radar da empresa selecionada.');
+      return;
+    }
+    let documentos = notasRadar;
+    if (empresaAtiva?.id) {
+      try {
+        const salvo = localStorage.getItem(`fiscoia_radar_xml_${empresaAtiva.id}`);
+        documentos = salvo ? validarListaNotasRadar(JSON.parse(salvo)) : [];
+        if (salvo !== JSON.stringify(notasRadar)) setNotasRadar(documentos);
+        setErroLeituraRadar(null);
+      } catch {
+        setErroLeituraRadar('formato inválido ou campos essenciais corrompidos');
+        setMensagemRadar('Conferência interrompida: não foi possível ler os dados locais do Radar. A lista atual foi preservada; não foi inferida ausência de documentos.');
+        return;
+      }
+    }
+    const achados = conferirNotasRadar(documentos);
+    const alertas = documentos.reduce((total, n) => total + (achados.get(n.chave || `${n.origemArquivo}-${n.numero}`)?.length ?? 0), 0);
+    setUltimaConferenciaRadar(new Date().toLocaleString('pt-BR'));
+    if (alertas > 0) {
+      setMensagemRadar(`Robô Radar: encontrei ${alertas} alerta(s) em ${documentos.length} XML(s) importado(s). Revise a coluna Conferência.`);
+    }
+    else if (documentos.length) {
+      setMensagemRadar(`Robô Radar: conferi ${documentos.length} XML(s) importado(s); nenhum alerta estrutural encontrado. A origem oficial não foi consultada.`);
+    } else setMensagemRadar('Robô Radar: não há XML importado para analisar. Consulta a portais oficiais indisponível neste ambiente.');
+  }, [empresaAtiva?.id, notasRadar, radarEmpresaId]);
+
+  // Estimativa local do período atual com notas cuja data de emissão corresponde ao mês.
+  const dataPeriodoApuracao = new Date();
+  const mesApuracao = String(dataPeriodoApuracao.getMonth() + 1).padStart(2, '0');
+  const anoApuracao = String(dataPeriodoApuracao.getFullYear());
+  const periodoApuracao = `${anoApuracao}-${mesApuracao}`;
+  const saidasPeriodo = notasSaida.filter(n => n.dataEmissao?.startsWith(periodoApuracao));
+  const entradasPeriodo = notasEntrada.filter(n => n.dataEmissao?.startsWith(periodoApuracao));
+  const resumoAtual: ResumoTributosInformados = FISCOIA_FISCAL.resumirTributosInformados(
+    saidasPeriodo,
+    entradasPeriodo,
+    mesApuracao,
+    anoApuracao
+  );
+
+  const abrirRegistroPagamento = (nota: NotaFiscalItem) => {
+    if (!empresaAtiva?.id) {
+      setAlerta({ tipo: 'info', texto: 'Selecione uma empresa antes de registrar um pagamento.' });
+      return;
+    }
+    const jaInformado = obterValorPagoInformado(nota);
+    const restante = Math.max(0, nota.valorTotal - jaInformado);
+    setNotaSelecionadaParaBaixa(nota);
+    setEmpresaIdNotaBaixa(empresaAtiva.id);
+    setValorPagoInput(restante.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setDataPagoInput(hojeLocalISO());
   };
 
   // Registrar baixa de nota
   const handleConfirmarBaixa = () => {
     if (!notaSelecionadaParaBaixa) return;
-    const v = parseFloat(valorPagoInput.replace(/\D/g, '')) || notaSelecionadaParaBaixa.valorTotal;
-    
-    FISCOIA_FISCAL.BAIXA_NOTAS.registrarBaixa(
-      notaSelecionadaParaBaixa.chave,
-      dataPagoInput,
-      v,
-      "PAGA"
-    );
-
-    // Atualiza o estado da nota em memória
-    const atualizador = (lista: NotaFiscalItem[]) => 
-      lista.map(n => n.chave === notaSelecionadaParaBaixa.chave ? { ...n, status: 'PAGA' as const, valorPago: v, dataPagamento: dataPagoInput } : n);
-
-    setNotasSaida(atualizador);
-    setNotasEntrada(atualizador);
+    if (!empresaAtiva?.id || empresaIdNotaBaixa !== empresaAtiva.id) {
+      fecharModalBaixa();
+      setAlerta({ tipo: 'info', texto: 'A nota selecionada pertence a outra empresa. Selecione a empresa correta e tente novamente; nada foi salvo.' });
+      return;
+    }
+    const v = lerValorMoeda(valorPagoInput);
+    const dataPagamento = /^\d{4}-\d{2}-\d{2}$/.test(dataPagoInput) ? new Date(`${dataPagoInput}T12:00:00`) : null;
+    const dataValida = Boolean(dataPagamento && !Number.isNaN(dataPagamento.getTime())
+      && dataPagamento.getFullYear() === Number(dataPagoInput.slice(0, 4))
+      && dataPagamento.getMonth() + 1 === Number(dataPagoInput.slice(5, 7))
+      && dataPagamento.getDate() === Number(dataPagoInput.slice(8, 10)));
+    if (!Number.isFinite(v) || v <= 0 || !dataValida || !Number.isFinite(notaSelecionadaParaBaixa.valorTotal) || notaSelecionadaParaBaixa.valorTotal <= 0) {
+      setAlerta({ tipo: 'info', texto: 'Informe um valor positivo em formato monetário válido, uma data existente e confirme que a nota tem total válido.' });
+      return;
+    }
+    if (!Number.isFinite(saldoInformadoRestante) || saldoInformadoRestante <= 0 || v > saldoInformadoRestante + 0.009) {
+      setAlerta({
+        tipo: 'info',
+        texto: `O valor informado excede o saldo local restante de R$ ${Math.max(0, saldoInformadoRestante || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. Nenhuma informação foi salva.`
+      });
+      return;
+    }
+    const listaBase = notaSelecionadaParaBaixa.tipo === 'SAIDA' ? notasSaida : notasEntrada;
+    const indiceNota = listaBase.findIndex(n => n.tipo === notaSelecionadaParaBaixa.tipo && (
+      n === notaSelecionadaParaBaixa || Boolean(notaSelecionadaParaBaixa.chave && n.chave === notaSelecionadaParaBaixa.chave)
+    ));
+    if (indiceNota < 0) {
+      setAlerta({ tipo: 'info', texto: 'A nota selecionada não foi encontrada no livro atual. Nenhum pagamento foi salvo.' });
+      return;
+    }
+    let notaAtualizada: NotaFiscalItem;
+    try {
+      notaAtualizada = registrarPagamentoInformado(listaBase[indiceNota], v, dataPagoInput);
+    } catch (error) {
+      setAlerta({ tipo: 'info', texto: `${error instanceof Error ? error.message : 'Não foi possível validar o pagamento local.'} Nenhuma informação foi salva.` });
+      return;
+    }
+    const listaAtualizada = listaBase.map((nota, indice) => indice === indiceNota ? notaAtualizada : nota);
+    const saidasAtualizadas = notaSelecionadaParaBaixa.tipo === 'SAIDA' ? listaAtualizada : notasSaida;
+    const entradasAtualizadas = notaSelecionadaParaBaixa.tipo === 'ENTRADA' ? listaAtualizada : notasEntrada;
+    const valorAcumulado = notaAtualizada.valorPago ?? 0;
+    const pagamentoCompleto = notaAtualizada.status === 'PAGA_INFORMADA';
+    if (!salvarNotasFiscaisEmpresa(empresaAtiva.id, { saidas: saidasAtualizadas, entradas: entradasAtualizadas })) {
+      setAlerta({ tipo: 'info', texto: 'Não foi possível salvar o registro de pagamento neste navegador.' });
+      return;
+    }
+    setNotasSaida(saidasAtualizadas);
+    setNotasEntrada(entradasAtualizadas);
 
     setAlerta({
-      tipo: 'sucesso',
-      texto: `✅ Nota nº ${notaSelecionadaParaBaixa.numero} baixada com sucesso como PAGA!`
+      tipo: 'info',
+      texto: `${pagamentoCompleto ? 'Pagamento total' : `Pagamento parcial (R$ ${valorAcumulado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} de R$ ${notaSelecionadaParaBaixa.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`} da nota nº ${notaSelecionadaParaBaixa.numero} informado manualmente e salvo neste navegador. Banco e SEFAZ não foram consultados.`
     });
-    setNotaSelecionadaParaBaixa(null);
+    fecharModalBaixa();
     setTimeout(() => setAlerta(null), 4000);
   };
 
   // Notas vencidas
   const notasVencidas = FISCOIA_FISCAL.BAIXA_NOTAS.verificarVencidas([...notasSaida, ...notasEntrada]);
+  const valorJaInformado = notaSelecionadaParaBaixa
+    ? obterValorPagoInformado(notaSelecionadaParaBaixa)
+    : 0;
+  const saldoInformadoRestante = notaSelecionadaParaBaixa
+    ? Math.max(0, notaSelecionadaParaBaixa.valorTotal - valorJaInformado)
+    : 0;
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 pb-16">
@@ -307,14 +868,14 @@ export function ModuloFiscalScreen({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-black text-[#0F2B5B] flex items-center gap-2">
-                <span>🇧🇷 FISCOIA — MÓDULO FISCAL COMPLETO</span>
+                <span>🇧🇷 MURADE FISCAL — ROTINAS LOCAIS</span>
               </h1>
               <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-300">
-                v3.2.1 CORRIGIDO
+                v3.2.1
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              NFe Saída • NFe Entrada • Baixa de Notas • Apuração Fiscal • Calculadora das 27 UFs
+              Notas importadas • Conferência local • Resumo de campos fiscais • Calculadora manual
             </p>
           </div>
         </div>
@@ -332,38 +893,27 @@ export function ModuloFiscalScreen({
         </div>
       </div>
 
-      {/* BANNER OFICIAL: MURADE FISCAL — SÓ DADOS REAIS · SEM DADOS FALSOS */}
-      <div className="bg-gradient-to-r from-slate-900 via-[#0F2B5B] to-emerald-950 text-white p-3.5 rounded-2xl border border-emerald-500/40 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+      {/* ESTADO DE CONEXÃO: NÃO APRESENTAR VALIDAÇÃO LOCAL COMO CONSULTA OFICIAL */}
+      <div className="bg-gradient-to-r from-slate-900 via-[#0F2B5B] to-slate-800 text-white p-3.5 rounded-2xl border border-slate-500/40 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-black text-white tracking-wide">
-                MURADE FISCAL — SÓ DADOS REAIS · SEM DADOS FALSOS
+                MURADE FISCAL — CONFERÊNCIA DE XML
               </span>
-              <span className="text-[10px] bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full font-mono font-bold border border-emerald-400/30">
-                SEFAZ • SERPRO • RFB
+              <span className="text-[10px] bg-amber-500/20 text-amber-200 px-2 py-0.5 rounded-full font-mono font-bold border border-amber-400/30">
+                Consulta oficial: não conectada
               </span>
             </div>
             <p className="text-[11px] text-emerald-100/80 mt-0.5">
-              Filtro ativo permanente: Exige chave de 44 dígitos, certificado digital e bloqueia rigorosamente simulações, mocks e dados de teste.
+              Importe documentos da empresa e confira estrutura, duplicidades e campos para revisão. A conferência local não autentica a origem na SEFAZ.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
-          <button
-            type="button"
-            onClick={handleTestarBloqueioFalso}
-            className="px-2.5 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-400/40 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Verificar em tempo real que simulações e mocks são 100% rejeitados"
-          >
-            <Ban className="w-3.5 h-3.5 text-red-400" />
-            <span>Testar Bloqueio Fake</span>
-          </button>
-        </div>
       </div>
 
       {/* NOTIFICAÇÃO */}
@@ -382,10 +932,11 @@ export function ModuloFiscalScreen({
       <div className="flex items-center justify-between gap-2 overflow-x-auto border-b border-slate-200 pb-2">
         <div className="flex items-center gap-1.5">
           {[
+            { id: 'radar', rotulo: '🛡️ Radar / Conferência', count: !empresaAtiva?.id ? 'sem empresa' : !radarPronto ? 'carregando' : erroLeituraRadar ? 'falha de leitura' : quantidadeComAlerta ? `${quantidadeComAlerta} alertas` : notasRadarVisiveis.length },
             { id: 'saida', rotulo: '📤 NFe de Saída', count: notasSaida.length },
             { id: 'entrada', rotulo: '📥 NFe de Entrada', count: notasEntrada.length },
-            { id: 'baixa', rotulo: '✅ Baixa de Notas', badge: notasVencidas.length > 0 ? `${notasVencidas.length} Vencidas` : undefined },
-            { id: 'apuracao', rotulo: '⚖️ Apuração Fiscal' },
+            { id: 'baixa', rotulo: '✅ Pagamentos e Vencimentos', badge: notasVencidas.length > 0 ? `${notasVencidas.length} Vencidas` : undefined },
+            { id: 'apuracao', rotulo: '⚖️ Resumo dos XMLs' },
             { id: 'calculadora', rotulo: '🧮 Calculadora Fiscal', destaque: true }
           ].map(tab => {
             const ativa = abaAtiva === tab.id;
@@ -436,8 +987,8 @@ export function ModuloFiscalScreen({
               onChange={(e) => setUfFiltro(e.target.value as UF)}
               className="bg-transparent font-bold text-slate-800 outline-none cursor-pointer"
             >
-              {Object.keys(FISCOIA_FISCAL.ALIQ_ICMS).filter(u => u !== 'interestadual').map(uf => (
-                <option key={uf} value={uf}>{uf} ({FISCOIA_FISCAL.ALIQ_ICMS[uf as UF]}%)</option>
+              {FISCOIA_FISCAL.UFS.map(uf => (
+                <option key={uf} value={uf}>{uf}</option>
               ))}
             </select>
           </div>
@@ -454,12 +1005,72 @@ export function ModuloFiscalScreen({
               <option value="PRESUMIDO">Lucro Presumido</option>
               <option value="REAL">Lucro Real</option>
             </select>
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black flex items-center gap-0.5" title="Regime salvo no banco de dados da empresa">
-              <Check className="w-2.5 h-2.5 text-emerald-700" /> Salvo
+            <span className="text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-black flex items-center gap-0.5" title="Regime salvo no cadastro local desta empresa, neste navegador; não sincroniza com outros dispositivos">
+              <Check className="w-2.5 h-2.5 text-amber-700" /> Local
             </span>
           </div>
         </div>
       </div>
+
+      {abaAtiva === 'radar' && (
+        <section className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <h2 className="text-base font-black text-[#0F2B5B]">Radar fiscal — conferência de documentos</h2>
+              <p className="text-xs text-slate-600 mt-1 max-w-3xl">O Radar interpreta XML de NF-e modelo 55 e NFC-e modelo 65. Outros arquivos selecionados ficam guardados nesta fila local, separados por empresa, até existir um leitor compatível.</p>
+              <p className="text-[11px] text-amber-800 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">A conferência deste módulo analisa os arquivos importados. Ela não consulta a SEFAZ, não prova autorização e não substitui manifestação, escrituração ou revisão do contador.</p>
+              <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2"><strong>Automação de busca ainda não conectada:</strong> a Distribuição DF-e pode disponibilizar documentos de interesse do CNPJ após integração oficial com certificado e autorização; o conteúdo disponível depende do papel do CNPJ e das regras de manifestação. Ela não entrega a NF-e ao próprio emitente nesse fluxo. Para notas de saída, será necessária integração com o emissor/ERP da empresa ou outra fonte autorizada. Este Radar não baixa notas automaticamente. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Ver regras oficiais de distribuição</a>.</p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button type="button" onClick={executarConferenciaRadar} className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">Conferir agora</button>
+              <input ref={inputXmlRef} type="file" multiple className="hidden" onChange={e => void handleImportarXmlRadar(e.target.files)} />
+              <button type="button" onClick={() => inputXmlRef.current?.click()} disabled={!empresaAtiva?.id || !radarPronto || Boolean(erroLeituraRadar)} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold disabled:opacity-50"><Upload className="w-3.5 h-3.5 inline mr-1"/>Importar documentos</button>
+              <button type="button" onClick={() => {
+                const blob = new Blob([exportarRelatorioRadarCsv(listaRadarFiltrada, resultadoRadar)], { type: 'text/csv;charset=utf-8' });
+                const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `radar-fiscal-${empresaAtiva?.cnpj ?? 'empresa'}.csv`; a.click(); URL.revokeObjectURL(url);
+              }} disabled={!listaRadarFiltrada.length} className="px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-xs font-bold disabled:opacity-50"><Download className="w-3.5 h-3.5 inline mr-1"/>Exportar CSV</button>
+            </div>
+          </div>
+          {!radarPronto && empresaAtiva?.id && <div role="status" className="text-xs bg-slate-50 text-slate-700 border border-slate-200 p-3 rounded-lg">Carregando o Radar da empresa selecionada. As listas de outras empresas ficam ocultas até a leitura terminar.</div>}
+          {radarPronto && erroLeituraRadar && <div role="alert" className="text-xs bg-rose-50 text-rose-900 border border-rose-200 p-3 rounded-lg"><strong>Radar local indisponível:</strong> {erroLeituraRadar}. Os registros não foram substituídos. Importe novamente somente depois de corrigir ou limpar explicitamente esta lista.</div>}
+          {radarPronto && estadoSincronizacaoCentral && <div role="status" className={`text-xs border p-3 rounded-lg ${estadoSincronizacaoCentral.startsWith('Não foi possível') ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-sky-50 text-sky-950 border-sky-200'}`}>{estadoSincronizacaoCentral}</div>}
+          {erroArquivosPendentes && arquivosPendentesEmpresaId === empresaAtiva?.id && <div role="alert" className="text-xs bg-rose-50 text-rose-900 border border-rose-200 p-3 rounded-lg"><strong>Fila de arquivos pendentes indisponível:</strong> {erroArquivosPendentes}</div>}
+          {mensagemRadar && <div role="status" className="text-xs bg-blue-50 text-blue-900 border border-blue-200 p-3 rounded-lg">{mensagemRadar}</div>}
+          {arquivosPendentesVisiveis.length > 0 && <section className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2" aria-label="Arquivos fiscais pendentes de interpretação">
+            <div><h3 className="text-sm font-bold text-amber-950">Arquivos recebidos, pendentes de interpretação ({arquivosPendentesVisiveis.length})</h3><p className="text-[11px] text-amber-900">Estes originais não são notas escrituradas nem documentos conferidos. Baixe para abrir em outro sistema ou exclua quando não precisar mais.</p></div>
+            <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-amber-100 text-amber-950"><tr><th className="p-2">Arquivo</th><th className="p-2">Tamanho</th><th className="p-2">Motivo</th><th className="p-2 text-right">Ações</th></tr></thead><tbody className="divide-y divide-amber-100">{arquivosPendentesVisiveis.map(arquivo => <tr key={arquivo.id} className="align-top"><td className="p-2"><strong>{arquivo.nomeArquivo}</strong><div className="text-[10px] text-slate-500">{arquivo.tipoMime} · recebido {new Date(arquivo.importadoEm).toLocaleString('pt-BR')}</div></td><td className="p-2 whitespace-nowrap">{(arquivo.tamanho / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} KB</td><td className="p-2 min-w-64">{arquivo.motivo}</td><td className="p-2 text-right whitespace-nowrap"><button type="button" onClick={() => void baixarArquivoPendente(arquivo)} className="rounded border px-2 py-1 font-semibold text-blue-800">Baixar original</button> <button type="button" onClick={() => void excluirArquivoPendente(arquivo)} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-800">Excluir</button></td></tr>)}</tbody></table></div>
+          </section>}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 border rounded-lg p-3">
+            <div><strong className="text-slate-800">Monitor automático da carteira</strong><span className="text-slate-500"> · a verificação automática e as notificações são centralizadas no aviso fixo inferior; rodam a cada 5 minutos enquanto o Murade estiver aberto e analisam somente dados locais</span><div className="text-slate-500 mt-0.5">Última conferência manual desta empresa: {ultimaConferenciaRadar ?? 'ainda não executada com sucesso'}</div></div>
+            <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial não conectada</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="p-3 rounded-xl bg-slate-50 border"><div className="text-[11px] text-slate-500">XML importados</div><strong className="text-xl">{radarResumoDisponivel ? notasRadarVisiveis.length : '—'}</strong></div>
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-100"><div className="text-[11px] text-rose-700">Documentos com alertas</div><strong className="text-xl text-rose-800">{radarResumoDisponivel ? quantidadeComAlerta : '—'}</strong></div>
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-100"><div className="text-[11px] text-amber-800">Chaves repetidas</div><strong className="text-xl text-amber-900">{radarResumoDisponivel ? Array.from(resultadoRadar.values()).filter(lista => lista.some(i => i.codigo === 'CHAVE_DUPLICADA')).length : '—'}</strong></div>
+            <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100"><div className="text-[11px] text-indigo-800">Empresa</div><strong className="text-sm text-indigo-950">{empresaAtiva?.razaoSocial ?? 'Selecione uma empresa'}</strong></div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <label className="flex items-center gap-2 px-3 py-2 border rounded-lg flex-1"><Search className="w-4 h-4 text-slate-400"/><input aria-label="Pesquisar documentos" className="outline-none text-xs w-full" placeholder="Pesquisar número, chave, parceiro, CNPJ ou CFOP" value={filtroRadar} onChange={e => setFiltroRadar(e.target.value)}/></label>
+            <label className="flex items-center gap-2 px-3 py-2 border rounded-lg text-xs text-slate-600"><Calendar className="w-4 h-4"/><input aria-label="Filtrar por mês" type="month" value={filtroPeriodoRadar} onChange={e => setFiltroPeriodoRadar(e.target.value)} className="outline-none"/></label>
+            <button type="button" onClick={() => void limparRadarDaEmpresa()} disabled={!radarPronto || (!notasRadarVisiveis.length && !arquivosPendentesVisiveis.length && !erroLeituraRadar)} className="px-3 py-2 border border-rose-200 text-rose-700 rounded-lg text-xs font-bold disabled:opacity-50">{erroLeituraRadar ? 'Limpar Radar ilegível e documentos locais' : 'Apagar Radar e documentos locais'}</button>
+          </div>
+          {!empresaAtiva?.id && <p className="text-xs text-rose-700">Selecione uma empresa para usar o Radar por CNPJ.</p>}
+          {listaRadarFiltrada.length ? <div className="overflow-x-auto border rounded-xl"><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr>{['Emissão','Documento','Direção','Parceiro','CFOP','Total','Conferência'].map(t => <th key={t} className="p-3">{t}</th>)}</tr></thead><tbody className="divide-y">{listaRadarFiltrada.map((n, index) => {
+            const issues = resultadoRadar.get(n.chave || `${n.origemArquivo}-${n.numero}`) ?? [];
+            const statusProtocolo = n.situacaoProtocolo ?? 'SEM_PROTOCOLO';
+            const protocoloDeclarado = statusProtocolo === 'PROTOCOLO_DECLARADO_NO_XML' || statusProtocolo === 'AUTORIZADA_NO_XML';
+            const respostaNegativa = statusProtocolo === 'RESPOSTA_NAO_AUTORIZADA_NO_XML' || statusProtocolo === 'NAO_AUTORIZADA_NO_XML';
+            const textoProtocolo = protocoloDeclarado
+              ? `XML declara cStat ${n.codigoProtocolo || 'ausente'} e nProt; não autenticados`
+              : respostaNegativa
+                ? `Arquivo contém resposta sem código de autorização (cStat ${n.codigoProtocolo || 'ausente'}); não verificada`
+                : 'Sem protocolo no arquivo';
+            const totalIndisponivel = n.camposNumericosIndisponiveis?.includes('VNF');
+            return <tr key={`${n.chave}-${index}`} className="align-top"><td className="p-3 whitespace-nowrap">{n.dataEmissao}</td><td className="p-3"><strong>{n.numero}</strong><div className="text-[10px] text-slate-600">{n.modeloDocumento === '65' ? 'NFC-e · modelo 65' : n.modeloDocumento === '55' ? 'NF-e · modelo 55' : 'Modelo não registrado'}</div><div className="font-mono text-[10px] text-slate-500">{n.chave || 'Sem chave'}</div></td><td className="p-3">{n.tipo}</td><td className="p-3">{n.clienteOuFornecedor}<div className="text-[10px] text-slate-500">{n.tipoDocumentoParceiro ? `${n.tipoDocumentoParceiro}: ` : ''}{n.cnpjParceiro || 'Documento não informado'}</div></td><td className="p-3">{n.cfop || '—'}</td><td className="p-3 whitespace-nowrap">{totalIndisponivel ? <span className="text-amber-800">Não disponível</span> : `R$ ${n.valorTotal.toLocaleString('pt-BR',{minimumFractionDigits:2})}`}</td><td className="p-3 min-w-56">{issues.length ? <ul className="space-y-1">{issues.map((i,j) => <li key={`${i.codigo}-${j}`} className={i.severidade === 'ERRO' ? 'text-rose-700' : 'text-amber-800'}>{i.severidade}: {i.mensagem}</li>)}</ul> : <span className="text-slate-700">Sem inconsistências estruturais locais</span>}<div className={`text-[10px] mt-1 ${respostaNegativa ? 'text-rose-700' : 'text-amber-800'}`}>Protocolo: {textoProtocolo}</div><div className="text-[10px] text-slate-400 mt-1">Origem: arquivo XML local • assinatura, autenticidade e autorização oficial não verificadas</div><button type="button" onClick={() => void baixarXmlRadarLocal(n)} className="mt-2 px-2 py-1 rounded border border-slate-200 text-slate-700 hover:bg-slate-50">{n.xmlLocalId ? 'Baixar XML original' : 'Original não armazenado'}</button></td></tr>;
+          })}</tbody></table></div> : <div className="text-center text-xs text-slate-500 py-10 border border-dashed rounded-xl">{!radarPronto ? 'Carregando os registros desta empresa…' : notasRadarVisiveis.length ? 'Nenhum documento corresponde aos filtros.' : 'Nenhum XML importado para esta empresa. Importe arquivos XML para iniciar a conferência.'}</div>}
+        </section>
+      )}
 
       {/* ======================= ABA 1: NFE DE SAÍDA ======================= */}
       {abaAtiva === 'saida' && (
@@ -471,18 +1082,13 @@ export function ModuloFiscalScreen({
                 <span className="text-xs font-normal text-slate-500">({notasSaida.length} notas no período)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Vendas faturadas com cálculo automático de ICMS (CST 00/10), PIS e COFINS conforme SEFAZ {ufFiltro}.
+                Exibe notas de saída importadas para esta empresa. Tributos são valores informados nos registros/XMLs, sem validação de alíquota ou apuração; emissão e consulta oficial não estão conectadas.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleBaixarNotasSefaz('SAIDA')}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Baixar NFe Saída (SEFAZ)</span>
-            </button>
+            <span role="status" className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-[11px] font-bold shrink-0">
+              Busca automática de saída não conectada · importe XML do emissor/ERP
+            </span>
           </div>
 
           {/* TABELA DE SAÍDAS */}
@@ -493,16 +1099,16 @@ export function ModuloFiscalScreen({
                   <th className="p-3">Nº / Série</th>
                   <th className="p-3">Cliente / Destinatário</th>
                   <th className="p-3">UF Destino</th>
-                  <th className="p-3">Valor Total</th>
-                  <th className="p-3">ICMS ({ufFiltro})</th>
-                  <th className="p-3">PIS/COFINS</th>
+                  <th className="p-3">Valor Total registrado</th>
+                  <th className="p-3">ICMS informado</th>
+                  <th className="p-3">PIS/COFINS informados</th>
                   <th className="p-3">Status</th>
                   <th className="p-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {notasSaida.map((nf) => (
-                  <tr key={nf.chave} className="hover:bg-slate-50/60 transition-colors">
+                {notasSaida.map((nf, index) => (
+                  <tr key={`${nf.tipo}:${nf.chave || `${nf.numero}-${nf.serie}-${nf.dataEmissao}`}:${index}`} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-3 font-mono font-bold text-slate-900">
                       <div>#{nf.numero} (s.{nf.serie})</div>
                       <div className="text-[10px] text-slate-400 font-normal">{nf.dataEmissao}</div>
@@ -515,41 +1121,32 @@ export function ModuloFiscalScreen({
                       <span className="bg-slate-100 px-2 py-0.5 rounded font-bold">{nf.ufDestino}</span>
                     </td>
                     <td className="p-3 font-bold font-mono text-slate-900">
-                      R$ {nf.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatarTotalInformado(nf)}
                     </td>
                     <td className="p-3 font-mono">
-                      <div className="font-bold text-blue-700">R$ {nf.ICMS_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                      <div className="text-[10px] text-slate-400">Aliq: {nf.ICMS_aliq}% (CST {nf.ICMS_cst})</div>
+                      <div className="font-bold text-blue-700">{formatarTributoInformado(nf, 'ICMS', nf.ICMS_valor)}</div>
+                      <div className="text-[10px] text-slate-400">CST: {nf.ICMS_cst || 'não informado'} · alíquota não conferida</div>
                     </td>
                     <td className="p-3 font-mono">
-                      <div className="text-slate-800 font-semibold">R$ {(nf.PIS_valor + nf.COFINS_valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                      <div className="text-[10px] text-slate-400">PIS: {nf.PIS_valor.toFixed(2)} | COF: {nf.COFINS_valor.toFixed(2)}</div>
+                      <div className="text-slate-800 font-semibold">PIS: {formatarTributoInformado(nf, 'PIS', nf.PIS_valor)}</div>
+                      <div className="text-[10px] text-slate-400">COFINS: {formatarTributoInformado(nf, 'COFINS', nf.COFINS_valor)}</div>
                     </td>
                     <td className="p-3">
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                        nf.status === 'PAGA' 
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                          : nf.status === 'VENCIDA'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                          : 'bg-amber-100 text-amber-800 border border-amber-300'
-                      }`}>
-                        {nf.status}
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${classeStatusPagamentoLocal(nf)}`}>
+                        {rotuloStatusPagamentoLocal(nf)}
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      {nf.status !== 'PAGA' ? (
+                      {nf.status !== 'PAGA_INFORMADA' ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            setNotaSelecionadaParaBaixa(nf);
-                            setValorPagoInput(String(nf.valorTotal));
-                          }}
+                          onClick={() => abrirRegistroPagamento(nf)}
                           className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
                         >
-                          Dar Baixa
+                          Registrar pagamento
                         </button>
                       ) : (
-                        <span className="text-[11px] text-slate-400 font-semibold">Quitada</span>
+                        <span className="text-[11px] text-blue-700 font-semibold">Pagamento informado</span>
                       )}
                     </td>
                   </tr>
@@ -570,18 +1167,13 @@ export function ModuloFiscalScreen({
                 <span className="text-xs font-normal text-slate-500">({notasEntrada.length} notas no período)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Créditos fiscais de ICMS, PIS e COFINS apurados para dedução das saídas.
+                Exibe notas de entrada importadas para esta empresa. Tributos são valores informados nos registros/XMLs; direito a crédito, alíquotas e deduções não são apurados ou validados.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleBaixarNotasSefaz('ENTRADA')}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Buscar NFe Entrada SEFAZ</span>
-            </button>
+            <span role="status" className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-[11px] font-bold shrink-0">
+              Distribuição DF-e ainda não conectada · importe XML para revisar localmente
+            </span>
           </div>
 
           {/* TABELA DE ENTRADAS */}
@@ -592,16 +1184,16 @@ export function ModuloFiscalScreen({
                   <th className="p-3">Nº / Série</th>
                   <th className="p-3">Fornecedor / Emitente</th>
                   <th className="p-3">UF Origem</th>
-                  <th className="p-3">Valor Total</th>
-                  <th className="p-3">Crédito ICMS</th>
-                  <th className="p-3">Crédito PIS/COFINS</th>
+                  <th className="p-3">Valor Total registrado</th>
+                  <th className="p-3">ICMS informado</th>
+                  <th className="p-3">PIS/COFINS informados</th>
                   <th className="p-3">Status</th>
                   <th className="p-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
-                {notasEntrada.map((nf) => (
-                  <tr key={nf.chave} className="hover:bg-slate-50/60 transition-colors">
+                {notasEntrada.map((nf, index) => (
+                  <tr key={`${nf.tipo}:${nf.chave || `${nf.numero}-${nf.serie}-${nf.dataEmissao}`}:${index}`} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-3 font-mono font-bold text-slate-900">
                       <div>#{nf.numero} (s.{nf.serie})</div>
                       <div className="text-[10px] text-slate-400 font-normal">{nf.dataEmissao}</div>
@@ -614,36 +1206,29 @@ export function ModuloFiscalScreen({
                       <span className="bg-slate-100 px-2 py-0.5 rounded font-bold">{nf.ufOrigem}</span>
                     </td>
                     <td className="p-3 font-bold font-mono text-slate-900">
-                      R$ {nf.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      {formatarTotalInformado(nf)}
                     </td>
                     <td className="p-3 font-mono">
-                      <div className="font-bold text-emerald-600">R$ {nf.ICMS_valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                      <div className="text-[10px] text-slate-400">Aliq: {nf.ICMS_aliq}%</div>
+                      <div className="font-bold text-emerald-600">{formatarTributoInformado(nf, 'ICMS', nf.ICMS_valor)}</div>
+                      <div className="text-[10px] text-slate-400">CST: {nf.ICMS_cst || 'não informado'} · crédito não apurado</div>
                     </td>
                     <td className="p-3 font-mono">
-                      <div className="text-emerald-700 font-semibold">R$ {(nf.PIS_valor + nf.COFINS_valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                      <div className="text-[10px] text-slate-400">PIS: {nf.PIS_valor.toFixed(2)} | COF: {nf.COFINS_valor.toFixed(2)}</div>
+                      <div className="text-emerald-700 font-semibold">PIS: {formatarTributoInformado(nf, 'PIS', nf.PIS_valor)}</div>
+                      <div className="text-[10px] text-slate-400">COFINS: {formatarTributoInformado(nf, 'COFINS', nf.COFINS_valor)} · créditos não apurados</div>
                     </td>
                     <td className="p-3">
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                        nf.status === 'PAGA' 
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                          : 'bg-amber-100 text-amber-800 border border-amber-300'
-                      }`}>
-                        {nf.status}
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${classeStatusPagamentoLocal(nf)}`}>
+                        {rotuloStatusPagamentoLocal(nf)}
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      {nf.status !== 'PAGA' && (
+                      {nf.status !== 'PAGA_INFORMADA' && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setNotaSelecionadaParaBaixa(nf);
-                            setValorPagoInput(String(nf.valorTotal));
-                          }}
+                          onClick={() => abrirRegistroPagamento(nf)}
                           className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
                         >
-                          Dar Baixa
+                          Registrar pagamento
                         </button>
                       )}
                     </td>
@@ -660,10 +1245,10 @@ export function ModuloFiscalScreen({
         <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-5 animate-in fade-in">
           <div>
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <span>✅ Baixa de Notas Fiscais — Marcar Pagas e Vencidas</span>
+              <span>✅ Pagamentos informados e vencimentos locais</span>
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Controle de contas a pagar e receber vinculado à apuração fiscal.
+              Acompanhamento local dos vencimentos informados. Pagamentos são registrados manualmente e não são confirmados pelo banco.
             </p>
           </div>
 
@@ -672,9 +1257,9 @@ export function ModuloFiscalScreen({
             <div className="p-4 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-3 text-xs text-rose-900">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div>
-                <strong className="block text-sm font-black">Atenção: {notasVencidas.length} nota(s) vencida(s)!</strong>
+                <strong className="block text-sm font-black">Atenção: {notasVencidas.length} vencimento(s) informado(s) no passado!</strong>
                 <p className="mt-0.5">
-                  Verifique os títulos pendentes antes do encerramento da apuração para não gerar inconsistências nos livros fiscais.
+                  Confira as datas e o pagamento com a empresa. O sistema não consultou banco ou órgão oficial.
                 </p>
               </div>
             </div>
@@ -682,18 +1267,16 @@ export function ModuloFiscalScreen({
 
           {/* LISTAGEM DE NOTAS PARA BAIXA */}
           <div className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-800">Notas Pendentes de Pagamento</h3>
+            <h3 className="text-xs font-bold text-slate-800">Notas sem pagamento informado neste navegador</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {[...notasSaida, ...notasEntrada].filter(n => n.status !== 'PAGA').map(nf => (
-                <div key={nf.chave} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+              {[...notasSaida, ...notasEntrada].filter(n => n.status !== 'PAGA_INFORMADA').map((nf, index) => (
+                <div key={`${nf.tipo}:${nf.chave || `${nf.numero}-${nf.serie}-${nf.dataEmissao}`}:${index}`} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3 text-xs">
                   <div>
                     <div className="font-bold text-slate-900 flex items-center gap-1.5">
                       <span>{nf.tipo === 'SAIDA' ? '📤 Saída' : '📥 Entrada'}</span>
                       <span>#{nf.numero}</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${
-                        nf.status === 'VENCIDA' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {nf.status}
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-black ${classeStatusPagamentoLocal(nf)}`}>
+                        {rotuloStatusPagamentoLocal(nf)}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-600 mt-0.5">{nf.clienteOuFornecedor}</div>
@@ -704,13 +1287,10 @@ export function ModuloFiscalScreen({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setNotaSelecionadaParaBaixa(nf);
-                      setValorPagoInput(String(nf.valorTotal));
-                    }}
+                    onClick={() => abrirRegistroPagamento(nf)}
                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs cursor-pointer transition-colors shrink-0"
                   >
-                    Baixar
+                    Registrar pagamento
                   </button>
                 </div>
               ))}
@@ -725,20 +1305,24 @@ export function ModuloFiscalScreen({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div>
               <span className="text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                Período: {apuracaoAtual.periodo} • {apuracaoAtual.uf}
+                Período: {resumoAtual.periodo} • {ufFiltro}
               </span>
               <h2 className="text-base font-black text-[#0F2B5B] mt-1">
-                ⚖️ Apuração Fiscal Consolidada — Saída - Entrada = Valor a Pagar
+                ⚖️ Resumo de campos tributários dos XMLs locais
               </h2>
             </div>
 
             <div className="text-right">
-              <span className="text-xs text-slate-500 font-semibold block">Regime da Empresa</span>
+              <span className="text-xs text-slate-500 font-semibold block">Regime cadastrado</span>
               <span className="text-xs font-black text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 inline-flex items-center gap-1">
-                <Check className="w-3 h-3 text-emerald-600" />
                 {regimeFiltro === 'SIMPLES' ? 'Simples Nacional' : regimeFiltro === 'REAL' ? 'Lucro Real' : 'Lucro Presumido'}
+                <span className="font-normal">· não validado</span>
               </span>
             </div>
+          </div>
+
+          <div role="note" className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            Valores somados dos campos numéricos do livro local, separados por saída e entrada. {resumoAtual.camposInvalidos ? `${resumoAtual.camposInvalidos} campo(s) inválido(s) ou fora da faixa segura foram omitidos; o resumo está parcial. ` : ''}Não há compensação, validação de incidência ou apuração legal; não representa tributo devido nem guia oficial.
           </div>
 
           {/* CARDS DE APURAÇÃO */}
@@ -747,25 +1331,17 @@ export function ModuloFiscalScreen({
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">ICMS (Estadual)</span>
-                <span className="text-[10px] font-mono bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-bold">
-                  {ufFiltro}: {FISCOIA_FISCAL.ALIQ_ICMS[ufFiltro]}%
-                </span>
+                <span className="text-[10px] font-mono bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-bold">Campos informados</span>
               </div>
               <div className="text-xs space-y-1 text-slate-600 font-mono">
                 <div className="flex justify-between">
-                  <span>Débito (Saídas):</span>
-                  <strong>R$ {apuracaoAtual.totalSaida.ICMS.toFixed(2)}</strong>
+                  <span>ICMS informado nas saídas:</span>
+                  <strong>R$ {resumoAtual.totalSaida.ICMS.toFixed(2)}</strong>
                 </div>
-                <div className="flex justify-between text-emerald-600">
-                  <span>Crédito (Entradas):</span>
-                  <strong>- R$ {apuracaoAtual.totalEntrada.ICMS.toFixed(2)}</strong>
+                <div className="flex justify-between">
+                  <span>ICMS informado nas entradas:</span>
+                  <strong>R$ {resumoAtual.totalEntrada.ICMS.toFixed(2)}</strong>
                 </div>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-800">A Recolher:</span>
-                <span className="text-sm font-black text-blue-700 font-mono">
-                  R$ {apuracaoAtual.ICMS_A_PAGAR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
               </div>
             </div>
 
@@ -773,25 +1349,17 @@ export function ModuloFiscalScreen({
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">PIS (Federal)</span>
-                <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-bold">
-                  {FISCOIA_FISCAL.REGIMES[regimeFiltro].PIS}%
-                </span>
+                <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-bold">Campos informados</span>
               </div>
               <div className="text-xs space-y-1 text-slate-600 font-mono">
                 <div className="flex justify-between">
-                  <span>Débito (Saídas):</span>
-                  <strong>R$ {apuracaoAtual.totalSaida.PIS.toFixed(2)}</strong>
+                  <span>PIS informado nas saídas:</span>
+                  <strong>R$ {resumoAtual.totalSaida.PIS.toFixed(2)}</strong>
                 </div>
-                <div className="flex justify-between text-emerald-600">
-                  <span>Crédito (Entradas):</span>
-                  <strong>- R$ {apuracaoAtual.totalEntrada.PIS.toFixed(2)}</strong>
+                <div className="flex justify-between">
+                  <span>PIS informado nas entradas:</span>
+                  <strong>R$ {resumoAtual.totalEntrada.PIS.toFixed(2)}</strong>
                 </div>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-800">A Recolher:</span>
-                <span className="text-sm font-black text-purple-700 font-mono">
-                  R$ {apuracaoAtual.PIS_A_PAGAR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
               </div>
             </div>
 
@@ -799,37 +1367,29 @@ export function ModuloFiscalScreen({
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">COFINS (Federal)</span>
-                <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-bold">
-                  {FISCOIA_FISCAL.REGIMES[regimeFiltro].COFINS}%
-                </span>
+                <span className="text-[10px] font-mono bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-bold">Campos informados</span>
               </div>
               <div className="text-xs space-y-1 text-slate-600 font-mono">
                 <div className="flex justify-between">
-                  <span>Débito (Saídas):</span>
-                  <strong>R$ {apuracaoAtual.totalSaida.COFINS.toFixed(2)}</strong>
+                  <span>COFINS informado nas saídas:</span>
+                  <strong>R$ {resumoAtual.totalSaida.COFINS.toFixed(2)}</strong>
                 </div>
-                <div className="flex justify-between text-emerald-600">
-                  <span>Crédito (Entradas):</span>
-                  <strong>- R$ {apuracaoAtual.totalEntrada.COFINS.toFixed(2)}</strong>
+                <div className="flex justify-between">
+                  <span>COFINS informado nas entradas:</span>
+                  <strong>R$ {resumoAtual.totalEntrada.COFINS.toFixed(2)}</strong>
                 </div>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                <span className="text-xs font-bold text-slate-800">A Recolher:</span>
-                <span className="text-sm font-black text-purple-700 font-mono">
-                  R$ {apuracaoAtual.COFINS_A_PAGAR.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
               </div>
             </div>
           </div>
 
-          {/* TOTAL GERAL DO PERÍODO */}
+              {/* Contagem local de documentos considerados */}
           <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
             <div>
               <div className="text-xs text-blue-200 font-bold uppercase tracking-wider">
-                Total de Guias a Emitir no Mês ({apuracaoAtual.periodo})
+              Documentos considerados em {resumoAtual.periodo}
               </div>
               <div className="text-xl font-black font-mono mt-0.5">
-                R$ {(apuracaoAtual.ICMS_A_PAGAR + apuracaoAtual.PIS_A_PAGAR + apuracaoAtual.COFINS_A_PAGAR + apuracaoAtual.DAS_A_PAGAR).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                {saidasPeriodo.length} saída(s) · {entradasPeriodo.length} entrada(s)
               </div>
             </div>
 
@@ -837,13 +1397,13 @@ export function ModuloFiscalScreen({
               type="button"
               onClick={() => {
                 setAlerta({
-                  tipo: 'sucesso',
-                  texto: '📄 Guias DARF (PIS/COFINS) e DAE (ICMS) geradas com código de barras Pix!'
+                  tipo: 'info',
+              texto: 'Esta tela apenas resume campos dos XMLs locais. A emissão e a apuração oficial não estão conectadas; nenhuma guia foi calculada ou transmitida.'
                 });
               }}
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-sm"
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 shadow-sm"
             >
-              📄 Gerar Guias DARF & DAE (com Pix)
+              Aviso: emissão oficial não conectada
             </button>
           </div>
         </div>
@@ -861,7 +1421,7 @@ export function ModuloFiscalScreen({
                 </span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Simule ICMS por estado, PIS/COFINS por regime, faixas do Simples e o novo IBS/CBS 2026.
+                Calculadora aritmética com valores e alíquotas informados manualmente. Não há tabela legal automática validada.
               </p>
             </div>
 
@@ -874,48 +1434,22 @@ export function ModuloFiscalScreen({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Bloco 1: ICMS Rápido */}
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
-              <h3 className="font-bold text-slate-800">Simulação Rápida ICMS ({ufFiltro})</h3>
-              <p className="text-slate-500 text-[11px]">
-                Alíquota interna de Goiás/Brasil: <strong>{FISCOIA_FISCAL.ALIQ_ICMS[ufFiltro]}%</strong>.
-              </p>
-              <div className="pt-2 font-mono space-y-1">
-                <div className="flex justify-between">
-                  <span>Exemplo Venda R$ 10.000:</span>
-                  <strong>R$ {(10000 * FISCOIA_FISCAL.ALIQ_ICMS[ufFiltro] / 100).toFixed(2)}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Bloco 2: IBS/CBS 2026 */}
-            <div className="p-4 bg-gradient-to-br from-sky-50 to-purple-50 border border-indigo-200 rounded-xl space-y-2 text-xs">
-              <h3 className="font-bold text-indigo-950">Novo Modelo Reforma 2026</h3>
-              <p className="text-slate-600 text-[11px]">
-                IBS 12% + CBS 9% = <strong>21% Carga Total IVA Dual</strong>.
-              </p>
-              <div className="pt-2 font-mono space-y-1 text-indigo-900">
-                <div className="flex justify-between">
-                  <span>Exemplo Operação R$ 10.000:</span>
-                  <strong>R$ 2.100,00</strong>
-                </div>
-              </div>
-            </div>
+          <div role="note" className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-950">
+            Percentuais de ICMS, PIS/COFINS, Simples e IBS/CBS não são inferidos pelo Murade. Use a janela de cálculo e informe as alíquotas confirmadas para a operação. Resultado é apenas multiplicação aritmética; não constitui apuração fiscal nem valor a recolher.
           </div>
         </div>
       )}
 
       {/* MODAL PARA REGISTRO DE BAIXA */}
-      {notaSelecionadaParaBaixa && (
+      {notaSelecionadaParaBaixa && empresaIdNotaBaixa === empresaAtiva?.id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-2xl border border-slate-200 space-y-4 text-xs">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h3 className="font-bold text-slate-900 text-sm">
-                Confirmar Baixa de Nota #{notaSelecionadaParaBaixa.numero}
+                Registrar pagamento informado — Nota #{notaSelecionadaParaBaixa.numero}
               </h3>
               <button 
-                onClick={() => setNotaSelecionadaParaBaixa(null)}
+                onClick={fecharModalBaixa}
                 className="text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 ✕
@@ -923,14 +1457,22 @@ export function ModuloFiscalScreen({
             </div>
 
             <div className="space-y-3 text-slate-700">
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-950">
+                Este registro apenas atualiza o livro local desta empresa. Não consulta banco, não confirma quitação e não altera o status na SEFAZ.
+              </p>
               <div>
                 <span className="text-[11px] text-slate-400 block">Parceiro</span>
                 <strong className="text-slate-900">{notaSelecionadaParaBaixa.clienteOuFornecedor}</strong>
               </div>
+              <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 border border-slate-200 p-2 text-[11px]">
+                <div><span className="block text-slate-500">Total da nota</span><strong>R$ {notaSelecionadaParaBaixa.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+                <div><span className="block text-slate-500">Parcelas informadas</span><strong>R$ {valorJaInformado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+                <div><span className="block text-slate-500">Saldo restante</span><strong>R$ {saldoInformadoRestante.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-bold block mb-1">Valor Pago (R$)</label>
+                  <label className="font-bold block mb-1">Valor desta parcela (R$)</label>
                   <input
                     type="text"
                     value={valorPagoInput}
@@ -954,7 +1496,7 @@ export function ModuloFiscalScreen({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => setNotaSelecionadaParaBaixa(null)}
+                onClick={fecharModalBaixa}
                 className="px-3.5 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold cursor-pointer"
               >
                 Cancelar
@@ -964,7 +1506,7 @@ export function ModuloFiscalScreen({
                 onClick={handleConfirmarBaixa}
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
               >
-                ✅ Confirmar Baixa
+                Salvar informação de pagamento
               </button>
             </div>
           </div>

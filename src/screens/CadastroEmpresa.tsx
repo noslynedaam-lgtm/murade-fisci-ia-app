@@ -1,13 +1,15 @@
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect, useRef, FormEvent } from 'react';
 import BotaoVoltar from '../components/BotaoVoltar';
 import { salvarEmpresa } from '../services/empresas/empresas.service';
 import { buscarCep } from '../services/viaCep';
 import { buscarDadosCNPJ, formatarCnpjString } from '../services/cnpj/receitaFederal.service';
+import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
+import { criarEscritorioCentral, listarEmpresasCentrais, listarEscritoriosCentrais, salvarEmpresaCentral, lerEscritorioAtivo, salvarEscritorioAtivo, EscritorioCentral } from '../services/empresas/empresasCentral.service';
 import { EmpresaDados } from '../types';
 import { 
   Building2, FileText, Phone, MapPin, User, CheckCircle2, 
   AlertTriangle, Loader2, Sparkles, Search, Check, ShieldCheck,
-  KeyRound, FileKey, Eye, EyeOff, UploadCloud, HardDrive, Lock, Shield,
+  KeyRound, FileKey, UploadCloud, HardDrive, Lock, Shield,
   ChevronDown, ChevronUp, Award, RefreshCw
 } from 'lucide-react';
 
@@ -69,22 +71,63 @@ export default function CadastroEmpresaScreen({
   const [temCertificado, setTemCertificado] = useState<boolean>(!!certInicial || !!focoCertificado);
   const [certTipo, setCertTipo] = useState<'A1' | 'A3'>(certInicial?.tipo || 'A1');
   const [certNomeArquivo, setCertNomeArquivo] = useState<string>(certInicial?.nomeArquivo || '');
-  const [certSenha, setCertSenha] = useState<string>(certInicial?.senha || '');
-  const [certMostrarSenha, setCertMostrarSenha] = useState<boolean>(false);
   const [certValidade, setCertValidade] = useState<string>(certInicial?.validade || '');
   const [certEmissor, setCertEmissor] = useState<string>(certInicial?.emissor || '');
-  const [certTestando, setCertTestando] = useState<boolean>(false);
-  const [certStatusTeste, setCertStatusTeste] = useState<'nenhum' | 'conectado' | 'erro'>('nenhum');
-  const [certMsgTeste, setCertMsgTeste] = useState<string>('');
+
+  const [escritoriosCentrais, setEscritoriosCentrais] = useState<EscritorioCentral[]>([]);
+  const [escritorioAtivoId, setEscritorioAtivoId] = useState(lerEscritorioAtivo());
+  const [carregandoEscritorios, setCarregandoEscritorios] = useState(true);
+  const [erroEscritorios, setErroEscritorios] = useState<string | null>(null);
+  const [mostrarNovoEscritorio, setMostrarNovoEscritorio] = useState(false);
+  const [novoEscritorioNome, setNovoEscritorioNome] = useState('');
+  const [criandoEscritorio, setCriandoEscritorio] = useState(false);
 
   const [carregando, setCarregando] = useState(false);
   const [consultandoCNPJ, setConsultandoCNPJ] = useState(false);
-  const [cnpjConsultado, setCnpjConsultado] = useState(isEdicao);
-  const [situacaoCadastral, setSituacaoCadastral] = useState<string | null>(isEdicao ? 'ATIVA' : null);
+  const [cnpjConsultado, setCnpjConsultado] = useState(false);
+  const [situacaoCadastral, setSituacaoCadastral] = useState<string | null>(null);
 
   const [mostrarOpcionais, setMostrarOpcionais] = useState(isEdicao);
   const [buscandoCep, setBuscandoCep] = useState(false);
+  const [erroCep, setErroCep] = useState<string | null>(null);
+  const consultaCepId = useRef(0);
+  const consultaCnpjId = useRef(0);
   const [alertaInfo, setAlertaInfo] = useState<{ tipo: 'sucesso' | 'aviso' | 'erro'; titulo: string; mensagem: string } | null>(null);
+
+  useEffect(() => {
+    let ativo = true;
+    void listarEscritoriosCentrais().then((lista) => {
+      if (!ativo) return;
+      setEscritoriosCentrais(lista);
+      const salvo = lerEscritorioAtivo();
+      const selecionado = lista.some(item => item.id === salvo) ? salvo : lista.length === 1 ? lista[0].id : '';
+      setEscritorioAtivoId(selecionado);
+      if (selecionado) salvarEscritorioAtivo(selecionado);
+      setErroEscritorios(lista.length ? null : 'Sua conta não está vinculada a um escritório no servidor.');
+    }).catch((error: unknown) => {
+      if (ativo) setErroEscritorios(error instanceof Error ? error.message : 'Não foi possível carregar os escritórios da conta.');
+    }).finally(() => {
+      if (ativo) setCarregandoEscritorios(false);
+    });
+    return () => { ativo = false; };
+  }, []);
+
+  const handleCriarEscritorio = async () => {
+    setCriandoEscritorio(true);
+    setErroEscritorios(null);
+    try {
+      const tenant = await criarEscritorioCentral(novoEscritorioNome.trim());
+      setEscritoriosCentrais(current => [...current, tenant]);
+      setEscritorioAtivoId(tenant.id);
+      salvarEscritorioAtivo(tenant.id);
+      setNovoEscritorioNome('');
+      setMostrarNovoEscritorio(false);
+    } catch (error) {
+      setErroEscritorios(error instanceof Error ? error.message : 'Não foi possível criar o escritório.');
+    } finally {
+      setCriandoEscritorio(false);
+    }
+  };
 
   // Carrega dados da contadora ativa / padrão
   const carregarDadosContadoraMinhaConta = () => {
@@ -133,6 +176,8 @@ export default function CadastroEmpresaScreen({
   }, [focoCertificado]);
 
   const handleLimparTudo = () => {
+    consultaCnpjId.current += 1;
+    setConsultandoCNPJ(false);
     setEmpresa({
       razaoSocial: '',
       nomeFantasia: '',
@@ -158,7 +203,6 @@ export default function CadastroEmpresaScreen({
       emailContador: ''
     });
     setCertNomeArquivo('');
-    setCertSenha('');
     setCnpjConsultado(false);
     setSituacaoCadastral(null);
     setAlertaInfo({
@@ -213,100 +257,107 @@ export default function CadastroEmpresaScreen({
 
   // 🔍 BUSCA NA RECEITA FEDERAL
   const consultarCNPJ = async () => {
-    const cnpjNumeros = empresa.cnpj.replace(/\D/g, '');
-    if (cnpjNumeros.length < 14) {
+    const consultaAtual = ++consultaCnpjId.current;
+    const cnpjNormalizado = normalizarCnpj(empresa.cnpj);
+    if (!validarCnpj(cnpjNormalizado)) {
+      setConsultandoCNPJ(false);
       setAlertaInfo({
         tipo: 'aviso',
         titulo: '⚠️ Atenção: CNPJ Incompleto',
-        mensagem: 'Digite os 14 dígitos numéricos do CNPJ para efetuar a consulta oficial!'
+        mensagem: 'Informe um CNPJ válido com 14 caracteres e dígitos verificadores corretos.'
       });
       return;
     }
 
     setConsultandoCNPJ(true);
     setAlertaInfo(null);
+    try {
+      const resultado = await buscarDadosCNPJ(cnpjNormalizado);
+      if (consultaAtual !== consultaCnpjId.current || normalizarCnpj(empresa.cnpj) !== cnpjNormalizado) return;
 
-    const resultado = await buscarDadosCNPJ(empresa.cnpj);
-    setConsultandoCNPJ(false);
+      if (resultado.sucesso && resultado.dados) {
+        const dados = resultado.dados;
+        setEmpresa(prev => {
+          if (normalizarCnpj(prev.cnpj) !== cnpjNormalizado) return prev;
+          return {
+            ...prev,
+            cnpj: dados.cnpjFormatado || prev.cnpj,
+            razaoSocial: dados.razaoSocial || prev.razaoSocial,
+            nomeFantasia: dados.nomeFantasia || prev.nomeFantasia,
+            endereco: dados.endereco || prev.endereco,
+            numero: dados.numero || prev.numero,
+            bairro: dados.bairro || prev.bairro,
+            cidade: dados.cidade || prev.cidade,
+            uf: dados.uf || prev.uf,
+            cep: dados.cep || prev.cep,
+            telefone: dados.telefone || prev.telefone,
+            email: dados.email || prev.email,
+            cnaePrincipal: dados.cnaePrincipal || prev.cnaePrincipal
+          };
+        });
 
-    if (resultado.sucesso && resultado.dados) {
-      const dados = resultado.dados;
-      setEmpresa(prev => ({
-        ...prev,
-        cnpj: dados.cnpjFormatado || prev.cnpj,
-        razaoSocial: dados.razaoSocial || prev.razaoSocial,
-        nomeFantasia: dados.nomeFantasia || prev.nomeFantasia,
-        endereco: dados.endereco || prev.endereco,
-        numero: dados.numero || prev.numero,
-        bairro: dados.bairro || prev.bairro,
-        cidade: dados.cidade || prev.cidade,
-        uf: dados.uf || prev.uf,
-        cep: dados.cep || prev.cep,
-        telefone: dados.telefone || prev.telefone,
-        email: dados.email || prev.email,
-        cnaePrincipal: dados.cnaePrincipal || prev.cnaePrincipal
-      }));
-
-      setCnpjConsultado(true);
-      setSituacaoCadastral(dados.situacaoCadastral || 'ATIVA');
-
-      setAlertaInfo({
-        tipo: 'sucesso',
-        titulo: '✅ CNPJ Encontrado!',
-        mensagem: `Dados carregados da Receita Federal! Situação: ${dados.situacaoCadastral || 'Ativa'}. Todos os campos estão disponíveis para conferência ou edição.`
-      });
-    } else {
-      setCnpjConsultado(false);
-      setAlertaInfo({
-        tipo: 'aviso',
-        titulo: '⚠️ Consulta Não Concluída',
-        mensagem: `${resultado.mensagem || 'Não foi possível consultar os dados automaticamente.'} Você pode preencher todos os dados da empresa manualmente.`
-      });
+        setCnpjConsultado(true);
+        setSituacaoCadastral(dados.situacaoCadastral || 'NÃO INFORMADA');
+        setAlertaInfo({
+          tipo: 'sucesso',
+          titulo: '✅ CNPJ Encontrado!',
+          mensagem: `Dados recebidos do provedor terceiro ${resultado.fonte || 'de consulta cadastral'}. Situação informada pela fonte: ${dados.situacaoCadastral || 'não informada'}. Isso não é consulta autenticada da Receita Federal, não é consulta fiscal e não comprova regularidade; confira os campos antes de salvar.`
+        });
+      } else {
+        setCnpjConsultado(false);
+        setAlertaInfo({
+          tipo: 'aviso',
+          titulo: '⚠️ Consulta Não Concluída',
+          mensagem: `${resultado.mensagem || 'Não foi possível consultar os dados automaticamente.'} Você pode preencher todos os dados da empresa manualmente.`
+        });
+      }
+    } catch {
+      if (consultaAtual === consultaCnpjId.current) {
+        setCnpjConsultado(false);
+        setAlertaInfo({ tipo: 'aviso', titulo: 'Consulta não concluída', mensagem: 'Os provedores cadastrais não responderam. Preencha os dados manualmente.' });
+      }
+    } finally {
+      if (consultaAtual === consultaCnpjId.current) setConsultandoCNPJ(false);
     }
   };
 
   // Consulta automática de CEP (ViaCEP)
   const handleConsultarCep = async (cepInformado: string) => {
     const limpo = cepInformado.replace(/\D/g, '');
-    if (limpo.length === 8) {
-      setBuscandoCep(true);
-      try {
-        const resultado = await buscarCep(limpo);
-        if (resultado && !resultado.erro && resultado.dados) {
-          const dados = resultado.dados;
-          setEmpresa(prev => ({
-            ...prev,
-            endereco: dados.logradouro || prev.endereco,
-            bairro: dados.bairro || prev.bairro,
-            cidade: dados.localidade || prev.cidade,
-            uf: (dados.uf || prev.uf).toUpperCase()
-          }));
-        }
-      } catch (e) {
-        console.warn('Erro ao consultar CEP:', e);
-      } finally {
-        setBuscandoCep(false);
+    if (limpo.length !== 8) {
+      consultaCepId.current += 1;
+      setBuscandoCep(false);
+      setErroCep(null);
+      return;
+    }
+    const consultaAtual = ++consultaCepId.current;
+    setBuscandoCep(true);
+    setErroCep(null);
+    try {
+      const resultado = await buscarCep(limpo);
+      if (consultaAtual !== consultaCepId.current) return;
+      if (resultado.erro || !resultado.dados) {
+        setErroCep(resultado.mensagem || 'Não foi possível localizar o CEP. Preencha o endereço manualmente.');
+        return;
       }
+      const dados = resultado.dados;
+      setEmpresa(prev => ({
+        ...prev,
+        endereco: dados.logradouro || prev.endereco,
+        bairro: dados.bairro || prev.bairro,
+        cidade: dados.localidade || prev.cidade,
+        uf: (dados.uf || prev.uf).toUpperCase()
+      }));
+    } catch (e) {
+      if (consultaAtual === consultaCepId.current) {
+        setErroCep(e instanceof Error ? e.message : 'Falha na consulta ao ViaCEP. Preencha o endereço manualmente.');
+      }
+    } finally {
+      if (consultaAtual === consultaCepId.current) setBuscandoCep(false);
     }
   };
 
   // 💾 SALVAR EMPRESA
-  const testarConexaoCertificado = () => {
-    if (certTipo === 'A1' && !certSenha.trim()) {
-      setCertStatusTeste('erro');
-      setCertMsgTeste('Por favor, informe a senha do certificado digital A1 para testar o handshake com a RFB.');
-      return;
-    }
-    setCertTestando(true);
-    setCertStatusTeste('nenhum');
-    setCertMsgTeste('');
-    setTimeout(() => {
-      setCertTestando(false);
-      setCertStatusTeste('conectado');
-      setCertMsgTeste('Autenticado com sucesso via mTLS ICP-Brasil! Conexão oficial SERPRO / Receita Federal validada.');
-    }, 1200);
-  };
-
   const handleSalvarEmpresa = async (e?: FormEvent) => {
     if (e) e.preventDefault();
     setAlertaInfo(null);
@@ -322,89 +373,102 @@ export default function CadastroEmpresaScreen({
       return;
     }
 
-    const cnpjLimpo = empresa.cnpj.replace(/\D/g, '');
-    if (cnpjLimpo.length !== 14) {
+    const cnpjLimpo = normalizarCnpj(empresa.cnpj);
+    if (!validarCnpj(cnpjLimpo)) {
       setAlertaInfo({
         tipo: 'erro',
         titulo: '⚠️ CNPJ Inválido',
-        mensagem: 'O CNPJ deve conter exatamente 14 dígitos numéricos!'
+        mensagem: 'O CNPJ deve conter 14 caracteres e dígitos verificadores válidos.'
       });
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (!escritorioAtivoId || !escritoriosCentrais.some(item => item.id === escritorioAtivoId)) {
+      setAlertaInfo({
+        tipo: 'erro',
+        titulo: 'Selecione o escritório',
+        mensagem: erroEscritorios || 'Escolha o escritório responsável antes de salvar a empresa no banco central.'
+      });
       return;
     }
 
     setCarregando(true);
 
     try {
+      const empresasCentrais = await listarEmpresasCentrais(escritorioAtivoId);
+      const cnpjJaExistente = empresasCentrais.find(item => normalizarCnpj(item.cnpj) === cnpjLimpo);
+      if (cnpjJaExistente && !isEdicao) {
+        throw new Error('Este CNPJ já está cadastrado no escritório escolhido. Selecione o cadastro existente para editar.');
+      }
+      const registroCentral = await salvarEmpresaCentral(
+        { ...empresa, razaoSocial: empresa.razaoSocial.toUpperCase() },
+        escritorioAtivoId,
+        empresaParaEditar?.idCentral || cnpjJaExistente?.id,
+      );
       const dadosCertificado = temCertificado ? {
         tipo: certTipo,
-        nomeArquivo: certNomeArquivo || (certTipo === 'A1' ? 'certificado_cliente.pfx' : 'Token USB e-CNPJ A3'),
-        senha: certSenha,
+        nomeArquivo: certNomeArquivo,
         validade: certValidade,
         emissor: certEmissor,
-        ativo: true,
+        ativo: false,
+        valido: false,
         dataCadastro: new Date().toLocaleDateString('pt-BR')
       } : undefined;
 
       const empresaSalva = salvarEmpresa({
         ...empresa,
         id: empresaParaEditar?.id || empresa.id || undefined,
+        idCentral: registroCentral.id,
+        tenantIdCentral: escritorioAtivoId,
         razaoSocial: empresa.razaoSocial.toUpperCase(),
         logradouro: empresa.endereco,
-        statusCND: empresaParaEditar?.statusCND || 'REGULAR',
+        statusCND: empresaParaEditar?.statusCND || 'NAO_CONSULTADA',
         envioDadosMes: empresaParaEditar?.envioDadosMes,
         envioDCTFWeb: empresaParaEditar?.envioDCTFWeb,
-        procuracaoAtiva: true,
+        procuracaoAtiva: empresaParaEditar?.procuracaoAtiva ?? false,
         certificado: dadosCertificado
       });
 
       if (dadosCertificado) {
         try {
           localStorage.setItem('fiscoia_certificado_cliente_' + cnpjLimpo, JSON.stringify(dadosCertificado));
-          localStorage.setItem('fiscoia_certificado', JSON.stringify({
-            tipo: certTipo,
-            arquivoNome: dadosCertificado.nomeArquivo,
-            validade: certValidade,
-            cadastradoEm: dadosCertificado.dataCadastro,
-            cnpjVinculado: empresa.cnpj,
-            razaoVinculada: empresa.razaoSocial
-          }));
         } catch {
           // ignore
         }
       }
 
-      // ⚠️ Aviso automático do Certificado Digital
+      // Aviso baseado na data declarada pelo usuário, não na leitura do certificado.
       let avisoCert = '';
       if (certValidade) {
         const diasCert = calcularDiasVencimento(certValidade);
         if (diasCert !== null) {
-          if (diasCert < 0) avisoCert = '⚠️ ATENÇÃO: O Certificado Digital JÁ VENCEU!';
-          else if (diasCert <= 30) avisoCert = `⚠️ Certificado vence em ${diasCert} dias!`;
+          if (diasCert < 0) avisoCert = 'A data de validade informada está no passado; o certificado não foi verificado.';
+          else if (diasCert <= 30) avisoCert = `A data informada ocorre em ${diasCert} dias; o certificado não foi verificado.`;
         }
       }
 
-      setTimeout(() => {
-        setCarregando(false);
-        setAlertaInfo({
-          tipo: 'sucesso',
-          titulo: '✅ Empresa Cadastrada com Sucesso!',
-          mensagem: avisoCert
-            ? `${empresa.razaoSocial} foi salva no portfólio contábil. ${avisoCert}`
-            : `${empresa.razaoSocial} (CNPJ: ${empresa.cnpj}) foi salva no portfólio contábil.`
-        });
+      setCarregando(false);
+      setAlertaInfo({
+        tipo: 'sucesso',
+        titulo: '✅ Empresa salva no servidor',
+        mensagem: avisoCert
+          ? `${empresa.razaoSocial} foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''} e espelhada neste navegador. A validade do certificado é apenas a data informada pelo usuário. ${avisoCert}`
+          : `${empresa.razaoSocial} (CNPJ: ${empresa.cnpj}) foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''} e espelhada neste navegador.${dadosCertificado ? ' Os dados do certificado são apenas uma referência; arquivo, validade e acesso não foram enviados nem validados.' : ''}`
+      });
 
-        setTimeout(() => {
-          if (onEmpresaSalva) onEmpresaSalva(empresaSalva);
-          executarVoltar();
-        }, 1300);
-      }, 800);
-    } catch {
+      window.setTimeout(() => {
+        if (onEmpresaSalva) onEmpresaSalva(empresaSalva);
+        executarVoltar();
+      }, 1300);
+    } catch (error) {
       setCarregando(false);
       setAlertaInfo({
         tipo: 'erro',
         titulo: 'Erro ao Salvar',
-        mensagem: 'Ocorreu uma falha ao gravar os dados localmente. Tente novamente.'
+        mensagem: error instanceof Error
+          ? error.message
+          : 'Ocorreu uma falha ao gravar os dados localmente. Tente novamente.'
       });
     }
   };
@@ -433,7 +497,7 @@ export default function CadastroEmpresaScreen({
             <p className="text-sm text-slate-500 mt-1">
               {isEdicao 
                 ? `Altere dados de contato, endereço, contadora e certificado digital da ${empresa.razaoSocial || 'empresa'}.`
-                : 'Digite o CNPJ e os dados serão carregados automaticamente'}
+                : 'Digite o CNPJ; a consulta automática depende da disponibilidade da fonte cadastral'}
             </p>
           </div>
 
@@ -450,9 +514,9 @@ export default function CadastroEmpresaScreen({
               </button>
             )}
 
-            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
+            <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Receita Federal • 100% Gratuito</span>
+              <span>Consulta cadastral por provedores terceiros</span>
             </div>
           </div>
         </div>
@@ -501,7 +565,7 @@ export default function CadastroEmpresaScreen({
             </div>
             <p className="text-xs text-blue-200/80 mt-0.5">
               {temCertificado 
-                ? (certTipo === 'A1' ? 'Certificado A1 pronto para cadastrar (preencha arquivo e senha abaixo)' : 'Token / Cartão A3 ICP-Brasil selecionado')
+                ? (certTipo === 'A1' ? 'Referência A1 — o arquivo não é enviado nem validado' : 'Referência A3 — token não conectado nesta aplicação')
                 : 'Clique ao lado para vincular o certificado digital deste cliente'}
             </p>
           </div>
@@ -521,8 +585,8 @@ export default function CadastroEmpresaScreen({
                 : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
             }`}
           >
-            <ShieldCheck className="w-4 h-4 text-emerald-700" />
-            <span>{temCertificado ? '🔐 Certificado Ativo' : '➕ Cadastrar Certificado'}</span>
+            <AlertTriangle className="w-4 h-4 text-amber-700" />
+            <span>{temCertificado ? '🔐 Referência cadastrada' : '➕ Cadastrar referência'}</span>
           </button>
 
           <a
@@ -540,6 +604,50 @@ export default function CadastroEmpresaScreen({
       </div>
 
       <form onSubmit={handleSalvarEmpresa} className="space-y-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <label htmlFor="escritorio-central" className="mb-2 block text-sm font-bold text-slate-800">Escritório responsável — banco permanente</label>
+          <select
+            id="escritorio-central"
+            value={escritorioAtivoId}
+            disabled={carregandoEscritorios || Boolean(erroEscritorios)}
+            onChange={(event) => {
+              setEscritorioAtivoId(event.target.value);
+              if (event.target.value) salvarEscritorioAtivo(event.target.value);
+            }}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800 disabled:bg-slate-100"
+          >
+            <option value="">{carregandoEscritorios ? 'Carregando escritórios...' : 'Selecione um escritório'}</option>
+            {escritoriosCentrais.map(item => <option key={item.id} value={item.id}>{item.nome} · {item.papel}</option>)}
+          </select>
+          {erroEscritorios && <p className="mt-2 text-sm text-amber-800">{erroEscritorios}</p>}
+          <p className="mt-2 text-xs text-slate-500">O cadastro só é confirmado após gravação no servidor. Arquivos e senhas de certificado não são enviados por este formulário.</p>
+          <div className="mt-3">
+            {!mostrarNovoEscritorio ? (
+              <button type="button" onClick={() => setMostrarNovoEscritorio(true)} className="text-sm font-semibold text-blue-800 hover:text-blue-950">
+                + Criar outro escritório
+              </button>
+            ) : (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={novoEscritorioNome}
+                  onChange={event => setNovoEscritorioNome(event.target.value)}
+                  maxLength={160}
+                  placeholder="Nome do escritório"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={criandoEscritorio || novoEscritorioNome.trim().length < 2}
+                  onClick={() => void handleCriarEscritorio()}
+                  className="rounded-xl bg-blue-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {criandoEscritorio ? 'Criando...' : 'Criar e selecionar'}
+                </button>
+                <button type="button" onClick={() => setMostrarNovoEscritorio(false)} className="rounded-xl border px-4 py-2 text-sm">Cancelar</button>
+              </div>
+            )}
+          </div>
+        </section>
         {/* 📌 CNPJ + BUSCA — DESTAQUE */}
         <div className="bg-[#e8eaf6] rounded-2xl p-5 sm:p-6 border-2 border-[#1a237e] shadow-sm space-y-3">
           <div className="flex items-center justify-between">
@@ -547,9 +655,9 @@ export default function CadastroEmpresaScreen({
               CNPJ * — Preencha e clique em BUSCAR
             </label>
             {situacaoCadastral && (
-              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1 border border-emerald-300">
-                <Check className="w-3.5 h-3.5" />
-                <span>Situação: {situacaoCadastral}</span>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 flex items-center gap-1 border border-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Situação informada pela fonte: {situacaoCadastral} · não validada</span>
               </span>
             )}
           </div>
@@ -564,8 +672,11 @@ export default function CadastroEmpresaScreen({
                 maxLength={18}
                 value={empresa.cnpj}
                 onChange={(e) => {
+                  consultaCnpjId.current += 1;
+                  setConsultandoCNPJ(false);
                   setEmpresa({ ...empresa, cnpj: formatarCnpjString(e.target.value) });
                   setCnpjConsultado(false);
+                  setSituacaoCadastral(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -587,7 +698,7 @@ export default function CadastroEmpresaScreen({
               {consultandoCNPJ ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Consultando Receita...</span>
+                  <span>Consultando base pública...</span>
                 </>
               ) : (
                 <>
@@ -599,13 +710,13 @@ export default function CadastroEmpresaScreen({
           </div>
 
           {cnpjConsultado ? (
-            <p className="text-xs sm:text-sm text-emerald-700 font-bold flex items-center gap-1.5 pt-1 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>✅ Dados carregados da Receita Federal — pode conferir e alterar</span>
+            <p className="text-xs sm:text-sm text-amber-900 font-bold flex items-center gap-1.5 pt-1 animate-in fade-in">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>Dados recebidos de provedor terceiro — confira antes de salvar; não são uma consulta oficial ou fiscal</span>
             </p>
           ) : (
             <p className="text-xs text-slate-600">
-              💡 Busca automática em API pública gratuita da Receita Federal. Se preferir ou estiver sem internet, digite todos os campos abaixo manualmente.
+              💡 A busca usa APIs públicas de terceiros e pode estar desatualizada. Ela não confirma situação fiscal; se falhar, preencha os campos manualmente.
             </p>
           )}
         </div>
@@ -776,10 +887,10 @@ export default function CadastroEmpresaScreen({
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col justify-between">
               <div>
                 <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1">
-                  3️⃣ 🔐 Vencimento do Certificado
+                  3️⃣ 🔐 Data de validade informada
                 </label>
                 <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
-                  Avisa quando tá vencendo (e-CAC, Receita, declarações).
+                  Data declarada manualmente; não é lida do arquivo nem consultada na Receita.
                 </p>
                 <input
                   type="date"
@@ -801,12 +912,12 @@ export default function CadastroEmpresaScreen({
                   const dias = calcularDiasVencimento(certValidade);
                   if (dias === null) return null;
                   if (dias < 0) {
-                    return <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">❌ JÁ VENCEU</span>;
+                    return <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">Data informada está no passado · não verificado</span>;
                   }
                   if (dias <= 30) {
-                    return <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">⚠️ Vence em {dias} dias</span>;
+                    return <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Data informada ocorre em {dias} dias · não verificado</span>;
                   }
-                  return <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">✅ Válido ({dias} dias)</span>;
+                  return <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Data informada: {dias} dias até o vencimento (não validado)</span>;
                 })()}
               </div>
             </div>
@@ -1070,6 +1181,8 @@ export default function CadastroEmpresaScreen({
                           </span>
                         )}
                       </div>
+                      {erroCep && <p role="status" className="mt-1 text-xs text-rose-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 shrink-0" />{erroCep}</p>}
+                      <p className="mt-1 text-[10px] text-slate-500">Consulta ao ViaCEP. Confira o endereço retornado antes de salvar.</p>
                     </div>
                   </div>
                 </div>
@@ -1137,7 +1250,7 @@ export default function CadastroEmpresaScreen({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Preencha o certificado digital para consultas diretas no SERPRO, DCTFWeb, e-CAC e Procuração RFB (sem emissão de notas).
+                  Registre os dados de referência do certificado. Consultas ao SERPRO, DCTFWeb, e-CAC e procurações ainda não estão conectadas.
                 </p>
               </div>
             </div>
@@ -1177,7 +1290,7 @@ export default function CadastroEmpresaScreen({
                         {certTipo === 'A1' && <Check className="w-4 h-4 text-blue-700" />}
                       </div>
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        Instalado via arquivo digital. Ideal para automatização e consultas em lote da DCTFWeb e guias.
+                        Referência de arquivo A1. Esta tela não instala, lê ou envia o certificado; automatização e consultas oficiais não estão conectadas.
                       </p>
                     </div>
                   </button>
@@ -1198,7 +1311,7 @@ export default function CadastroEmpresaScreen({
                         {certTipo === 'A3' && <Check className="w-4 h-4 text-indigo-700" />}
                       </div>
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        Dispositivo físico conectado via porta USB do computador com PIN de segurança.
+                        O token não é acessado por esta aplicação. Não informe o PIN.
                       </p>
                     </div>
                   </button>
@@ -1209,7 +1322,7 @@ export default function CadastroEmpresaScreen({
               {certTipo === 'A1' ? (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Arquivo do Certificado Digital (.pfx ou .p12)
+                    Nome do arquivo do certificado (.pfx ou .p12) — não será enviado
                   </label>
                   <div className="relative border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 rounded-2xl p-5 text-center transition-colors">
                     <input
@@ -1227,11 +1340,11 @@ export default function CadastroEmpresaScreen({
                     {certNomeArquivo ? (
                       <div>
                         <span className="text-sm font-bold text-indigo-900 flex items-center justify-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <FileText className="w-4 h-4 text-indigo-600" />
                           {certNomeArquivo}
                         </span>
                         <p className="text-xs text-slate-500 mt-1">
-                          Clique ou arraste outro arquivo para substituir
+                          Somente o nome foi selecionado; o conteúdo não foi carregado.
                         </p>
                       </div>
                     ) : (
@@ -1240,7 +1353,7 @@ export default function CadastroEmpresaScreen({
                           Clique aqui para selecionar o arquivo .PFX ou .P12
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Formatos suportados: Arquivo PKCS#12 (.pfx / .p12) padrão ICP-Brasil
+                          Selecione para registrar o nome. O arquivo não é lido nem transmitido.
                         </p>
                       </div>
                     )}
@@ -1250,41 +1363,16 @@ export default function CadastroEmpresaScreen({
                 <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl text-xs text-indigo-900 space-y-1">
                   <p className="font-bold flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-indigo-700" />
-                    Autenticação com Token USB / Smartcard A3
+                    Referência do Token USB / Smartcard A3
                   </p>
                   <p className="text-slate-600">
-                    Certifique-se de que o Token USB ou leitora de cartão esteja plugada no computador. O PIN informado abaixo será utilizado para o handshake de conexão criptográfica com a Receita Federal.
+                    O sistema ainda não acessa o token nem se conecta à Receita Federal. Não informe o PIN nesta tela.
                   </p>
                 </div>
               )}
 
-              {/* Senha e Validade */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    {certTipo === 'A1' ? 'Senha do Certificado *' : 'PIN / Senha do Token A3 *'}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={certMostrarSenha ? 'text' : 'password'}
-                      value={certSenha}
-                      onChange={(e) => setCertSenha(e.target.value)}
-                      placeholder="Digite a senha..."
-                      className="w-full px-4 py-2.5 pr-10 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1a237e]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setCertMostrarSenha(!certMostrarSenha)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      {certMostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Criptografia local AES-256 no navegador.
-                  </p>
-                </div>
-
+              {/* Datas e emissor informados pelo usuário */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     Data de Validade
@@ -1296,7 +1384,7 @@ export default function CadastroEmpresaScreen({
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1a237e]"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Alerta de vencimento automático.
+                    Data declarada pelo usuário; não validada pelo sistema.
                   </p>
                 </div>
 
@@ -1312,55 +1400,18 @@ export default function CadastroEmpresaScreen({
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1a237e]"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Cadeia raiz credenciada ICP-Brasil.
+                    Informação declarada pelo usuário; não validada pelo sistema.
                   </p>
                 </div>
               </div>
 
-              {/* Botão de Teste de Conexão com a Receita Federal / SERPRO */}
-              <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div role="note" className="pt-2 flex items-start gap-3 bg-amber-50 p-4 rounded-2xl border border-amber-200 text-amber-950">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-xs font-bold text-slate-700 block">
-                    Conexão Oficial com a Receita Federal / SERPRO
-                  </span>
-                  <span className="text-[11px] text-slate-500">
-                    Valide se o certificado e a senha estão respondendo corretamente à autenticação mTLS.
-                  </span>
+                  <span className="text-xs font-bold block">Certificado e consulta oficial não validados</span>
+                  <span className="text-[11px]">Este ambiente não envia o certificado nem testa acesso à Receita/SERPRO. A validade informada é apenas uma referência local.</span>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={testarConexaoCertificado}
-                  disabled={certTestando}
-                  className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
-                >
-                  {certTestando ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Validando Conexão...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>⚡ Testar Conexão Oficial</span>
-                    </>
-                  )}
-                </button>
               </div>
-
-              {certStatusTeste === 'conectado' && (
-                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 font-medium flex items-center gap-2 animate-in fade-in">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>{certMsgTeste}</span>
-                </div>
-              )}
-
-              {certStatusTeste === 'erro' && (
-                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-900 font-medium flex items-center gap-2 animate-in fade-in">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span>{certMsgTeste}</span>
-                </div>
-              )}
             </div>
           ) : (
             <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-xs text-slate-500 text-center">
@@ -1372,7 +1423,7 @@ export default function CadastroEmpresaScreen({
           <div className="pt-2 border-t border-slate-100 flex items-center gap-2 text-[11px] text-slate-500">
             <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             <span>
-              <strong>Foco em Compliance & Conexão:</strong> Os certificados são utilizados estritamente para consulta e importação de guias federais (DCTFWeb, DARF, INSS e e-CAC). O FISCOIA não realiza emissão de notas fiscais.
+              <strong>Referência local:</strong> o arquivo e a senha não são enviados nem armazenados aqui. O nome, emissor e vencimento não provam validade; integração oficial ainda não configurada.
             </span>
           </div>
         </div>

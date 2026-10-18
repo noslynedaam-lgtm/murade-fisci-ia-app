@@ -3,10 +3,10 @@ import {
   X, Settings, Key, ShieldCheck, Building2, Calendar, 
   Bell, Users, Database, RefreshCw, HelpCircle, 
   ExternalLink, CheckCircle2, Download, AlertTriangle, Save,
-  Lock, Eye, EyeOff
 } from 'lucide-react';
 import { UsuarioAuth } from '../types';
-import { obterEmpresas } from '../services/empresas/empresas.service';
+
+const CONFIG_LOCAL_KEY = 'murade_configuracoes_locais_v1';
 
 interface ModalConfiguracoesSistemaProps {
   aberto: boolean;
@@ -24,17 +24,14 @@ export default function ModalConfiguracoesSistema({
   onNavegar
 }: ModalConfiguracoesSistemaProps) {
   const [opcaoAtiva, setOpcaoAtiva] = useState<string>(abaInicial);
-  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mensagemStatus, setMensagemStatus] = useState<string | null>(null);
 
   // Estados dos formulários de configuração
   const [certTipo, setCertTipo] = useState<'A1' | 'A3'>('A1');
-  const [certArquivoNome, setCertArquivoNome] = useState<string>('certificado_empresa_2026.pfx');
-  const [certSenha, setCertSenha] = useState<string>('••••••••');
-  const [certValidade, setCertValidade] = useState<string>('24/10/2026');
+  const [certArquivoNome, setCertArquivoNome] = useState<string>('');
+  const [certValidade, setCertValidade] = useState<string>('');
 
   const [serproCnpj, setSerproCnpj] = useState<string>('');
-  const [serproChave, setSerproChave] = useState<string>('');
   const [serproAmbiente, setSerproAmbiente] = useState<'producao' | 'homologacao'>('producao');
 
   const [empRazao, setEmpRazao] = useState<string>('');
@@ -60,25 +57,66 @@ export default function ModalConfiguracoesSistema({
     }
   }, [abaInicial]);
 
+  useEffect(() => {
+    try {
+      const salvo = localStorage.getItem(CONFIG_LOCAL_KEY);
+      if (!salvo) return;
+      const config: unknown = JSON.parse(salvo);
+      if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Formato de configurações inválido.');
+      const dados = config as Record<string, unknown>;
+      if (dados.certTipo === 'A1' || dados.certTipo === 'A3') setCertTipo(dados.certTipo);
+      if (typeof dados.certArquivoNome === 'string') setCertArquivoNome(dados.certArquivoNome);
+      if (typeof dados.certValidade === 'string') setCertValidade(dados.certValidade);
+      if (typeof dados.serproCnpj === 'string') setSerproCnpj(dados.serproCnpj);
+      if (dados.serproAmbiente === 'producao' || dados.serproAmbiente === 'homologacao') setSerproAmbiente(dados.serproAmbiente);
+      if (typeof dados.empRazao === 'string') setEmpRazao(dados.empRazao);
+      if (typeof dados.empCnpj === 'string') setEmpCnpj(dados.empCnpj);
+      if (typeof dados.empEndereco === 'string') setEmpEndereco(dados.empEndereco);
+      if (typeof dados.empTelefone === 'string') setEmpTelefone(dados.empTelefone);
+      if (typeof dados.mesRef === 'string') setMesRef(dados.mesRef);
+      if (typeof dados.lembreteDias === 'string') setLembreteDias(dados.lembreteDias);
+      if (typeof dados.emailAlertas === 'string') setEmailAlertas(dados.emailAlertas);
+      if (typeof dados.whatsappAlertas === 'string') setWhatsappAlertas(dados.whatsappAlertas);
+      if (typeof dados.notifVencimento === 'boolean') setNotifVencimento(dados.notifVencimento);
+      if (typeof dados.notifGuias === 'boolean') setNotifGuias(dados.notifGuias);
+      if (typeof dados.perfilSelecionado === 'string') setPerfilSelecionado(dados.perfilSelecionado);
+    } catch {
+      setMensagemStatus('Não foi possível ler as configurações locais. Nenhuma conexão oficial foi verificada.');
+    }
+  }, []);
+
   if (!aberto) return null;
 
   const handleSalvar = (titulo: string) => {
-    setMensagemStatus(`✅ ${titulo} salvo com sucesso no FISCOIA!`);
+    const dados = {
+      certTipo, certArquivoNome, certValidade, serproCnpj, serproAmbiente,
+      empRazao, empCnpj, empEndereco, empTelefone, mesRef, lembreteDias,
+      emailAlertas, whatsappAlertas, notifVencimento, notifGuias, perfilSelecionado
+    };
+    try {
+      localStorage.setItem(CONFIG_LOCAL_KEY, JSON.stringify(dados));
+      setMensagemStatus(`✅ ${titulo} salvo neste navegador. Isso não ativa nem testa uma conexão oficial.`);
+    } catch {
+      setMensagemStatus(`Não foi possível salvar ${titulo} neste navegador.`);
+    }
     setTimeout(() => setMensagemStatus(null), 3500);
   };
 
   const handleBaixarBackup = () => {
+    // Exporta apenas preferências de interface não sensíveis deste navegador.
+    // Não chamar isso de backup do banco: os registros fiscais persistentes,
+    // credenciais e certificados não são lidos nem incluídos neste arquivo.
     const dadosBackup = {
       sistema: 'FISCOIA v1.0.0',
       dataExportacao: new Date().toISOString(),
-      administrador: 'MURADE',
+      tipo: 'preferencias-locais-nao-sensiveis',
       configuracoes: {
-        certificado: { tipo: certTipo, arquivo: certArquivoNome, validade: certValidade },
-        serpro: { cnpj: serproCnpj, ambiente: serproAmbiente },
-        empresaPrincipal: { razao: empRazao, cnpj: empCnpj, endereco: empEndereco },
-        alertas: { email: emailAlertas, whatsapp: whatsappAlertas, lembreteDias }
+        mesRef,
+        lembreteDias,
+        notifVencimento,
+        notifGuias,
+        serproAmbiente,
       },
-      bancoEmpresas: obterEmpresas().map(e => ({ cnpj: e.cnpj, razao: e.razaoSocial, status: 'CADASTRADO' }))
     };
 
     const blob = new Blob([JSON.stringify(dadosBackup, null, 2)], { type: 'application/json' });
@@ -91,7 +129,8 @@ export default function ModalConfiguracoesSistema({
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    handleSalvar('Backup Completo (JSON)');
+    setMensagemStatus('Preferências locais exportadas. Este arquivo não é backup do banco e não contém empresas, notas, certificados ou credenciais.');
+    setTimeout(() => setMensagemStatus(null), 3500);
   };
 
   const itensMenu = [
@@ -205,16 +244,16 @@ export default function ModalConfiguracoesSistema({
                 <div className="border-b border-slate-100 pb-3">
                   <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <Key className="w-5 h-5 text-indigo-700" />
-                    Certificado Digital — Conexão Oficial (SERPRO / e-CAC)
+                    Referência de Certificado — conexão não configurada
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Utilizado para autenticação segura com órgãos federais, consulta DCTFWeb e Procuração Eletrônica.
+                    Esta tela registra apenas nome e validade informada neste navegador. Não autentica nem consulta órgãos federais.
                   </p>
                 </div>
 
-                {/* ✅ AVISO CLARO: SÓ CONEXÃO / NÃO EMITE NOTA */}
+                {/* A referência local não autentica serviços oficiais nem emite documentos. */}
                 <div className="bg-amber-50 border-l-4 border-amber-500 p-3.5 rounded-r-xl text-xs text-amber-900 font-medium">
-                  Este certificado é usado <strong>apenas para conectar com SERPRO, e-CAC e Receita Federal</strong>. <strong>Não emite nota fiscal.</strong>
+                  O arquivo e a senha não são enviados nem validados. Para cadastrar uma referência por empresa, use a Carteira de Clientes. SERPRO, e-CAC e SEFAZ não estão conectados nesta tela.
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -250,6 +289,11 @@ export default function ModalConfiguracoesSistema({
                       id="input-cert-file-modal"
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
+                          if (!/\.p(?:fx|12)$/i.test(e.target.files[0].name)) {
+                            setMensagemStatus('Selecione um arquivo .pfx ou .p12. O arquivo não será enviado ou validado.');
+                            e.target.value = '';
+                            return;
+                          }
                           setCertArquivoNome(e.target.files[0].name);
                         }
                       }}
@@ -258,39 +302,23 @@ export default function ModalConfiguracoesSistema({
                   </div>
                   {certArquivoNome && (
                     <span className="text-[11px] text-emerald-700 font-semibold mt-1 block">
-                      ✓ Arquivo carregado: <strong>{certArquivoNome}</strong>
+                      Nome selecionado localmente: <strong>{certArquivoNome}</strong>. O conteúdo do arquivo não foi lido nem enviado.
                     </span>
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Senha de Proteção:</label>
-                  <div className="relative">
-                    <input
-                      type={mostrarSenha ? 'text' : 'password'}
-                      value={certSenha}
-                      onChange={(e) => setCertSenha(e.target.value)}
-                      placeholder="Senha do certificado"
-                      className="w-full text-xs p-2.5 pr-10 border border-slate-300 rounded-lg"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenha(!mostrarSenha)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                <div role="note" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700">
+                  Não informe a senha do certificado aqui. O servidor ainda não tem cofre seguro nem rotina de autenticação.
                 </div>
 
                 <div className="pt-3 flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => handleSalvar('Certificado Digital A1/A3')}
+                    onClick={() => handleSalvar('Referência local do certificado')}
                     className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center gap-2 shadow-xs cursor-pointer"
                   >
                     <Save className="w-4 h-4" />
-                    <span>Conectar e Salvar</span>
+                    <span>Salvar referência local</span>
                   </button>
 
                   <button
@@ -318,14 +346,14 @@ export default function ModalConfiguracoesSistema({
                     Integração SERPRO INTEGRA & Receita Federal
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Comunicação direta para consulta em lote de guias DCTFWeb, eSocial e situação cadastral.
+                    Área de configuração. A conexão autenticada com SERPRO/e-CAC ainda não está implementada neste ambiente.
                   </p>
                 </div>
 
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
-                  <div className="text-xs text-emerald-950 font-medium">
-                    Status do SERPRO: <strong>CONECTADO (Código 200 OK)</strong> • Homologação Caixa & RFB ativa.
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-amber-500 shrink-0"></div>
+                  <div className="text-xs text-amber-950 font-medium">
+                    Status do SERPRO: <strong>não conectado</strong>. Nenhum teste de API foi executado e nenhuma credencial é armazenada por esta tela.
                   </div>
                 </div>
 
@@ -353,24 +381,18 @@ export default function ModalConfiguracoesSistema({
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Chave de Acesso / Token SERPRO:</label>
-                  <input
-                    type="password"
-                    value={serproChave}
-                    onChange={(e) => setSerproChave(e.target.value)}
-                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg font-mono text-slate-700"
-                  />
+                <div role="note" className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs text-slate-700">
+                  Credenciais de API não são solicitadas nem armazenadas pelo navegador. Para conectar, o serviço precisa ser configurado no servidor com as credenciais e o contrato SERPRO apropriados.
                 </div>
 
                 <div className="pt-3 flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => handleSalvar('Conexão SERPRO / e-CAC')}
+                    onClick={() => handleSalvar('Preferências locais SERPRO')}
                     className="px-4 py-2.5 bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-bold rounded-lg flex items-center gap-2 cursor-pointer shadow-xs"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    <span>Testar e Salvar Conexão</span>
+                    <span>Salvar preferência local</span>
                   </button>
 
                   <button
@@ -650,14 +672,22 @@ export default function ModalConfiguracoesSistema({
                     Backup e Exportação de Dados
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Gere uma cópia completa dos CNPJs, histórico de guias, procurações e certificados.
+                    Exporte preferências deste navegador. O backup do banco de dados precisa ser configurado no provedor PostgreSQL.
                   </p>
                 </div>
 
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
                   <p className="text-xs text-slate-700">
-                    O backup exporta toda a carteira de clientes cadastrados, histórico de transmissões SERPRO e preferências do sistema.
+                    Este recurso não exporta empresas, notas, guias, usuários, certificados nem dados do PostgreSQL. Ele baixa somente preferências locais não sensíveis. A cópia de segurança do banco ainda não está configurada por esta tela.
                   </p>
+                  <a
+                    href="https://render.com/docs/postgresql-backups"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 underline"
+                  >
+                    Ver recuperação e backups no Render <ExternalLink className="h-3 w-3" />
+                  </a>
                   
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <button
@@ -666,7 +696,7 @@ export default function ModalConfiguracoesSistema({
                       className="px-4 py-2.5 bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-bold rounded-lg flex items-center gap-2 cursor-pointer shadow-xs"
                     >
                       <Download className="w-4 h-4" />
-                      <span>Baixar Backup Completo (JSON)</span>
+                      <span>Exportar Preferências Locais (JSON)</span>
                     </button>
                   </div>
                 </div>
@@ -682,19 +712,18 @@ export default function ModalConfiguracoesSistema({
                     Versão e Atualização do Sistema
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Controle de versão e conformidade com as notas técnicas da Receita Federal.
+                    Esta tela ainda não consulta versão de webservices nem notas técnicas oficiais.
                   </p>
                 </div>
 
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    <strong className="text-sm text-emerald-950">FISCOIA v1.0.0 — Setembro de 2026</strong>
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                    <strong className="text-sm text-amber-950">Versão das integrações não verificada</strong>
                   </div>
-                  <p className="text-xs text-emerald-900">
-                    • Webservice DCTFWeb v1.4 em vigor. <br />
-                    • SERPRO Integra com suporte a consultas síncronas e assíncronas. <br />
-                    • Emissor de NF-e/NFS-e com assinatura digital ICP-Brasil A1/A3.
+                  <p className="text-xs text-amber-900">
+                    • DCTFWeb e SERPRO não estão conectados neste ambiente.<br />
+                    • Emissão de NF-e/NFS-e e assinatura ICP-Brasil não estão integradas.
                   </p>
                 </div>
 
@@ -702,13 +731,13 @@ export default function ModalConfiguracoesSistema({
                   <button
                     type="button"
                     onClick={() => {
-                      setMensagemStatus('🔍 O sistema já está executando a versão mais recente e homologada (v1.0.0).');
+                      setMensagemStatus('A verificação de atualizações não está conectada. Nenhum servidor foi consultado.');
                       setTimeout(() => setMensagemStatus(null), 4000);
                     }}
                     className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center gap-2 cursor-pointer shadow-xs"
                   >
                     <RefreshCw className="w-4 h-4" />
-                    <span>Verificar Atualizações de Webservice</span>
+                    <span>Verificar atualização (indisponível)</span>
                   </button>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, ChangeEvent } from 'react';
 import { 
   ArrowLeft, 
   Cpu, 
@@ -26,28 +26,36 @@ import {
   FileSpreadsheet,
   Clock,
   Calculator,
-  CheckCheck,
   CreditCard,
   ArrowRight,
   Sparkles,
-  Ban,
-  Scale
+  Ban
 } from 'lucide-react';
-import { FISCOIA_FISCAL } from '../../services/fiscal/fiscoiaFiscal.service';
+import { FISCOIA_FISCAL, lerNotasFiscaisEmpresa, vencimentoInformadoPassou } from '../../services/fiscal/fiscoiaFiscal.service';
+import { conferirNotasRadar } from '../../services/fiscal/radarFiscal.service';
+import { chaveNfeTemDigitoValido } from '../../services/fiscal/chaveNfe.service';
+import { lerLivroFiscalEmpresa, lerRadarFiscalEmpresa } from '../../services/fiscal/empresaFiscalStorage.service';
 import { ModalCalculadoraFiscal } from '../../components/ModalCalculadoraFiscal';
-import { ModalConfirmacaoConsultaFiscoia } from '../../components/ModalConfirmacaoConsultaFiscoia';
-import { 
-  FiltroDadosReais, 
-  sistema as SISTEMA_MURADE_FISCAL_REAIS, 
-  CONFIG as CONFIG_MURADE_FISCAL 
-} from '../../services/fiscal/muradeFiscalDadosReais.service';
+import { useEmpresa } from '../../context/EmpresaContext';
+import { MODULOS_MURADE } from '../../config/modulosMurade';
+import { definirMonitorPendenciasAtivo, EVENTO_MONITOR_PENDENCIAS_ATUALIZADO, monitorPendenciasAtivo } from '../../services/fiscal/monitorPendenciasFiscal.service';
+import { ReformaTributariaScreen } from './ReformaTributariaScreen';
 
-interface ModulosAutomacao {
-  nfe: boolean;
-  entrada: boolean;
-  baixa: boolean;
-  apuracao: boolean;
-  guias: boolean;
+interface StatusServicoFiscal {
+  id: string;
+  nome: string;
+  url: string;
+  estado: 'verificando' | 'disponivel' | 'sem_confirmacao';
+  detalhe: string;
+  verificadoEm?: string;
+  ultimaRespostaConfirmadaEm?: string;
+  falhasConsecutivas?: number;
+}
+
+interface HistoricoSaudeModulo {
+  falhasConsecutivas: number;
+  ultimaRespostaConfirmadaEm: string | null;
+  indisponibilidadeNotificada: boolean;
 }
 
 interface ItemLogAutoResolucao {
@@ -59,6 +67,21 @@ interface ItemLogAutoResolucao {
   cliente: string;
 }
 
+function lerHistoricoLocal(chave: string): { existe: boolean; valores: string[] } {
+  const raw = localStorage.getItem(chave);
+  if (raw === null) return { existe: false, valores: [] };
+  let parseado: unknown;
+  try {
+    parseado = JSON.parse(raw);
+  } catch {
+    throw new Error(`histórico local corrompido (${chave})`);
+  }
+  if (!Array.isArray(parseado) || !parseado.every(item => typeof item === 'string')) {
+    throw new Error(`formato inválido no histórico local (${chave})`);
+  }
+  return { existe: true, valores: parseado };
+}
+
 export function AutomacaoFiscalScreen({
   onVoltar,
   onNavegar
@@ -66,6 +89,7 @@ export function AutomacaoFiscalScreen({
   onVoltar?: () => void;
   onNavegar?: (destino: string) => void;
 }) {
+  const { empresaAtiva, empresas } = useEmpresa();
   // Aba ativa dentro da tela de automação
   const [abaInterna, setAbaInterna] = useState<
     'automacao' | 'dadosReais' | 'reforma' | 'ocr' | 'ia' | 'comparador' | 'autoresolucao' | 'dctf' | 'calendario' | 'certificado'
@@ -74,159 +98,450 @@ export function AutomacaoFiscalScreen({
   // Estados dos Robôs Murade — Só Dados Reais
   const [resumoRobo1, setResumoRobo1] = useState<any>(null);
   const [resumoRobo2, setResumoRobo2] = useState<any>(null);
-  const [resumoRobo3, setResumoRobo3] = useState<any>(null);
-  const [executandoRobo, setExecutandoRobo] = useState<number | null>(null);
+  const [radarAtivo, setRadarAtivo] = useState(monitorPendenciasAtivo);
+  const [ultimaAuditoriaRadar, setUltimaAuditoriaRadar] = useState<string | null>(null);
+  const [alertasRadar, setAlertasRadar] = useState<string[]>([]);
+  const [alertasLivroFiscal, setAlertasLivroFiscal] = useState<string[]>([]);
+  const [monitorarServicos, setMonitorarServicos] = useState(true);
+  const [statusServicos, setStatusServicos] = useState<StatusServicoFiscal[]>(() =>
+    MODULOS_MURADE.map(servico => ({
+      id: servico.id,
+      nome: servico.nome,
+      url: servico.url,
+      estado: 'verificando',
+      detalhe: 'Aguardando primeira verificação.'
+    }))
+  );
+  const historicoSaudeModulos = useRef(new Map<string, HistoricoSaudeModulo>());
+  const verificacaoServicosEmCurso = useRef(false);
+  const [permissaoNotificacao, setPermissaoNotificacao] = useState<NotificationPermission | 'unsupported'>(
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
+  );
 
-  // Executar Robô 1 — Conferir Notas Fiscais
-  const handleExecutarRobo1 = async (incluirFake: boolean = false) => {
-    setExecutandoRobo(1);
-    const lista: any[] = [
-      {
-        chaveAcesso: '52260901234567000199550010000012451000012456',
-        cnpj: '01.234.567/0001-99',
-        fonte: 'SEFAZ',
-        numero: '1245',
-        valorTotal: 18500.00
-      },
-      {
-        chaveAcesso: '35260998765432000188550010000098711000098712',
-        cnpj: '98.765.432/0001-88',
-        fonte: 'NF-e_Portal',
-        numero: '9871',
-        valorTotal: 42300.00
-      }
-    ];
+  useEffect(() => {
+    const sincronizarEstadoRadar = () => setRadarAtivo(monitorPendenciasAtivo());
+    window.addEventListener(EVENTO_MONITOR_PENDENCIAS_ATUALIZADO, sincronizarEstadoRadar);
+    window.addEventListener('storage', sincronizarEstadoRadar);
+    sincronizarEstadoRadar();
+    return () => {
+      window.removeEventListener(EVENTO_MONITOR_PENDENCIAS_ATUALIZADO, sincronizarEstadoRadar);
+      window.removeEventListener('storage', sincronizarEstadoRadar);
+    };
+  }, []);
 
-    if (incluirFake) {
-      lista.push(
-        {
-          chaveAcesso: '123456',
-          cnpj: '00.000.000/0000-00',
-          fonte: 'gerador_falso',
-          numero: '9999',
-          valorTotal: 1000.00
-        },
-        {
-          chaveAcesso: '52260901234567000199550010000012451000012459',
-          cnpj: '01.234.567/0001-99',
-          fonte: 'simulacao',
-          simulacao: true,
-          numero: '7777',
-          valorTotal: 500.00
+  const handleExecutarRobo1 = () => {
+    const empresasComId = empresas.filter(empresa => Boolean(empresa.id || empresa.cnpj));
+    if (!empresasComId.length) {
+      setResumoRobo1({ resumo: 'Nenhuma empresa cadastrada para verificar.', total: 0, alertas: 0, detalhes: [] });
+      return;
+    }
+    try {
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      const documentosPorEmpresa = empresasComId.map(empresa => {
+        const id = empresa.id || empresa.cnpj;
+        try {
+          const radar = lerRadarFiscalEmpresa(id, empresa.cnpj);
+          if (radar.erro) throw new Error(radar.erro);
+          const notasRadar = radar.notas;
+          const leituraLivro = lerLivroFiscalEmpresa(id, empresa.cnpj);
+          if (leituraLivro.erro) throw new Error(leituraLivro.erro);
+          const notasLivro = [...leituraLivro.notas.saidas, ...leituraLivro.notas.entradas];
+          const ocorrencias = conferirNotasRadar(notasRadar);
+          const detalhesRadar = notasRadar.flatMap(nota =>
+            (ocorrencias.get(nota.chave || `${nota.origemArquivo}-${nota.numero}`) ?? []).map(item => ({
+              empresa: empresa.razaoSocial,
+              numero: nota.numero || 'sem número',
+              chave: nota.chave || 'sem chave',
+              mensagem: item.mensagem,
+              severidade: item.severidade
+            }))
+          );
+          const vencidas = FISCOIA_FISCAL.BAIXA_NOTAS.verificarVencidas(notasLivro, hoje);
+          const proximas = FISCOIA_FISCAL.BAIXA_NOTAS.verificarVencimentosProximos(notasLivro, hoje);
+          const detalhesVencimento = [
+            ...vencidas.map(nota => ({
+            empresa: empresa.razaoSocial,
+            numero: nota.numero || 'sem número',
+            chave: nota.chave || 'sem chave',
+            mensagem: `Vencimento informado em ${nota.dataVencimento} passou; confirme a baixa.`,
+            severidade: 'ATENCAO' as const
+            })),
+            ...proximas.map(nota => ({
+              empresa: empresa.razaoSocial,
+              numero: nota.numero || 'sem número',
+              chave: nota.chave || 'sem chave',
+              mensagem: `Vencimento informado em ${nota.dataVencimento} ocorre nos próximos 7 dias; confira o pagamento.`,
+              severidade: 'ATENCAO' as const
+            }))
+          ];
+          return {
+            id, erro: null as string | null, documentos: notasRadar.length,
+            chaves: notasRadar.map(nota => `${id}:${nota.chave || `${nota.origemArquivo}-${nota.numero}`}`),
+            detalhes: [...detalhesRadar, ...detalhesVencimento],
+            assinaturas: [...detalhesRadar.map(item => `${id}:${item.chave}:${item.mensagem}`),
+              ...vencidas.map(nota => `${id}:VENCIDA:${nota.chave || nota.numero}:${nota.dataVencimento}`),
+              ...proximas.map(nota => `${id}:PROXIMA:${nota.chave || nota.numero}:${nota.dataVencimento}`)]
+          };
+        } catch (error) {
+          return { id, erro: `${empresa.razaoSocial || empresa.cnpj}: ${error instanceof Error ? error.message : 'falha de leitura'}`, documentos: 0, chaves: [], detalhes: [], assinaturas: [] };
         }
-      );
+      });
+      const falhas = documentosPorEmpresa.filter(item => item.erro);
+      const lidas = documentosPorEmpresa.filter(item => !item.erro);
+      const totalDocumentos = lidas.reduce((total, item) => total + item.documentos, 0);
+      const todosDetalhes = lidas.flatMap(item => item.detalhes);
+      const alertasLocais = lidas.flatMap(item => item.assinaturas);
+      const chavesNotasAtuais = lidas.flatMap(item => item.chaves);
+      if (falhas.length) {
+        const mensagensFalha = falhas.map(item => item.erro as string);
+        const detalhesFalha = falhas.map(item => {
+          const empresa = empresasComId.find(candidata => (candidata.id || candidata.cnpj) === item.id);
+          return {
+            empresa: empresa?.razaoSocial || empresa?.cnpj || 'Empresa',
+            numero: '—',
+            chave: '—',
+            mensagem: `Leitura não concluída: ${item.erro}`,
+            severidade: 'ERRO' as const
+          };
+        });
+        // Os alertas visíveis pertencem à última leitura completa. Não os
+        // substitua por resultados parciais, pois isso esconderia achados das
+        // empresas cuja leitura falhou e poderia parecer uma resolução.
+        setResumoRobo1({
+          empresas: empresasComId.length, empresasLidas: lidas.length, total: totalDocumentos,
+          alertas: todosDetalhes.length, detalhes: [...todosDetalhes, ...detalhesFalha],
+          resumo: `Conferência parcial: ${lidas.length}/${empresasComId.length} empresa(s) lida(s). ${mensagensFalha.join('; ')}. O histórico não foi atualizado.`
+        });
+        setUltimaAuditoriaRadar(new Date().toLocaleString('pt-BR'));
+        return;
+      }
+      const chaveNotasVistas = 'fiscoia_radar_notas_vistas_carteira';
+      const notasVistasAntes = lerHistoricoLocal(chaveNotasVistas);
+      const notasAnteriores = new Set(notasVistasAntes.valores);
+      const notasNovas = notasVistasAntes.existe
+        ? chavesNotasAtuais.filter(chave => !notasAnteriores.has(chave))
+        : [];
+      const chaveAlertasNotificados = 'fiscoia_radar_notificados_carteira';
+      const alertasAntes = lerHistoricoLocal(chaveAlertasNotificados);
+      const anteriores = new Set(alertasAntes.valores);
+      const novos = alertasLocais.filter(item => !anteriores.has(item));
+      const resolvidos = alertasAntes.existe
+        ? alertasAntes.valores.filter(item => !alertasLocais.includes(item)).length
+        : 0;
+
+      // Persistir todo o estado antes de anunciar uma conferência concluída.
+      localStorage.setItem(chaveNotasVistas, JSON.stringify(chavesNotasAtuais));
+      localStorage.setItem(chaveAlertasNotificados, JSON.stringify(alertasLocais));
+
+      if (alertasLocais.length) {
+        if (novos.length && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            new Notification('Radar fiscal — carteira de empresas', {
+              body: `${novos.length} novo(s) achado(s) em dados locais. Portais oficiais não foram consultados.`,
+              tag: 'radar-auto-carteira'
+            });
+          } catch { /* O relatório continua disponível dentro do aplicativo. */ }
+        }
+        if (resolvidos && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            new Notification('Radar fiscal — pendência local atualizada', {
+              body: `${resolvidos} pendência(s) deixou(aram) de aparecer nos dados locais. Confira antes de considerar resolvida.`,
+              tag: 'radar-auto-carteira-resolvidos'
+            });
+          } catch { /* O relatório continua disponível dentro do aplicativo. */ }
+        }
+        setAlertasRadar([
+          ...todosDetalhes.map(item => `${item.empresa} · NF ${item.numero}: ${item.mensagem}`)
+        ]);
+      } else {
+        setAlertasRadar([]);
+      }
+      if (notasNovas.length && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification('Radar fiscal — XML novo para revisar', {
+            body: `${notasNovas.length} XML(s) novo(s) detectado(s) nos arquivos locais. O Radar não consultou nem autenticou a SEFAZ.`,
+            tag: 'radar-xml-novo-carteira'
+          });
+        } catch { /* O relatório continua disponível dentro do aplicativo. */ }
+      }
+      setResumoRobo1({
+        empresas: empresasComId.length,
+        total: totalDocumentos,
+        alertas: todosDetalhes.length,
+        notasNovas: notasNovas.length,
+        detalhes: todosDetalhes,
+        resumo: totalDocumentos || todosDetalhes.length
+          ? `Verificadas ${empresasComId.length} empresa(s): ${totalDocumentos} XML(s), ${todosDetalhes.length} alerta(s) local(is). Portais oficiais não consultados.`
+          : `${empresasComId.length} empresa(s) cadastrada(s), sem XML no Radar ou vencimento informado para conferir. Isso não confirma ausência de obrigações.`
+      });
+      setUltimaAuditoriaRadar(new Date().toLocaleString('pt-BR'));
+    } catch (error) {
+      setResumoRobo1({ resumo: `Conferência parcial: não foi possível validar ou salvar o histórico local (${error instanceof Error ? error.message : 'erro desconhecido'}). Revise os dados; nenhum portal oficial foi consultado.` });
+    }
+  };
+
+  const verificarServicosMurade = async () => {
+    if (verificacaoServicosEmCurso.current) return null;
+    verificacaoServicosEmCurso.current = true;
+    try {
+    const resultados = await Promise.all(MODULOS_MURADE.map(async servico => {
+      const aborter = new AbortController();
+      const timeout = window.setTimeout(() => aborter.abort(), 8000);
+      try {
+        const resposta = await fetch(new URL('/api/health', servico.url), {
+          headers: { Accept: 'application/json' },
+          signal: aborter.signal
+        });
+        const tipo = resposta.headers.get('content-type') || '';
+        if (!resposta.ok || !tipo.includes('application/json')) {
+          return {
+            id: servico.id,
+            nome: servico.nome,
+            url: servico.url,
+            estado: 'sem_confirmacao' as const,
+            detalhe: `Health check respondeu HTTP ${resposta.status}, sem confirmação válida.`
+          };
+        }
+        const dados = await resposta.json() as { status?: string };
+        return dados.status === 'ok'
+          ? { id: servico.id, nome: servico.nome, url: servico.url, estado: 'disponivel' as const, detalhe: 'Endpoint de saúde respondeu status ok.' }
+          : { id: servico.id, nome: servico.nome, url: servico.url, estado: 'sem_confirmacao' as const, detalhe: 'Resposta sem status ok.' };
+      } catch {
+        return {
+          id: servico.id,
+          nome: servico.nome,
+          url: servico.url,
+          estado: 'sem_confirmacao' as const,
+          detalhe: 'Sem confirmação (rede, CORS, timeout ou endpoint indisponível).'
+        };
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }));
+
+    const agora = new Date().toLocaleString('pt-BR');
+    const atualizados: StatusServicoFiscal[] = resultados.map(resultado => {
+      const anterior = historicoSaudeModulos.current.get(resultado.id) ?? {
+        falhasConsecutivas: 0,
+        ultimaRespostaConfirmadaEm: null,
+        indisponibilidadeNotificada: false
+      };
+      if (resultado.estado === 'disponivel') {
+        if (anterior.falhasConsecutivas >= 2 && anterior.indisponibilidadeNotificada && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            new Notification('Murade: serviço voltou a responder', {
+              body: `${resultado.nome}: /api/health respondeu status ok novamente.`,
+              tag: `murade-health-${resultado.id}`
+            });
+          } catch { /* O estado continua visível no painel. */ }
+        }
+        historicoSaudeModulos.current.set(resultado.id, {
+          falhasConsecutivas: 0,
+          ultimaRespostaConfirmadaEm: agora,
+          indisponibilidadeNotificada: false
+        });
+        return { ...resultado, verificadoEm: agora, ultimaRespostaConfirmadaEm: agora, falhasConsecutivas: 0 };
+      }
+
+      const falhasConsecutivas = anterior.falhasConsecutivas + 1;
+      const notificar = anterior.ultimaRespostaConfirmadaEm !== null && falhasConsecutivas >= 2 && !anterior.indisponibilidadeNotificada;
+      historicoSaudeModulos.current.set(resultado.id, {
+        falhasConsecutivas,
+        ultimaRespostaConfirmadaEm: anterior.ultimaRespostaConfirmadaEm,
+        indisponibilidadeNotificada: anterior.indisponibilidadeNotificada || notificar
+      });
+      if (notificar && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          new Notification('Murade: serviço sem confirmação', {
+            body: `${resultado.nome}: ${falhasConsecutivas} verificações seguidas sem resposta confirmada. Rede, CORS ou timeout não comprovam indisponibilidade.`,
+            tag: `murade-health-${resultado.id}`
+          });
+        } catch { /* O estado continua visível no painel. */ }
+      }
+      return {
+        ...resultado,
+        verificadoEm: agora,
+        ultimaRespostaConfirmadaEm: anterior.ultimaRespostaConfirmadaEm ?? undefined,
+        falhasConsecutivas
+      };
+    });
+    setStatusServicos(atualizados);
+    return resultados;
+    } finally {
+      verificacaoServicosEmCurso.current = false;
+    }
+  };
+
+  const verificarDisponibilidadeAgora = async () => {
+    const resultados = await verificarServicosMurade();
+    if (!resultados) {
+      setNotificacao({ tipo: 'info', texto: 'Já existe uma verificação técnica em andamento; aguarde o resultado exibido no painel.' });
+      return;
+    }
+    const disponiveis = resultados.filter(resultado => resultado.estado === 'disponivel').length;
+    setNotificacao({
+      tipo: disponiveis === resultados.length ? 'sucesso' : 'alerta',
+      texto: `Health check concluído: ${disponiveis}/${resultados.length} endpoints responderam. Isso confirma somente disponibilidade técnica, não integração nem sincronização fiscal.`
+    });
+  };
+
+  useEffect(() => {
+    if (!monitorarServicos) return;
+    void verificarServicosMurade();
+    const timer = window.setInterval(() => void verificarServicosMurade(), 10 * 60 * 1000);
+    const aoRetornarParaPagina = () => {
+      if (document.visibilityState === 'visible') void verificarServicosMurade();
+    };
+    document.addEventListener('visibilitychange', aoRetornarParaPagina);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', aoRetornarParaPagina);
+    };
+  }, [monitorarServicos]);
+
+  const ativarNotificacoesRobos = async () => {
+    if (typeof Notification === 'undefined') {
+      setPermissaoNotificacao('unsupported');
+      return;
+    }
+    const permissao = await Notification.requestPermission();
+    setPermissaoNotificacao(permissao);
+  };
+
+  // Auditoria estrutural local de toda a carteira; não valida apuração legal nem consulta fonte oficial.
+  const handleExecutarRobo2 = () => {
+    const empresasComId = empresas.filter(empresa => Boolean(empresa.id || empresa.cnpj));
+    if (!empresasComId.length) {
+      setResumoRobo2({ erro: 'Nenhuma empresa cadastrada para auditar os livros locais.' });
+      setAlertasLivroFiscal([]);
+      return;
     }
 
-    const res = await SISTEMA_MURADE_FISCAL_REAIS.conferirNotas(lista);
-    setResumoRobo1(res);
-    setExecutandoRobo(null);
+    const resultados = empresasComId.map(empresa => {
+      const idEmpresa = empresa.id || empresa.cnpj;
+      const leitura = lerLivroFiscalEmpresa(idEmpresa, empresa.cnpj);
+      if (leitura.erro) return { empresa, documentos: 0, inconsistencias: [], erro: leitura.erro, erroHistorico: null as string | null };
+      const livro = leitura.notas;
+      const documentos = [...livro.saidas, ...livro.entradas];
+      const inconsistencias = documentos.flatMap(nota => {
+        const problemas: string[] = [];
+        if (!chaveNfeTemDigitoValido(nota.chave || '')) problemas.push('chave de acesso ausente ou inválida');
+        if (!nota.cfop) problemas.push('CFOP ausente');
+        if (nota.camposNumericosIndisponiveis?.includes('VNF') || !Number.isFinite(nota.valorTotal) || nota.valorTotal <= 0) problemas.push('valor total ausente, inválido ou não positivo');
+        for (const [nome, valor] of [['ICMS', nota.ICMS_valor], ['PIS', nota.PIS_valor], ['COFINS', nota.COFINS_valor]] as const) {
+          if (nota.camposNumericosIndisponiveis?.includes(nome) || !Number.isFinite(valor) || valor < 0) problemas.push(`${nome} ausente ou inválido na origem`);
+        }
+        return problemas.length
+          ? [{ empresa: empresa.razaoSocial || empresa.cnpj || 'Empresa sem nome', numero: nota.numero, chave: nota.chave, problemas }]
+          : [];
+      });
+      const assinaturaAtual = inconsistencias.map(item => `${item.chave || item.numero}:${item.problemas.join(',')}`);
+      const chaveAvisos = `fiscoia_livro_notificados_${idEmpresa}`;
+      let erroHistorico: string | null = null;
+      try {
+        const avisoAnterior = localStorage.getItem(chaveAvisos);
+        const historicoParseado: unknown = avisoAnterior ? JSON.parse(avisoAnterior) : [];
+        if (!Array.isArray(historicoParseado) || !historicoParseado.every(item => typeof item === 'string')) {
+          throw new Error('formato do histórico de alertas inválido');
+        }
+        const assinaturaAnterior = historicoParseado as string[];
+        const novasInconsistencias = assinaturaAtual.filter(item => !assinaturaAnterior.includes(item));
+        const resolvidas = avisoAnterior
+          ? assinaturaAnterior.filter(item => !assinaturaAtual.includes(item)).length
+          : 0;
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            if (novasInconsistencias.length) new Notification(`Livro fiscal — ${empresa.razaoSocial || 'empresa'}`, {
+              body: `${novasInconsistencias.length} nova(s) nota(s) com campos para revisão. Conferência local, sem validação tributária oficial.`,
+              tag: `livro-fiscal-${idEmpresa}`
+            });
+            if (resolvidas) new Notification(`Livro fiscal — ${empresa.razaoSocial || 'empresa'}`, {
+              body: `${resolvidas} inconsistência(s) deixou(aram) de aparecer nos dados locais. Confira antes de considerar resolvida.`,
+              tag: `livro-fiscal-resolvido-${idEmpresa}`
+            });
+          } catch {
+            erroHistorico = 'o navegador não conseguiu exibir uma notificação';
+          }
+        }
+        localStorage.setItem(chaveAvisos, JSON.stringify(assinaturaAtual));
+      } catch (error) {
+        erroHistorico = error instanceof Error ? error.message : 'não foi possível atualizar o histórico local';
+      }
+      return { empresa, documentos: documentos.length, inconsistencias, erro: null as string | null, erroHistorico };
+    });
+
+    const lidas = resultados.filter(resultado => !resultado.erro);
+    const falhas = resultados.filter(resultado => resultado.erro);
+    const inconsistencias = lidas.flatMap(resultado => resultado.inconsistencias);
+    const totalDocumentos = lidas.reduce((total, resultado) => total + resultado.documentos, 0);
+    setAlertasLivroFiscal([
+      ...inconsistencias.map(item => `${item.empresa} · NF ${item.numero || 'sem número'}: ${item.problemas.join('; ')}`),
+      ...falhas.map(resultado => `${resultado.empresa.razaoSocial || resultado.empresa.cnpj}: livro não lido (${resultado.erro})`),
+      ...lidas.filter(resultado => resultado.erroHistorico).map(resultado => `${resultado.empresa.razaoSocial || resultado.empresa.cnpj}: auditoria concluída, mas ${resultado.erroHistorico}; achados continuam visíveis.`)
+    ]);
+    setResumoRobo2({
+      empresas: empresasComId.length,
+      empresasLidas: lidas.length,
+      empresasComFalha: falhas.length,
+      total: totalDocumentos,
+      inconsistencias,
+      status: 'Conferência estrutural local da carteira',
+      mensagem: falhas.length
+        ? `Auditoria parcial: ${lidas.length}/${empresasComId.length} livro(s) lido(s), ${falhas.length} com falha. ${totalDocumentos} nota(s) revisada(s), ${inconsistencias.length} com campos para conferir.`
+        : totalDocumentos
+          ? `${totalDocumentos} nota(s) em ${lidas.length} empresa(s) revisada(s); ${inconsistencias.length} com campo(s) para conferir. Não foi validada regra fiscal oficial.`
+          : `${lidas.length} empresa(s) verificada(s), sem notas nos livros locais. Isso não confirma ausência de documentos ou obrigações.`
+    });
   };
 
-  // Executar Robô 2 — Conferir Valores e Impostos
-  const handleExecutarRobo2 = async (comErro: boolean = false) => {
-    setExecutandoRobo(2);
-    const dado = comErro
-      ? { fonte: 'mock', valorTotal: 5000 }
-      : {
-          cnpj: '01.234.567/0001-99',
-          chaveAcesso: '52260901234567000199550010000012451000012456',
-          fonte: 'SEFAZ',
-          valorTotal: 18500.00,
-          impostos: { ICMS: 2220.00, PIS: 120.25, COFINS: 555.00 }
-        };
-
-    const res = await SISTEMA_MURADE_FISCAL_REAIS.conferirValores(dado);
-    setResumoRobo2(res);
-    setExecutandoRobo(null);
-  };
-
-  // Executar Robô 3 — Comparar com outro sistema
-  const handleExecutarRobo3 = async () => {
-    setExecutandoRobo(3);
-    const dadosExterno = [
-      { cnpj: '01.234.567/0001-99', chaveAcesso: '52260901234567000199550010000012451000012456', valorTotal: 18500.00 },
-      { cnpj: '98.765.432/0001-88', chaveAcesso: '35260998765432000188550010000098711000098712', valorTotal: 42000.00 }
-    ];
-    const dadosMurade = [
-      { valorTotal: 18500.00 },
-      { valorTotal: 42300.00 }
-    ];
-
-    const res = await SISTEMA_MURADE_FISCAL_REAIS.compararSistemas(dadosExterno, dadosMurade);
-    setResumoRobo3(res);
-    setExecutandoRobo(null);
+  const handleAuditarFechamentoLocal = () => {
+    if (!empresaAtiva?.id) {
+      setNotificacao({ tipo: 'alerta', texto: 'Selecione uma empresa para verificar o livro local.' });
+      return;
+    }
+    const hoje = new Date();
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const ano = String(hoje.getFullYear());
+    const periodo = `${ano}-${mes}`;
+    const leitura = lerNotasFiscaisEmpresa(empresaAtiva.id);
+    if ('erro' in leitura) {
+      setNotificacao({ tipo: 'alerta', texto: `Conferência não realizada: livro local indisponível (${leitura.erro}). Os dados foram preservados e não foram tratados como zero.` });
+      return;
+    }
+    const livro = leitura.notas;
+    const saidas = livro.saidas.filter(nota => nota.dataEmissao?.startsWith(periodo));
+    const entradas = livro.entradas.filter(nota => nota.dataEmissao?.startsWith(periodo));
+    const resumo = FISCOIA_FISCAL.resumirTributosInformados(saidas, entradas, mes, ano);
+    setNotificacao({
+      tipo: 'info',
+      texto: `Conferência local ${resumo.periodo}: ${saidas.length} saída(s) e ${entradas.length} entrada(s). Campos tributários dos arquivos foram resumidos separadamente por operação. Nenhuma compensação ou apuração legal foi feita.`
+    });
   };
 
   // Modal da Calculadora Fiscal
   const [modalCalculadoraAberto, setModalCalculadoraAberto] = useState(false);
-  // Modal de Consulta Controlada FiscoIA
-  const [modalFiscoiaAberto, setModalFiscoiaAberto] = useState(false);
 
-  // Horário da última verificação
-  const [ultimaVerificacao, setUltimaVerificacao] = useState('Agora');
+  // Relógio da tela; não representa horário de consulta nem auditoria.
+  const [horaLocal, setHoraLocal] = useState(() => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
 
   // Interruptores da Automação Fiscal (As 5 Etapas)
-  const [modulos, setModulos] = useState<ModulosAutomacao>({
-    nfe: true,
-    entrada: true,
-    baixa: true,
-    apuracao: true,
-    guias: true
-  });
-
-  // Fila de processamento em andamento (5 etapas)
-  const [progressoFila, setProgressoFila] = useState({
-    buscaEntrada: 65,
-    transmissaoNfe: 90,
-    baixaNotas: 85,
-    apuracaoNotas: 72,
-    guiaIcms: 30
-  });
-
   // Mensagens de Sucesso / Alerta
   const [notificacao, setNotificacao] = useState<{ tipo: 'sucesso' | 'alerta' | 'info'; texto: string } | null>(null);
-  const [processando, setProcessando] = useState(false);
 
   // ----------------------------------------------------
   // ESTADOS DO RECURSO: REFORMA TRIBUTÁRIA IBS / CBS
   // ----------------------------------------------------
-  const [faturamentoReforma, setFaturamentoReforma] = useState('150000');
-  const [calculoReforma, setCalculoReforma] = useState<{
-    icms: number;
-    iss: number;
-    ibs: number;
-    cbs: number;
-    antigo: number;
-    novo: number;
-    diferenca: number;
-  } | null>(null);
-
   // ----------------------------------------------------
   // ESTADOS DO RECURSO: OCR INTELIGENTE & XML E-MAIL
   // ----------------------------------------------------
-  const [ocrCarregando, setOcrCarregando] = useState(false);
-  const [dadosOcr, setDadosOcr] = useState<{
-    cnpj: string;
-    numero: string;
-    valor: string;
-    icms: string;
-    data: string;
-  } | null>({
-    cnpj: '12.345.678/0001-90',
-    numero: '000.001.254',
-    valor: 'R$ 4.580,00',
-    icms: 'R$ 824,40 (18%)',
-    data: '12/09/2026'
-  });
-  const [emailMonitorado, setEmailMonitorado] = useState('fiscal@murade.com.br');
-
   // ----------------------------------------------------
   // ESTADOS DO RECURSO: ASSISTENTE IA FISCAL
   // ----------------------------------------------------
   const [mensagensChat, setMensagensChat] = useState<Array<{ autor: 'usuario' | 'ia'; texto: string }>>([
     {
       autor: 'ia',
-      texto: '👋 Olá, equipe Murad! Sou a IA Murad Fiscal. Pergunte sobre a Reforma Tributária (IBS/CBS), novos prazos de EFD REINF/Contribuições de 2026, DCTF Web ou regras do Simples Nacional — respondo com base na legislação atualizada!'
+      texto: 'Olá. As consultas fiscais serão respondidas somente quando a fonte atual puder ser verificada. Se a conexão não estiver disponível, vou avisar.'
     }
   ]);
   const [perguntaInput, setPerguntaInput] = useState('');
@@ -234,186 +549,41 @@ export function AutomacaoFiscalScreen({
   // ----------------------------------------------------
   // ESTADOS DO RECURSO: COMPARADOR DE REGIMES TRIBUTÁRIOS
   // ----------------------------------------------------
-  const [faturamentoComp, setFaturamentoComp] = useState('80000');
-  const [funcionariosComp, setFuncionariosComp] = useState('4');
 
   // ----------------------------------------------------
   // LOGS DE AUTO-RESOLUÇÃO (Tenta 5x antes de avisar)
   // ----------------------------------------------------
-  const [logsAutoResolucao] = useState<ItemLogAutoResolucao[]>([
-    {
-      id: '1',
-      tipo: 'sucesso',
-      titulo: 'Conexão SEFAZ GO caiu — reconectou na 2ª tentativa',
-      detalhe: 'Handshake reestabelecido sem interrupção de notas',
-      hora: '15:42',
-      cliente: 'XYZ Comércio de Alimentos LTDA'
-    },
-    {
-      id: '2',
-      tipo: 'sucesso',
-      titulo: 'Nota com alíquota divergente — corrigida conforme Lei Complementar 2026',
-      detalhe: 'Alíquota ajustada para 18% interna no XML',
-      hora: '15:38',
-      cliente: 'Comércio Brasil (BA)'
-    },
-    {
-      id: '3',
-      tipo: 'tentativa',
-      titulo: 'eSocial não respondeu no primeiro disparo — retry 3/5 com sucesso',
-      detalhe: 'Protocolo de evento S-1200 retornado com sucesso',
-      hora: '15:30',
-      cliente: 'Indústria ABC (MG)'
-    },
-    {
-      id: '4',
-      tipo: 'sucesso',
-      titulo: 'Certificado Digital vencendo em 45 dias — renovação via procuração Serpro',
-      detalhe: 'Procuração eletrônica RFB validada por 5 anos',
-      hora: '15:15',
-      cliente: 'Serviços Médicos Murade (RJ)'
-    },
-    {
-      id: '5',
-      tipo: 'sucesso',
-      titulo: 'Duplicação detectada — nota 1253 já existente, ignorada com segurança',
-      detalhe: 'Nenhum lançamento em duplicidade gerado',
-      hora: '15:02',
-      cliente: 'Loja Matriz Murade (GO)'
-    }
-  ]);
+  const [logsAutoResolucao] = useState<ItemLogAutoResolucao[]>([]);
 
   // Atualiza horário em tempo real
   useEffect(() => {
     const atualizar = () => {
       const d = new Date();
-      setUltimaVerificacao(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      setHoraLocal(d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     };
     atualizar();
     const interval = setInterval(atualizar, 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Cálculo automático da Reforma Tributária quando o usuário digita
-  useEffect(() => {
-    const limpo = parseFloat(faturamentoReforma.replace(/\D/g, '')) || 0;
-    if (limpo <= 0) {
-      setCalculoReforma(null);
-      return;
-    }
-    const icms = limpo * 0.18;
-    const iss = limpo * 0.05;
-    const ibs = limpo * 0.12;
-    const cbs = limpo * 0.09;
-    const antigo = icms + iss;
-    const novo = ibs + cbs;
-    const diferenca = novo - antigo;
-
-    setCalculoReforma({
-      icms,
-      iss,
-      ibs,
-      cbs,
-      antigo,
-      novo,
-      diferenca
-    });
-  }, [faturamentoReforma]);
-
-  // Forçar Processamento Agora (As 5 Etapas Fiscais com Filtro Murade — Só Dados Reais)
-  const handleForcarProcessamento = () => {
-    setProcessando(true);
-    setNotificacao({
-      tipo: 'info',
-      texto: '🚀 Processamento imediato iniciado: Emissão SEFAZ, busca de entradas, baixa, apuração e guias com FILTRO MURADE SÓ DADOS REAIS...'
-    });
-
-    setTimeout(() => {
-      // Validação em lote das 16 notas com chaves de 44 dígitos
-      const loteAprovado = [
-        { chaveAcesso: '52260901234567000199550010000012451000012456', fonte: 'SEFAZ', valorTotal: 18500 },
-        { chaveAcesso: '35260998765432000188550010000098711000098712', fonte: 'NF-e_Portal', valorTotal: 42300 }
-      ].every(nota => FiltroDadosReais.verificar(nota) !== null);
-
-      if (!loteAprovado) {
-        setProcessando(false);
-        setNotificacao({
-          tipo: 'alerta',
-          texto: '❌ BLOQUEADO PELO FILTRO MURADE: Lote com dados de teste ou chave inválida rejeitado.'
-        });
-        return;
-      }
-
-      setProgressoFila({
-        buscaEntrada: 100,
-        transmissaoNfe: 100,
-        baixaNotas: 100,
-        apuracaoNotas: 100,
-        guiaIcms: 100
-      });
-      setProcessando(false);
-      setNotificacao({
-        tipo: 'sucesso',
-        texto: '✅ SÓ DADOS REAIS — 5 ETAPAS CONCLUÍDAS: 12 Notas emitidas, 4 entradas recebidas, 16 baixas realizadas e guias apuradas com 100% de validação em chaves de 44 dígitos da SEFAZ.'
-      });
-      setTimeout(() => setNotificacao(null), 6000);
-    }, 1400);
-  };
-
-  // Conferir tudo e liberar
+  // Conferência permanece indisponível sem dados autenticados de origem.
   const handleConferirTudo = async () => {
     setNotificacao({
-      tipo: 'info',
-      texto: '🛡️ Auditando integridade com os Robôs Murade (SÓ DADOS REAIS)...'
+      tipo: 'alerta',
+      texto: 'Conferência não realizada: não há dados autenticados da SEFAZ ou de outro sistema conectado.'
     });
-
-    const amostra = [
-      { chaveAcesso: '52260901234567000199550010000012451000012456', fonte: 'SEFAZ', cnpj: '01.234.567/0001-99', numero: '1245', valorTotal: 18500 },
-      { chaveAcesso: '35260998765432000188550010000098711000098712', fonte: 'ReceitaFederal', cnpj: '98.765.432/0001-88', numero: '9871', valorTotal: 42300 }
-    ];
-
-    const conferido = await SISTEMA_MURADE_FISCAL_REAIS.conferirNotas(amostra);
-
-    setNotificacao({
-      tipo: 'sucesso',
-      texto: `✅ CONFERÊNCIA CONCLUÍDA: ${conferido.notasReais} notas oficiais da SEFAZ com chaves de 44 dígitos aprovadas! Zero simulações detectadas. O robô continua operando em segundo plano.`
-    });
-    setTimeout(() => setNotificacao(null), 6000);
   };
 
-  // Simulação de OCR
+  // O OCR ainda não está conectado a um serviço de extração.
   const handleUploadOcr = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setOcrCarregando(true);
-      setTimeout(() => {
-        setOcrCarregando(false);
-        setDadosOcr({
-          cnpj: '12.345.678/0001-90',
-          numero: '000.001.254',
-          valor: 'R$ 4.580,00',
-          icms: 'R$ 824,40 (18%)',
-          data: '12/09/2026'
-        });
-        setNotificacao({
-          tipo: 'sucesso',
-          texto: '📸 OCR inteligente leu a foto da nota e extraiu todos os campos com sucesso!'
-        });
-        setTimeout(() => setNotificacao(null), 4000);
-      }, 1000);
+      e.target.value = '';
+      setNotificacao({ tipo: 'alerta', texto: 'Arquivo não processado: o serviço de OCR ainda não está configurado.' });
     }
-  };
-
-  // Lançar nota extraída por OCR
-  const handleLancarNotaOcr = () => {
-    setNotificacao({
-      tipo: 'sucesso',
-      texto: `✅ NOTA LANÇADA AUTOMATICAMENTE! Dados gravados no isolamento exclusivo do CNPJ ${dadosOcr?.cnpj}.`
-    });
-    setTimeout(() => setNotificacao(null), 5000);
   };
 
   // Enviar pergunta para a IA
-  const handleEnviarPergunta = (texto?: string) => {
+  const handleEnviarPergunta = async (texto?: string) => {
     const q = texto || perguntaInput.trim();
     if (!q) return;
 
@@ -421,31 +591,27 @@ export function AutomacaoFiscalScreen({
     setMensagensChat(novasMensagens);
     setPerguntaInput('');
 
-    let resposta = '📚 Consultando a base normativa RFB/SEFAZ 2026... Em caso de dúvidas complexas, a equipe contábil da Murad está à disposição.';
-
-    if (q.includes('ECD 2026')) {
-      resposta = '📅 **ECD 2026 — Prazo Oficial:** 30 de junho de 2026 para empresas no Lucro Real. Para os demais regimes, até 30 de julho. Base legal: Instrução Normativa RFB nº 2.094/2022. ⚠️ Multa de R$ 500,00 por mês de atraso!';
-    } else if (q.includes('ICMS GO')) {
-      resposta = '⚖️ **ICMS Goiás — 2026:** Alíquota modal interna de **18%**. Para produtos essenciais: 12%. Durante a transição da Reforma Tributária, calcula-se concomitantemente com o IBS de 12%. Sistema atualizado com a Lei Estadual nº 14.888!';
-    } else if (q.includes('Lucro Real') || q.includes('Presumido')) {
-      resposta = '💡 **Lucro Real x Presumido:**\n- **Lucro Real:** Imposto apurado sobre o lucro líquido contábil efetivo (ideal para margens abaixo de 8% ou prejuízos acumulados).\n- **Lucro Presumido:** Tributação linear sobre presunção de faturamento (8% comércio, 32% serviços). Menor complexidade documental.';
-    } else if (q.includes('Simples Nacional')) {
-      resposta = '📋 **Simples Nacional 2026:** Guia única DAS com vencimento todo dia 20. Dispensa emissão de DCTF Web convencional na maioria das atividades (salvo folha de terceiros e retenções previdenciárias). DEFIS anual até 31 de março.';
-    } else if (q.includes('DCTF') || q.includes('DCTF Web')) {
-      resposta = '📋 **DCTF Web 100% Digital 2026:** Desde 01/2026, não há mais geração de arquivo .txt! A transmissão é 100% direta via API com a Receita Federal, com protocolo emitido instantaneamente no 15º dia útil do mês seguinte.';
+    try {
+      const response = await fetch('/api/ia-fiscal/consultar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // O servidor recebe somente o histórico anterior. A pergunta atual
+        // vai no campo separado, como no chat fiscal principal.
+        body: JSON.stringify({ pergunta: q, historico: mensagensChat })
+      });
+      const resultado = await response.json();
+      setMensagensChat(prev => [...prev, {
+        autor: 'ia',
+        texto: response.ok && resultado.resposta
+          ? `${resultado.resposta}${resultado.fontesWeb?.length ? `\n\nFontes: ${resultado.fontesWeb.map((fonte: { title?: string; uri: string }) => fonte.title || fonte.uri).join(', ')}` : ''}`
+          : resultado.erro || resultado.resposta || 'Não consegui consultar uma fonte nesta tentativa. Não vou afirmar a regra sem confirmação.'
+      }]);
+    } catch {
+      setMensagensChat(prev => [...prev, { autor: 'ia', texto: 'Não foi possível consultar o serviço agora. Nenhum prazo ou valor foi confirmado.' }]);
     }
-
-    setTimeout(() => {
-      setMensagensChat(prev => [...prev, { autor: 'ia', texto: resposta }]);
-    }, 600);
   };
 
   // Cálculo de economia no comparador
-  const faturamentoNumerico = parseFloat(faturamentoComp.replace(/\D/g, '')) || 0;
-  const simplesComp = faturamentoNumerico * 0.06;
-  const presumidoComp = faturamentoNumerico * 0.1333;
-  const realComp = faturamentoNumerico * 0.18;
-  const economiaSimplesPresumido = presumidoComp - simplesComp;
 
   return (
     <div id="tela-automacao-fiscal-murade" className="max-w-6xl mx-auto space-y-5 pb-16">
@@ -470,11 +636,11 @@ export function AutomacaoFiscalScreen({
                 <span>🤖⚡ AUTOMAÇÃO FISCAL — MURADE FISCAL</span>
               </h1>
               <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-300">
-                v2.0 ATUALIZADO 2026
+                Conexões pendentes
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Tudo funcionando sozinho: emite NFe, recebe XML, apura guias e envia DCTF Web. O contador só confere!
+              Painel em modo independente. Emissão, consulta oficial, apuração e transmissão não estão conectadas.
             </p>
           </div>
         </div>
@@ -483,33 +649,21 @@ export function AutomacaoFiscalScreen({
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setModalFiscoiaAberto(true)}
-            className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4 text-blue-600" />
-            <span>FiscoIA Consultas (1x/sem grátis • R$ 2,50)</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setModalCalculadoraAberto(true)}
             className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold rounded-xl text-xs flex items-center gap-2 shadow-2xs transition-colors cursor-pointer"
           >
             <Calculator className="w-4 h-4 text-amber-600" />
-            <span>Calculadora Fiscal (27 UFs)</span>
+            <span>Calculadora de estimativas</span>
           </button>
 
           <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl text-xs">
             <div className="flex items-center gap-2">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-              </span>
-              <span className="font-black text-emerald-700">AUTOMAÇÃO ATIVA</span>
+              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <span className="font-black text-amber-800">INTEGRAÇÕES PENDENTES</span>
             </div>
             <span className="text-slate-300">|</span>
             <span className="text-slate-500 font-medium">
-              Última: <strong className="text-slate-800">{ultimaVerificacao}</strong>
+              Hora local: <strong className="text-slate-800">{horaLocal}</strong>
             </span>
           </div>
         </div>
@@ -544,16 +698,16 @@ export function AutomacaoFiscalScreen({
       {/* 📑 NAVEGAÇÃO DE ABAS INTERNAS */}
       <div className="flex items-center gap-1.5 overflow-x-auto border-b border-slate-200 pb-1 scrollbar-none">
         {[
-          { id: 'automacao', rotulo: '🤖 Automação & Fila', icone: Cpu },
-          { id: 'dadosReais', rotulo: '🛡️ Só Dados Reais (SEFAZ)', icone: ShieldCheck, badge: 'Oficial' },
-          { id: 'reforma', rotulo: '⚖️ Reforma IBS/CBS', icone: Receipt, badge: '2026' },
+          { id: 'automacao', rotulo: '🤖 Tarefas fiscais', icone: Cpu },
+          { id: 'dadosReais', rotulo: '🛡️ Conferência (SEFAZ)', icone: ShieldCheck, badge: 'Não conectado' },
+          { id: 'reforma', rotulo: '⚖️ Reforma IBS/CBS', icone: Receipt },
           { id: 'ocr', rotulo: '📸 OCR / XML E-mail', icone: Upload },
           { id: 'ia', rotulo: '🧠 Assistente IA', icone: Bot },
           { id: 'comparador', rotulo: '💰 Comparador de Regime', icone: FileSpreadsheet },
-          { id: 'autoresolucao', rotulo: '🔧 Auto-Resolução (5x)', icone: Zap },
-          { id: 'dctf', rotulo: '📋 DCTF Web Digital', icone: FileText },
-          { id: 'calendario', rotulo: '📅 Calendário 2026', icone: Calendar },
-          { id: 'certificado', rotulo: '🔑 Certificado 2 Anos', icone: Key }
+          { id: 'autoresolucao', rotulo: '🔧 Histórico de automação', icone: Zap },
+          { id: 'dctf', rotulo: '📋 DCTF Web', icone: FileText },
+          { id: 'calendario', rotulo: '📅 Calendário fiscal', icone: Calendar },
+          { id: 'certificado', rotulo: '🔑 Certificado digital', icone: Key }
         ].map(tab => {
           const Icone = tab.icone;
           const ativa = abaInterna === tab.id;
@@ -591,687 +745,109 @@ export function AutomacaoFiscalScreen({
           <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-900 to-indigo-900 text-white shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-sm sm:text-base font-black">
-                Módulo de Automação Contábil & Fiscal — Robô Central Murade
+                Painel de tarefas fiscais
               </h2>
               <p className="text-xs text-blue-200 mt-0.5">
-                Executa checagens periódicas a cada 5 minutos no SERPRO e SEFAZ. O contador apenas valida e aprova.
+                O Radar local confere XMLs e vencimentos periodicamente enquanto esta tela fica aberta. Busca oficial de notas, emissão e transmissão ainda não estão conectadas.
               </p>
             </div>
 
             <button
               type="button"
-              onClick={handleForcarProcessamento}
-              disabled={processando}
+              onClick={() => void verificarDisponibilidadeAgora()}
               className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${processando ? 'animate-spin' : ''}`} />
-              <span>{processando ? 'Processando...' : '🚀 Forçar Processamento Agora'}</span>
+              <span>Testar resposta técnica</span>
             </button>
           </div>
 
-          {/* 📊 GRÁFICO E FLUXO CONTÍNUO DAS 5 ETAPAS FISCAIS NA FRENTE */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📈</span>
-                  <h3 className="text-xs sm:text-sm font-black text-slate-900">
-                    Fluxo Contínuo de Automação — As 5 Etapas Fiscais Integradas
-                  </h3>
-                  <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
-                    CICLO COMPLETO ATIVO
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Visualização do ciclo operacional completo: emissão, entrada, baixa, apuração e envio de declarações.
-                </p>
+                <h3 className="text-sm font-bold text-slate-900">Resumo dos dados fiscais locais</h3>
+                <p className="text-xs text-slate-600 mt-1">Os totais vêm do livro salvo neste navegador para a empresa ativa. Não representam consulta à SEFAZ nem apuração oficial.</p>
               </div>
-
-              {onNavegar && (
-                <button
-                  type="button"
-                  onClick={() => onNavegar('fiscal')}
-                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto"
-                >
-                  <span>Abrir Módulo Fiscal Completo</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+              <button type="button" onClick={handleAuditarFechamentoLocal} disabled={!empresaAtiva?.id} className="px-3 py-2 bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50">Conferir mês atual</button>
+            </div>
+            {empresaAtiva?.id ? (() => {
+              const hoje = new Date();
+              const periodo = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+              const leitura = lerNotasFiscaisEmpresa(empresaAtiva.id);
+              if ('erro' in leitura) return <p className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-xs">Livro fiscal local indisponível ({leitura.erro}). Totais e pendências não podem ser apresentados; os dados armazenados foram preservados.</p>;
+              const livro = leitura.notas;
+              const saidas = livro.saidas.filter(nota => nota.dataEmissao?.startsWith(periodo));
+              const entradas = livro.entradas.filter(nota => nota.dataEmissao?.startsWith(periodo));
+              // `PAGA` é um estado legado sem comprovante. Só o registro manual
+              // atual com valor integral pode retirar a nota das pendências locais.
+              const pendentes = [...livro.saidas, ...livro.entradas].filter(nota => nota.status !== 'PAGA_INFORMADA');
+              const vencidas = pendentes.filter(nota => vencimentoInformadoPassou(nota.dataVencimento, hoje));
+              const resumo = FISCOIA_FISCAL.resumirTributosInformados(saidas, entradas, String(hoje.getMonth() + 1).padStart(2, '0'), String(hoje.getFullYear()));
+              return <div className="space-y-2">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-50 border"><div className="text-[11px] text-slate-600">Notas de saída no mês</div><strong>{saidas.length}</strong></div>
+                  <div className="p-3 rounded-xl bg-slate-50 border"><div className="text-[11px] text-slate-600">Notas de entrada no mês</div><strong>{entradas.length}</strong></div>
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200"><div className="text-[11px] text-amber-900">Notas vencidas não baixadas</div><strong>{vencidas.length}</strong></div>
+                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-200"><div className="text-[11px] text-blue-900">Campos informados: ICMS nas saídas / entradas</div><strong>R$ {resumo.totalSaida.ICMS.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / R$ {resumo.totalEntrada.ICMS.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+                </div>
+                <p role="note" className="text-[10px] text-slate-600">{resumo.status} O resumo não é apuração legal.</p>
+              </div>;
+            })() : <p className="p-3 rounded-lg bg-amber-50 text-amber-900 text-xs">Selecione uma empresa para ver os registros locais.</p>}
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">Busca de notas, transmissão de NF-e, conciliação bancária, apuração legal e emissão de guias dependem de integrações externas ainda não configuradas.</div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Monitor de resposta técnica dos módulos</h3>
+                <p className="text-xs text-slate-600 mt-1">Consulta /api/health nos três serviços Murade a cada 10 minutos enquanto esta página estiver aberta. Isso não verifica portais governamentais nem sincroniza dados.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setMonitorarServicos(ativo => !ativo)} className="px-3 py-2 rounded-lg border text-xs font-bold">
+                  {monitorarServicos ? 'Pausar monitoramento' : 'Retomar monitoramento'}
                 </button>
-              )}
-            </div>
-
-            {/* PIPELINE / GRÁFICO DE FLUXO DAS 5 ETAPAS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 pt-1">
-              {/* Etapa 1: Emissão NFe */}
-              <div 
-                onClick={() => onNavegar ? onNavegar('nfe_saida') : null}
-                className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                  modulos.nfe 
-                    ? 'bg-blue-50/50 hover:bg-blue-50 border-blue-200 hover:border-blue-400' 
-                    : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-blue-900 flex items-center gap-1.5">
-                    <span>1. 📄</span> Emissão NFe
-                  </span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
-                    12 emitidas
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  Vendas & Faturamento
-                </div>
-                <div className="text-[11px] font-black text-slate-800 mt-1">
-                  R$ 84.500,00
-                </div>
-                <div className="text-[10px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Transmitido SEFAZ
-                </div>
-              </div>
-
-              {/* Etapa 2: Entrada de Notas */}
-              <div 
-                onClick={() => onNavegar ? onNavegar('nfe_entrada') : null}
-                className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                  modulos.entrada 
-                    ? 'bg-purple-50/50 hover:bg-purple-50 border-purple-200 hover:border-purple-400' 
-                    : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-purple-900 flex items-center gap-1.5">
-                    <span>2. 📥</span> Notas Entrada
-                  </span>
-                  <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.2 rounded-full">
-                    4 recebidas
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  XML Fornecedores
-                </div>
-                <div className="text-[11px] font-black text-slate-800 mt-1">
-                  R$ 18.200,00
-                </div>
-                <div className="text-[10px] text-purple-600 font-semibold mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Créditos Apurados
-                </div>
-              </div>
-
-              {/* Etapa 3: Baixa de Notas */}
-              <div 
-                onClick={() => onNavegar ? onNavegar('baixa_notas') : null}
-                className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                  modulos.baixa 
-                    ? 'bg-emerald-50/50 hover:bg-emerald-50 border-emerald-200 hover:border-emerald-400' 
-                    : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
-                    <span>3. 🏦</span> Baixa de Notas
-                  </span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
-                    16 baixadas
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  Quitação & Extrato
-                </div>
-                <div className="text-[11px] font-black text-slate-800 mt-1">
-                  100% Conciliado
-                </div>
-                <div className="text-[10px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-                  <CheckCheck className="w-3 h-3" /> Títulos Quitados
-                </div>
-              </div>
-
-              {/* Etapa 4: Apuração das Notas */}
-              <div 
-                onClick={() => onNavegar ? onNavegar('apuracao') : null}
-                className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                  modulos.apuracao 
-                    ? 'bg-amber-50/50 hover:bg-amber-50 border-amber-200 hover:border-amber-400' 
-                    : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
-                    <span>4. ⚖️</span> Apuração Notas
-                  </span>
-                  <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded-full">
-                    Calculado
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  Débitos − Créditos
-                </div>
-                <div className="text-[11px] font-black text-amber-950 mt-1">
-                  R$ 6.320,00
-                </div>
-                <div className="text-[10px] text-amber-700 font-semibold mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Saldo Líquido
-                </div>
-              </div>
-
-              {/* Etapa 5: Guias & Declarações */}
-              <div 
-                onClick={() => onNavegar ? onNavegar('dctfweb') : null}
-                className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                  modulos.guias 
-                    ? 'bg-indigo-50/50 hover:bg-indigo-50 border-indigo-200 hover:border-indigo-400' 
-                    : 'bg-slate-50 border-slate-200 opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
-                    <span>5. 📑</span> Guias & DCTF
-                  </span>
-                  <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded-full">
-                    3 guias
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  DARF / DAE Pix
-                </div>
-                <div className="text-[11px] font-black text-slate-800 mt-1">
-                  Venc: 25/09
-                </div>
-                <div className="text-[10px] text-indigo-600 font-semibold mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3" /> Pronta P/ Transmissão
-                </div>
+                <button type="button" onClick={() => void verificarDisponibilidadeAgora()} className="px-3 py-2 rounded-lg bg-blue-700 text-white text-xs font-bold">Verificar agora</button>
+                <button type="button" onClick={() => void ativarNotificacoesRobos()} disabled={permissaoNotificacao === 'granted' || permissaoNotificacao === 'unsupported'} className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs font-bold disabled:opacity-60">
+                  {permissaoNotificacao === 'granted' ? 'Notificações ativadas' : permissaoNotificacao === 'unsupported' ? 'Notificações indisponíveis' : 'Ativar notificações'}
+                </button>
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {statusServicos.map(servico => (
+                <div key={servico.id} className="p-3 rounded-xl border bg-slate-50">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-xs text-slate-900">{servico.nome}</strong>
+                    <span className={`text-[10px] font-bold ${servico.estado === 'disponivel' ? 'text-emerald-700' : 'text-amber-800'}`}>
+                      {servico.estado === 'disponivel' ? 'Servidor respondeu' : servico.estado === 'verificando' ? 'Verificando' : 'Sem confirmação'}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-600">{servico.detalhe}</div>
+                  <div className="mt-1 text-[10px] text-slate-500">
+                    {servico.verificadoEm || 'Ainda não verificado'} · health check apenas
+                    {servico.estado === 'sem_confirmacao' && servico.ultimaRespostaConfirmadaEm
+                      ? ` · última resposta confirmada: ${servico.ultimaRespostaConfirmadaEm}`
+                      : servico.estado === 'sem_confirmacao' ? ' · nenhuma resposta confirmada nesta sessão' : ''}
+                    {servico.falhasConsecutivas ? ` · ${servico.falhasConsecutivas} falha(s) seguida(s)` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {alertasRadar.length > 0 && (
+              <div className="p-3 rounded-xl border border-amber-200 bg-amber-50">
+                <strong className="text-xs text-amber-950">Alertas do Radar — última conferência completa</strong>
+                <ul className="mt-2 space-y-1 text-[11px] text-amber-900">{alertasRadar.map((alerta, indice) => <li key={`${indice}-${alerta}`}>{alerta}</li>)}</ul>
+              </div>
+            )}
+            {alertasLivroFiscal.length > 0 && (
+              <div className="p-3 rounded-xl border border-orange-200 bg-orange-50">
+                <strong className="text-xs text-orange-950">Campos do livro que precisam de revisão</strong>
+                <ul className="mt-2 space-y-1 text-[11px] text-orange-900">{alertasLivroFiscal.map((alerta, indice) => <li key={`${indice}-${alerta}`}>{alerta}</li>)}</ul>
+              </div>
+            )}
           </div>
-
-          {/* 📊 GRADE DOS 5 PAINÉIS PRINCIPAIS (EMISSÃO, ENTRADA, BAIXA, APURAÇÃO E GUIAS) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
-            {/* PAINEL 1: EMISSÃO DE NFE */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-              <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base">📄</span>
-                  <h3 className="text-xs font-black text-slate-800">Emissão de NFe</h3>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={modulos.nfe}
-                    onChange={(e) => setModulos({ ...modulos, nfe: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div className="p-3.5 space-y-2 text-xs divide-y divide-slate-100 flex-1">
-                <div className="flex items-center justify-between py-1">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📝</span> Preencher dados
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🧮</span> Calcular impostos
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📡</span> Transmitir SEFAZ
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>✅</span> Aguardar aprovação
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>💾</span> Salvar XML e DANFE
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* PAINEL 2: NOTAS DE ENTRADA */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-              <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base">📥</span>
-                  <h3 className="text-xs font-black text-slate-800">Notas de Entrada</h3>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={modulos.entrada}
-                    onChange={(e) => setModulos({ ...modulos, entrada: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div className="p-3.5 space-y-2 text-xs divide-y divide-slate-100 flex-1">
-                <div className="flex items-center justify-between py-1">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🔍</span> Buscar SEFAZ 15m
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>⬇️</span> Importar XML
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>✅</span> Validar fornecedor
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📦</span> Apurar crédito
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🔔</span> Notificar compra
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* PAINEL 3: BAIXA DE NOTAS (NOVO — SOLICITADO PELO USUÁRIO) */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-              <div className="p-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base">🏦</span>
-                  <h3 className="text-xs font-black text-emerald-950">Baixa de Notas</h3>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={modulos.baixa}
-                    onChange={(e) => setModulos({ ...modulos, baixa: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div className="p-3.5 space-y-2 text-xs divide-y divide-slate-100 flex-1">
-                <div className="flex items-center justify-between py-1">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>💳</span> Baixar títulos
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🏦</span> Conciliar extrato
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>⏰</span> Alerta vencimentos
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>⚡</span> Quitação Chave/Pix
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📁</span> Guardar comprovante
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* PAINEL 4: APURAÇÃO DAS NOTAS (NOVO — SOLICITADO PELO USUÁRIO) */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-              <div className="p-3 bg-amber-50/50 border-b border-amber-100 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base">⚖️</span>
-                  <h3 className="text-xs font-black text-amber-950">Apuração das Notas</h3>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={modulos.apuracao}
-                    onChange={(e) => setModulos({ ...modulos, apuracao: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div className="p-3.5 space-y-2 text-xs divide-y divide-slate-100 flex-1">
-                <div className="flex items-center justify-between py-1">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📊</span> Débitos vs Créditos
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🧮</span> Apuração ICMS/PIS
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>⚖️</span> Saldo líquido a pagar
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>🔍</span> Validar retenções
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>💾</span> Fechamento fiscal
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* PAINEL 5: GUIAS E DECLARAÇÕES */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-              <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-base">📑</span>
-                  <h3 className="text-xs font-black text-slate-800">Guias & DCTF</h3>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={modulos.guias}
-                    onChange={(e) => setModulos({ ...modulos, guias: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-8 h-4.5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                </label>
-              </div>
-
-              <div className="p-3.5 space-y-2 text-xs divide-y divide-slate-100 flex-1">
-                <div className="flex items-center justify-between py-1">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>⚖️</span> Apuração IBS/CBS
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📄</span> DARF/DAE Pix
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📊</span> Sped Fiscal / EFD
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📡</span> DCTF Web 100%
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1 pt-1.5">
-                  <span className="flex items-center gap-1 text-slate-700">
-                    <span>📅</span> Alerta 10d antes
-                  </span>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full border border-emerald-200">
-                    ✅ Auto
-                  </span>
-                </div>
-              </div>
-            </div>
+          <div className="bg-white rounded-2xl border border-amber-200 bg-amber-50/40 p-5 space-y-2">
+            <h3 className="text-sm font-bold text-amber-950">Robôs fiscais — operações não executadas</h3>
+            <p className="text-xs text-amber-900">Busca de notas, transmissão de NF-e, conciliação bancária, apuração oficial e emissão de guias não estão conectadas. Esta tela não executa nem agenda essas tarefas.</p>
+            <p className="text-[11px] text-slate-700">Para iniciar essas operações, faltam APIs autenticadas dos órgãos e dos serviços Murade, certificado habilitado no servidor e integração bancária quando necessária.</p>
           </div>
-
-          {/* 📋 FILA DE PROCESSAMENTO — EM ANDAMENTO */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-blue-600" />
-                <span>⚙️ Fila de Processamento das 5 Etapas — Em Andamento no Robô</span>
-              </h3>
-
-              <span className="text-[11px] text-slate-500 font-mono">
-                SERPRO 2.0 • Latência 0.8s
-              </span>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              {/* Item 1: Entrada */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📥</span>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      1. Buscando notas de entrada — Empresa: XYZ Comércio LTDA
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Consulta SEFAZ GO • 4 XMLs recebidos e validados via API nativa
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-48">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                      style={{ width: `${progressoFila.buscaEntrada}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-700 w-9 text-right">
-                    {progressoFila.buscaEntrada}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Item 2: Saída */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📄</span>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      2. Transmitindo NFe nº 1245 — Venda Cliente ABC
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Protocolo SEFAZ autorizado • Cálculo automático de ICMS/PIS/COFINS
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-48">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                      style={{ width: `${progressoFila.transmissaoNfe}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-700 w-9 text-right">
-                    {progressoFila.transmissaoNfe}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Item 3: Baixa de Notas (NOVO) */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">🏦</span>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      3. Baixando notas e conciliando títulos — Lote NF nº 1240 a 1256
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Conciliação bancária automática com extrato OFX • 16 títulos quitados
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-48">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-emerald-600 rounded-full transition-all duration-500"
-                      style={{ width: `${progressoFila.baixaNotas}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-700 w-9 text-right">
-                    {progressoFila.baixaNotas}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Item 4: Apuração das Notas (NOVO) */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">⚖️</span>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      4. Apurando saldo de notas fiscais — Débitos R$ 9.180 − Créditos R$ 2.860
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Saldo apurado a recolher: R$ 6.320,00 • Sem inconsistências nas alíquotas
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-48">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                      style={{ width: `${progressoFila.apuracaoNotas}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-700 w-9 text-right">
-                    {progressoFila.apuracaoNotas}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Item 5: Guias e DCTF Web */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <div className="flex items-center gap-3">
-                  <span className="text-xl">📑</span>
-                  <div>
-                    <div className="font-bold text-slate-900">
-                      5. Gerando guia ICMS, DARF e apuração — Competência: 09/2026
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Vencimento: 25/09/2026 • Código de barras Pix gerado e pronto
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 w-full sm:w-48">
-                  <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                      style={{ width: `${progressoFila.guiaIcms}%` }}
-                    />
-                  </div>
-                  <span className="font-mono font-bold text-slate-700 w-9 text-right">
-                    {progressoFila.guiaIcms}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* ⚠️ ALERTAS — O QUE O CONTADOR PRECISA CONFERIR */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
             <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1280,51 +856,51 @@ export function AutomacaoFiscalScreen({
             </h3>
 
             <div className="space-y-2 text-xs">
-              <div className="p-3 rounded-xl bg-emerald-50 border-l-4 border-emerald-500 flex items-start gap-2.5">
-                <span className="text-base">✅</span>
+              <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
+                <span className="text-base">⚠️</span>
                 <div>
-                  <strong className="text-emerald-900">12 NFe emitidas e APROVADAS pela SEFAZ hoje</strong>
-                  <p className="text-emerald-700 mt-0.5">Confira os valores e retenções antes do fechamento da competência.</p>
+                  <strong className="text-amber-900">Emissão SEFAZ não configurada</strong>
+                  <p className="text-amber-800 mt-0.5">Esta tela não transmite notas à SEFAZ.</p>
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-emerald-50 border-l-4 border-emerald-500 flex items-start gap-2.5">
-                <span className="text-base">📥</span>
+              <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
+                <span className="text-base">⚠️</span>
                 <div>
-                  <strong className="text-emerald-900">4 notas de entrada recebidas automaticamente</strong>
-                  <p className="text-emerald-700 mt-0.5">Importadas diretamente da SEFAZ GO sem necessidade de download de XML.</p>
+                  <strong className="text-amber-900">Consulta de notas de entrada não configurada</strong>
+                  <p className="text-amber-800 mt-0.5">Nenhuma consulta à SEFAZ foi executada.</p>
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-emerald-50 border-l-4 border-emerald-500 flex items-start gap-2.5">
-                <span className="text-base">🏦</span>
+              <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
+                <span className="text-base">⚠️</span>
                 <div>
-                  <strong className="text-emerald-900">16 notas baixadas e conciliadas no período</strong>
-                  <p className="text-emerald-700 mt-0.5">Quitação financeira confirmada via extrato. Nenhuma pendência ou nota vencida.</p>
+                  <strong className="text-amber-900">Baixas não validadas</strong>
+                  <p className="text-amber-800 mt-0.5">Não há extrato bancário conectado nesta tela.</p>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
                 <span className="text-base">⚖️</span>
                 <div>
-                  <strong className="text-amber-900">Apuração das notas concluída: R$ 6.320,00 a recolher</strong>
-                  <p className="text-amber-700 mt-0.5">Confronto de saídas (R$ 9.180) e entradas (R$ 2.860) apurado com sucesso.</p>
+                  <strong className="text-amber-900">Apuração não executada</strong>
+                  <p className="text-amber-800 mt-0.5">Não há documentos autenticados para calcular impostos.</p>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
                 <span className="text-base">📅</span>
                 <div>
-                  <strong className="text-amber-900">DCTF Web vence em 8 dias — 20/09/2026</strong>
-                  <p className="text-amber-700 mt-0.5">Declaração já apurada pelo robô e pronta para transmissão direta à RFB.</p>
+                  <strong className="text-amber-900">Prazo de DCTFWeb não consultado</strong>
+                  <p className="text-amber-800 mt-0.5">Consulte o portal oficial até que a fonte esteja configurada.</p>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border-l-4 border-amber-500 flex items-start gap-2.5">
                 <span className="text-base">⚖️</span>
                 <div>
-                  <strong className="text-amber-900">ICMS GO vence em 13 dias — 25/09/2026</strong>
-                  <p className="text-amber-700 mt-0.5">Apuração pronta e validada. Confira a guia antes da emissão final aos clientes.</p>
+                  <strong className="text-amber-900">Prazo de ICMS não consultado</strong>
+                  <p className="text-amber-700 mt-0.5">Nenhuma apuração foi executada. Consulte o calendário oficial e os dados da empresa.</p>
                 </div>
               </div>
             </div>
@@ -1342,20 +918,18 @@ export function AutomacaoFiscalScreen({
 
             <button
               type="button"
-              onClick={handleConferirTudo}
+              onClick={handleAuditarFechamentoLocal}
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
             >
-              ✅ Conferir Tudo e Liberar
+              Conferir dados locais
             </button>
 
             <button
               type="button"
-              onClick={handleForcarProcessamento}
-              disabled={processando}
+              onClick={() => void verificarDisponibilidadeAgora()}
               className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm flex items-center gap-1.5"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${processando ? 'animate-spin' : ''}`} />
-              <span>{processando ? 'Processando...' : '🚀 Forçar Processamento Agora'}</span>
+              <span>Verificar disponibilidade</span>
             </button>
           </div>
         </div>
@@ -1375,20 +949,20 @@ export function AutomacaoFiscalScreen({
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white flex items-center gap-2">
-                    <span>MURADE FISCAL — SÓ DADOS REAIS · SEM DADOS FALSOS</span>
+                    <span>Conferência de origem dos dados fiscais</span>
                     <span className="text-[10px] bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full font-mono font-bold border border-emerald-400/30">
-                      MODO AUDITORIA ATIVO
+                      API SEFAZ NÃO CONFIGURADA
                     </span>
                   </h3>
                   <p className="text-xs text-emerald-100/85 mt-0.5">
-                    Garantia de conformidade: Todo fluxo fiscal é auditado e filtrado contra simulações, geradores falsos ou dados mockados.
+                    O sistema verifica formato e rejeita exemplos conhecidos; isso não autentica a origem. A API oficial ainda não está conectada.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 font-mono text-xs font-bold">
-                  ✓ SEFAZ / RFB / Serpro
+                  Não conectado
                 </span>
               </div>
             </div>
@@ -1396,19 +970,19 @@ export function AutomacaoFiscalScreen({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/10 text-xs">
               <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                 <div className="text-[10px] text-slate-300">Bloquear Simulação</div>
-                <div className="font-bold text-emerald-400">ATIVO (Sem exceções)</div>
+                <div className="font-bold text-amber-300">Sem fonte autenticada</div>
               </div>
               <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                 <div className="text-[10px] text-slate-300">Certificado Digital</div>
-                <div className="font-bold text-emerald-400">EXIGIDO (mTLS ICP-Brasil)</div>
+                <div className="font-bold text-amber-300">Não validado</div>
               </div>
               <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                 <div className="text-[10px] text-slate-300">Chave NF-e</div>
-                <div className="font-bold text-emerald-400">44 DÍGITOS OFICIAIS</div>
+                <div className="font-bold text-amber-300">Formato não comprova origem</div>
               </div>
               <div className="bg-white/5 p-2 rounded-lg border border-white/10">
                 <div className="text-[10px] text-slate-300">Origens Proibidas</div>
-                <div className="font-bold text-red-400">simulacao, mock, teste</div>
+                <div className="font-bold text-red-400">Não verificado</div>
               </div>
             </div>
           </div>
@@ -1425,28 +999,42 @@ export function AutomacaoFiscalScreen({
                   </div>
                   {resumoRobo1 && (
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                      resumoRobo1.bloqueadas > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      resumoRobo1.alertas > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-slate-100 text-slate-800 border border-slate-300'
                     }`}>
                       {resumoRobo1.resumo}
                     </span>
                   )}
                 </div>
                 <p className="text-xs text-slate-600">
-                  Conexão direta com a SEFAZ. Valida a chave de 44 dígitos e descarta qualquer pacote de dados falsos ou testes.
+                  Confere XMLs do Radar, notas do livro e vencimentos informados para todas as empresas cadastradas neste navegador. Avisa sobre novos achados locais; não consulta portais oficiais.
                 </p>
+                <div className="p-2 rounded-lg bg-slate-100 text-[11px] text-slate-700">
+                  <div><strong>Robô local:</strong> {radarAtivo ? `ativo para ${empresas.length} empresa(s) enquanto o aplicativo estiver aberto` : 'pausado'}</div>
+                  <div>Última conferência: {ultimaAuditoriaRadar || 'aguardando execução'}</div>
+                  <div>{alertasRadar.length} alerta(s) da última conferência completa · {resumoRobo1?.notasNovas ?? 0} XML(s) novo(s) desde a conferência anterior</div>
+                </div>
+                <button type="button" onClick={() => {
+                  const proximo = !radarAtivo;
+                  if (!definirMonitorPendenciasAtivo(proximo)) {
+                    setNotificacao({ tipo: 'alerta', texto: 'Não foi possível salvar o estado do monitor neste navegador.' });
+                    return;
+                  }
+                  setRadarAtivo(proximo);
+                }} className="text-xs text-blue-700 underline">
+                  {radarAtivo ? 'Pausar verificação automática' : 'Retomar verificação automática'}
+                </button>
 
                 {resumoRobo1 && (
                   <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-2 font-mono">
                     <div className="flex justify-between border-b pb-1 text-slate-700 font-sans font-bold">
-                      <span>Total: {resumoRobo1.total}</span>
-                      <span className="text-emerald-700">Reais: {resumoRobo1.notasReais}</span>
-                      <span className="text-red-600">Bloqueadas: {resumoRobo1.bloqueadas}</span>
+                      <span>{resumoRobo1.empresas ?? 0} empresa(s) · {resumoRobo1.total ?? 0} XML(s) local(is)</span>
+                      <span className="text-amber-800">Achados: {resumoRobo1.alertas ?? 0} · XMLs novos: {resumoRobo1.notasNovas ?? 0}</span>
                     </div>
-                    {resumoRobo1.listaReais?.map((nota: any, i: number) => (
-                      <div key={i} className="p-2 rounded bg-emerald-50 border border-emerald-200 text-[11px]">
-                        <div className="text-emerald-800 font-bold">{nota.status}</div>
-                        <div className="truncate text-slate-600">{nota.chaveAcesso}</div>
-                        <div className="text-slate-800 font-bold">NF nº {nota.numero} — R$ {Number(nota.valorTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                    {resumoRobo1.detalhes?.map((item: any, i: number) => (
+                      <div key={`${item.chave}-${item.mensagem}-${i}`} className="p-2 rounded bg-amber-50 border border-amber-200 text-[11px]">
+                        <div className="text-amber-900 font-bold">{item.severidade}: {item.empresa} · NF {item.numero}</div>
+                        <div className="truncate text-slate-600">{item.chave}</div>
+                        <div className="text-slate-800">{item.mensagem}</div>
                       </div>
                     ))}
                   </div>
@@ -1456,24 +1044,13 @@ export function AutomacaoFiscalScreen({
               <div className="space-y-2 pt-2 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => handleExecutarRobo1(false)}
-                  disabled={executandoRobo === 1}
-                  className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  onClick={handleExecutarRobo1}
+                                    className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>{executandoRobo === 1 ? 'Conferindo...' : 'Executar Robô 1 (Lote SEFAZ)'}</span>
+                  <span>Verificar carteira local</span>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleExecutarRobo1(true)}
-                  disabled={executandoRobo === 1}
-                  className="w-full py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  title="Simula a entrada de notas falsas e prova que o filtro bloqueia 100%"
-                >
-                  <Ban className="w-3.5 h-3.5 text-red-600" />
-                  <span>Testar Bloqueio de Falsos</span>
-                </button>
+                <p className="text-[10px] text-slate-500">A origem e a autorização oficial dos XMLs não são validadas.</p>
               </div>
             </div>
 
@@ -1492,7 +1069,7 @@ export function AutomacaoFiscalScreen({
                   )}
                 </div>
                 <p className="text-xs text-slate-600">
-                  Audita os tributos destacados (ICMS, PIS, COFINS) e bloqueia o prosseguimento caso a fonte não seja uma conexão autorizada.
+                  Confere campos e valores registrados no livro local. Não determina imposto devido nem valida a regra fiscal da operação.
                 </p>
 
                 {resumoRobo2 && (
@@ -1502,11 +1079,13 @@ export function AutomacaoFiscalScreen({
                         {resumoRobo2.erro}
                       </div>
                     ) : (
-                      <div className="space-y-1 font-mono text-[11px] text-slate-700">
-                        <div className="text-emerald-700 font-bold">{resumoRobo2.status}</div>
-                        <div>Valor Total: R$ {Number(resumoRobo2.dados?.valorTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                        <div>ICMS Apurado: R$ 2.220,00 • PIS: R$ 120,25 • COFINS: R$ 555,00</div>
-                        <div className="text-[10px] text-slate-400">{resumoRobo2.data}</div>
+                      <div className="space-y-1 text-[11px] text-slate-700">
+                        <div className="font-bold">{resumoRobo2.mensagem}</div>
+                        {resumoRobo2.inconsistencias?.map((item: any, index: number) => (
+                          <div key={`${item.chave}-${index}`} className="border-t pt-1">
+                            NF {item.numero || 'sem número'} · {item.problemas.join('; ')}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1516,23 +1095,13 @@ export function AutomacaoFiscalScreen({
               <div className="space-y-2 pt-2 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => handleExecutarRobo2(false)}
-                  disabled={executandoRobo === 2}
-                  className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                  onClick={handleExecutarRobo2}
+                                    className="w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
                 >
                   <Activity className="w-4 h-4" />
-                  <span>{executandoRobo === 2 ? 'Auditando...' : 'Executar Robô 2 (Impostos Reais)'}</span>
+                  <span>Auditar campos do livro</span>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleExecutarRobo2(true)}
-                  disabled={executandoRobo === 2}
-                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Ban className="w-3.5 h-3.5 text-red-500" />
-                  <span>Testar Rejeição de Mock</span>
-                </button>
+                <p className="text-[10px] text-slate-500">Auditoria estrutural local; não é apuração tributária.</p>
               </div>
             </div>
 
@@ -1544,178 +1113,26 @@ export function AutomacaoFiscalScreen({
                     <span className="text-base">🤖</span>
                     <span>Robô 3 — Comparar Sistemas</span>
                   </div>
-                  {resumoRobo3 && (
-                    <span className="text-[10px] font-bold bg-purple-100 text-purple-900 border border-purple-300 px-2 py-0.5 rounded-full">
-                      {resumoRobo3.divergencias} divergência(s)
-                    </span>
-                  )}
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full">
+                    ERP não conectado
+                  </span>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Compara os lançamentos de um ERP ou sistema legado contra a base do Murade, acusando divergências centavo por centavo.
+                  Comparação indisponível: não há importador ou conexão de ERP configurados neste módulo.
                 </p>
-
-                {resumoRobo3 && (
-                  <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-1.5">
-                    <div className="flex justify-between font-bold text-slate-700 border-b pb-1">
-                      <span className="text-emerald-700">Iguais: {resumoRobo3.iguais}</span>
-                      <span className="text-amber-700">Divergências: {resumoRobo3.divergencias}</span>
-                      <span className="text-red-700">Bloqueados: {resumoRobo3.bloqueados}</span>
-                    </div>
-                    {resumoRobo3.detalhes?.map((item: any, idx: number) => (
-                      <div key={idx} className="p-1.5 rounded bg-slate-50 border border-slate-200 text-[11px]">
-                        <span className="font-bold text-slate-800">{item.status}: </span>
-                        {item.dif !== undefined ? (
-                          <span className="text-amber-700 font-semibold">
-                            Externo R$ {item.externo} vs Murade R$ {item.murade} (Diferença: R$ {item.dif})
-                          </span>
-                        ) : (
-                          <span className="text-emerald-700">R$ {item.valor} conferido</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
-              <div className="pt-2 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={handleExecutarRobo3}
-                  disabled={executandoRobo === 3}
-                  className="w-full py-2.5 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                >
-                  <Scale className="w-4 h-4" />
-                  <span>{executandoRobo === 3 ? 'Comparando...' : 'Executar Robô 3 (Cruzamento)'}</span>
-                </button>
-              </div>
+              <div className="pt-2 border-t border-slate-200 text-xs font-bold text-amber-900">Aguardando integração de dados do ERP</div>
             </div>
           </div>
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* ABA 2: REFORMA TRIBUTÁRIA IBS + CBS (VIGÊNCIA 2026) */}
+      {/* ABA 2: REFORMA TRIBUTÁRIA IBS + CBS (CONSULTA OFICIAL NÃO CONECTADA) */}
       {/* ============================================================== */}
       {abaInterna === 'reforma' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-6 animate-in fade-in">
-          <div className="border-b border-slate-100 pb-4">
-            <span className="text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-              Em Vigor desde 01/01/2026
-            </span>
-            <h2 className="text-lg font-black text-[#0F2B5B] mt-1">
-              ⚖️ Reforma Tributária — IBS (12%) + CBS (9%)
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Cálculo paralelo automático entre o regime antigo (ICMS/ISS) e o novo modelo não cumulativo.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl bg-sky-50/70 border-2 border-sky-400 space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-black text-sky-900">📘 IBS — Bens & Serviços</h4>
-                <span className="text-xs font-black bg-sky-200 text-sky-800 px-2 py-0.5 rounded">12%</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Substitui gradualmente o <strong>ICMS e ISS</strong> até 2033. Princípio do destino e não-cumulatividade plena com aproveitamento automático de créditos.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-purple-50/70 border-2 border-purple-400 space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-black text-purple-900">📘 CBS — Contribuição Federal</h4>
-                <span className="text-xs font-black bg-purple-200 text-purple-800 px-2 py-0.5 rounded">9%</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Substitui <strong>PIS e COFINS</strong>. Incidência sobre receita bruta com apuração em tempo real sincronizada via SERPRO 2.0.
-              </p>
-            </div>
-          </div>
-
-          {/* SIMULADOR DE CÁLCULO COMPARATIVO */}
-          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-900">
-              📊 Simulador Comparativo — Regime Antigo × Novo Modelo
-            </h3>
-
-            <div className="max-w-md space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 block">
-                Faturamento Mensal Estimado (R$)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-xs text-slate-400 font-bold">R$</span>
-                <input
-                  type="text"
-                  value={faturamentoReforma}
-                  onChange={(e) => setFaturamentoReforma(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border border-slate-300 text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="150000"
-                />
-              </div>
-            </div>
-
-            {calculoReforma && (
-              <div className="space-y-4 pt-2">
-                <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
-                      <tr>
-                        <th className="p-3">Tributo</th>
-                        <th className="p-3">Alíquota</th>
-                        <th className="p-3">Valor Mensal</th>
-                        <th className="p-3">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      <tr>
-                        <td className="p-3 font-semibold">ICMS (Estadual)</td>
-                        <td className="p-3 font-mono">18%</td>
-                        <td className="p-3 font-bold">R$ {calculoReforma.icms.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td className="p-3 text-slate-500">Regime Antigo</td>
-                      </tr>
-                      <tr>
-                        <td className="p-3 font-semibold">ISS (Municipal)</td>
-                        <td className="p-3 font-mono">5%</td>
-                        <td className="p-3 font-bold">R$ {calculoReforma.iss.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td className="p-3 text-slate-500">Regime Antigo</td>
-                      </tr>
-                      <tr className="bg-sky-50/50">
-                        <td className="p-3 font-bold text-sky-900">IBS (Novo)</td>
-                        <td className="p-3 font-mono font-bold text-sky-800">12%</td>
-                        <td className="p-3 font-black text-sky-900">R$ {calculoReforma.ibs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td className="p-3 font-bold text-sky-700">✅ Novo Vigente</td>
-                      </tr>
-                      <tr className="bg-purple-50/50">
-                        <td className="p-3 font-bold text-purple-900">CBS (Novo)</td>
-                        <td className="p-3 font-mono font-bold text-purple-800">9%</td>
-                        <td className="p-3 font-black text-purple-900">R$ {calculoReforma.cbs.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        <td className="p-3 font-bold text-purple-700">✅ Novo Vigente</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="p-4 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-2xs">
-                  <div>
-                    <span className="text-xs text-slate-500 font-semibold block">Carga Total Comparada</span>
-                    <span className="text-sm font-bold text-slate-800">
-                      Antigo (ICMS+ISS): R$ {calculoReforma.antigo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} | Novo (IBS+CBS): R$ {calculoReforma.novo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-xs text-slate-500 font-semibold block">Balanço do Novo Modelo</span>
-                    <span className={`text-base font-black ${
-                      calculoReforma.diferenca <= 0 ? 'text-emerald-600' : 'text-rose-600'
-                    }`}>
-                      {calculoReforma.diferenca <= 0 ? 'Economia' : 'Ajuste'} de R$ {Math.abs(calculoReforma.diferenca).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <div className="animate-in fade-in"><ReformaTributariaScreen /></div>
       )}
 
       {/* ============================================================== */}
@@ -1728,17 +1145,17 @@ export function AutomacaoFiscalScreen({
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                 <span>📸</span>
-                <span>OCR Inteligente — Lê Foto / PDF e Lança Sozinho</span>
+                <span>OCR fiscal — serviço não configurado</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Envie a foto do cupom ou PDF da NFe. O robô extrai os campos e digita na escrituração.
+                O processamento de imagens não está configurado. Arquivos selecionados não serão enviados ou lançados.
               </p>
             </div>
 
             <label className="border-2 border-dashed border-blue-400 hover:border-blue-600 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer bg-blue-50/40 hover:bg-blue-50 transition-colors">
               <Upload className="w-8 h-8 text-blue-600 mb-2" />
               <span className="text-xs font-bold text-slate-800">
-                {ocrCarregando ? 'Processando OCR com IA...' : 'Clique para enviar foto ou arrastar PDF'}
+                OCR indisponível até configurar o serviço
               </span>
               <span className="text-[11px] text-slate-500 mt-1">
                 Formatos suportados: PNG, JPG, PDF (até 15MB)
@@ -1751,30 +1168,6 @@ export function AutomacaoFiscalScreen({
               />
             </label>
 
-            {dadosOcr && (
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-                <div className="font-bold text-slate-800 flex items-center justify-between">
-                  <span>✅ Dados Extraídos pelo OCR:</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-black">100% Preciso</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-slate-600 font-mono text-[11px]">
-                  <div><strong>CNPJ:</strong> {dadosOcr.cnpj}</div>
-                  <div><strong>Nº Nota:</strong> {dadosOcr.numero}</div>
-                  <div><strong>Valor Total:</strong> {dadosOcr.valor}</div>
-                  <div><strong>ICMS (18%):</strong> {dadosOcr.icms}</div>
-                  <div><strong>Data Emissão:</strong> {dadosOcr.data}</div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleLancarNotaOcr}
-                  className="w-full mt-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer shadow-sm"
-                >
-                  ✅ Lançar Automaticamente no Sistema
-                </button>
-              </div>
-            )}
           </div>
 
           {/* MÓDULO 2: LEITOR XML POR E-MAIL */}
@@ -1785,59 +1178,12 @@ export function AutomacaoFiscalScreen({
                 <span>Leitor de XML por E-mail</span>
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Busca automática de XMLs recebidos na caixa de entrada sem necessidade de baixar arquivos manualmente.
+                A busca de XML por e-mail não está conectada.
               </p>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 block">
-                E-mail para Monitoramento Contínuo
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  value={emailMonitorado}
-                  onChange={(e) => setEmailMonitorado(e.target.value)}
-                  className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="fiscal@murade.com.br"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNotificacao({
-                      tipo: 'sucesso',
-                      texto: `✅ Monitoramento ativado para ${emailMonitorado}! Verificação a cada 15 minutos.`
-                    });
-                  }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
-                >
-                  Ativar
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
-              <div className="font-bold text-slate-800 flex items-center justify-between">
-                <span>📥 Últimos XMLs detectados e importados:</span>
-                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                  3 Novos Hoje
-                </span>
-              </div>
-
-              <div className="space-y-1.5 text-[11px] text-slate-600">
-                <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
-                  <span>Nota 1254 — Fornecedor XYZ Alimentos</span>
-                  <strong className="text-slate-900">R$ 4.580,00</strong>
-                </div>
-                <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
-                  <span>Nota 1255 — Transportadora ABC GO</span>
-                  <strong className="text-slate-900">R$ 1.200,00</strong>
-                </div>
-                <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
-                  <span>Nota 1256 — Comércio de Embalagens</span>
-                  <strong className="text-slate-900">R$ 3.890,00</strong>
-                </div>
-              </div>
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+              Monitoramento de e-mail indisponível: integração com provedor e agendamento no servidor não configurados. Nenhuma caixa postal foi acessada.
             </div>
           </div>
         </div>
@@ -1936,96 +1282,25 @@ export function AutomacaoFiscalScreen({
               💰 Comparador de Regime Tributário — Simples vs Presumido vs Real
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Identifique a oportunidade de migração com economia anual comprovada para apresentar ao cliente.
+              A comparação depende de dados contábeis, regime, atividade, UF e município. Não há cálculo validado neste painel.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 block">Faturamento Mensal (R$)</label>
-                <input
-                  type="text"
-                  value={faturamentoComp}
-                  onChange={(e) => setFaturamentoComp(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="80000"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 block">Número de Colaboradores</label>
-                <input
-                  type="number"
-                  value={funcionariosComp}
-                  onChange={(e) => setFuncionariosComp(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="4"
-                />
-              </div>
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">A integração e os dados necessários para comparar regimes ainda não estão configurados.</div>
             </div>
 
-            {/* RESULTADO COMPARATIVO */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
-                <div>
-                  <div className="font-bold text-emerald-900">Simples Nacional</div>
-                  <div className="text-[10px] text-emerald-700">Alíquota estimada ~6%</div>
-                </div>
-                <div className="text-sm font-black text-emerald-700 font-mono">
-                  R$ {simplesComp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-slate-200">
-                <div>
-                  <div className="font-bold text-slate-800">Lucro Presumido</div>
-                  <div className="text-[10px] text-slate-500">IRPJ/CSLL + PIS/COFINS + ISS (~13.3%)</div>
-                </div>
-                <div className="text-sm font-black text-slate-800 font-mono">
-                  R$ {presumidoComp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-slate-200">
-                <div>
-                  <div className="font-bold text-slate-800">Lucro Real</div>
-                  <div className="text-[10px] text-slate-500">Estimativa padrão 18%</div>
-                </div>
-                <div className="text-sm font-black text-slate-800 font-mono">
-                  R$ {realComp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
-                </div>
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+                Simulação indisponível: informe dados contábeis completos e conecte regras tributárias atualizadas antes de comparar regimes.
               </div>
             </div>
           </div>
 
-          {/* OPORTUNIDADE DE ECONOMIA DETECTADA */}
-          {economiaSimplesPresumido > 500 && (
-            <div className="p-4 rounded-xl bg-emerald-50 border-2 border-emerald-400 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h4 className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
-                  <span>💰</span>
-                  <span>OPORTUNIDADE DE ECONOMIA DETECTADA!</span>
-                </h4>
-                <p className="text-xs text-emerald-800 mt-1">
-                  Permanecer ou migrar para o <strong>Simples Nacional</strong> economiza <strong>R$ {economiaSimplesPresumido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês</strong> — totalizando <strong>R$ {(economiaSimplesPresumido * 12).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/ano</strong>!
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setNotificacao({
-                    tipo: 'sucesso',
-                    texto: '📄 Relatório de Planejamento Tributário gerado com sucesso em PDF para envio ao cliente!'
-                  });
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shrink-0 transition-colors shadow-sm"
-              >
-                📄 Gerar Relatório de Migração
-              </button>
-            </div>
-          )}
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+            Estimativas genéricas de alíquota foram removidas. Para comparar regimes, é necessário calcular com dados contábeis e regras específicas da empresa.
+          </div>
         </div>
       )}
 
@@ -2041,10 +1316,10 @@ export function AutomacaoFiscalScreen({
               </span>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  🔧 Motor de Auto-Resolução de Falhas — 5 Tentativas Automáticas
+                  🔧 Histórico de automação
                 </h3>
                 <p className="text-xs text-slate-500">
-                  O robô reconecta com o SERPRO e SEFAZ até 5 vezes antes de disparar alerta para o contador.
+                  Nenhum mecanismo de reconexão está ativo. Este histórico será preenchido quando uma integração real for implementada.
                 </p>
               </div>
             </div>
@@ -2082,32 +1357,33 @@ export function AutomacaoFiscalScreen({
       )}
 
       {/* ============================================================== */}
-      {/* ABA 7: DCTF WEB 100% DIGITAL */}
+      {/* ABA 7: DCTF WEB — acesso não configurado */}
       {/* ============================================================== */}
       {abaInterna === 'dctf' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5 animate-in fade-in">
           <div>
             <span className="text-[10px] font-black uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-              Padrão RFB 2026
+              Não conectado
             </span>
             <h3 className="text-base font-black text-[#0F2B5B] mt-1">
-              📋 DCTF Web 100% Digital — Sem Geração de Arquivo .TXT
+              📋 DCTFWeb — consulta e transmissão não configuradas
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Transmissão via API direta com o portal e-CAC da Receita Federal. Protocolo imediato na nuvem.
+              Este painel não envia declarações. Consulte o portal oficial até que a autenticação e o fluxo de transmissão sejam implementados.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
-              <h4 className="text-xs font-bold text-slate-800">Transmitir Declaração Direta</h4>
+              <h4 className="text-xs font-bold text-slate-800">Acesso à transmissão direta — indisponível</h4>
               
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-600 block">CNPJ da Empresa</label>
                 <input
                   type="text"
                   placeholder="00.000.000/0001-00"
-                  defaultValue="12.345.678/0001-90"
+                value={empresaAtiva?.cnpj || ''}
+                readOnly
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
               </div>
@@ -2116,36 +1392,21 @@ export function AutomacaoFiscalScreen({
                 <label className="text-xs font-semibold text-slate-600 block">Competência</label>
                 <input
                   type="month"
-                  defaultValue="2026-09"
+                  defaultValue={new Date().toISOString().slice(0, 7)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setNotificacao({
-                    tipo: 'sucesso',
-                    texto: '📡 TRANSMISSÃO CONCLUÍDA! DCTF Web da competência 09/2026 transmitida diretamente à RFB. Protocolo: DCTF-2026-987456123.'
-                  });
-                }}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
-              >
-                📡 Transmitir Direto RFB (Sem Arquivo)
-              </button>
+              <div role="status" className="w-full py-2.5 px-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs font-bold">
+                Transmissão desativada — integração autenticada com e-CAC/Receita Federal não configurada.
+              </div>
             </div>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
               <h4 className="font-bold text-slate-800">Histórico de Transmissões RFB</h4>
               <div className="space-y-1.5 text-[11px]">
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-emerald-800 font-semibold">
-                  ✅ Competência 08/2026 — Protocolo 123456789 (Transmitida em 10/09)
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-emerald-800 font-semibold">
-                  ✅ Competência 07/2026 — Protocolo 987654321 (Transmitida em 12/08)
-                </div>
-                <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-slate-500">
-                  ⏳ Competência 09/2026 — Aguardando vencimento (15º dia útil)
+                <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 font-semibold">
+                  Nenhum protocolo disponível. O histórico oficial não está conectado.
                 </div>
               </div>
             </div>
@@ -2160,50 +1421,15 @@ export function AutomacaoFiscalScreen({
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5 animate-in fade-in">
           <div>
             <h3 className="text-base font-black text-[#0F2B5B]">
-              📅 Calendário de Obrigações — Prazos Atualizados 2026
+              📅 Calendário de Obrigações — consulta oficial indisponível
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              EFD Contribuições antecipou para o 10º dia útil e EFD REINF prorrogou para o 10º dia útil.
+              Nenhuma data de vencimento é exibida sem consulta a fonte oficial atualizada e consideração da obrigação e do período.
             </p>
           </div>
 
-          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                <tr>
-                  <th className="p-3">Obrigação Acessória</th>
-                  <th className="p-3">Prazo Antigo</th>
-                  <th className="p-3">Novo Prazo 2026</th>
-                  <th className="p-3">Impacto</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                <tr>
-                  <td className="p-3 font-bold">EFD Contribuições</td>
-                  <td className="p-3 text-slate-500">15º dia útil</td>
-                  <td className="p-3 font-black text-rose-600">10º dia útil</td>
-                  <td className="p-3"><span className="text-[10px] bg-rose-100 text-rose-800 font-bold px-2 py-0.5 rounded">ANTECIPOU</span></td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-bold">EFD REINF</td>
-                  <td className="p-3 text-slate-500">5º dia útil</td>
-                  <td className="p-3 font-black text-emerald-600">10º dia útil</td>
-                  <td className="p-3"><span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded">PRORROGOU</span></td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-bold">DCTF Web</td>
-                  <td className="p-3 text-slate-500">15º dia útil</td>
-                  <td className="p-3 font-black text-slate-800">15º dia útil</td>
-                  <td className="p-3"><span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded">MANTIDO</span></td>
-                </tr>
-                <tr>
-                  <td className="p-3 font-bold">Sped Fiscal (ICMS/IPI)</td>
-                  <td className="p-3 text-slate-500">Último dia</td>
-                  <td className="p-3 font-black text-slate-800">Último dia</td>
-                  <td className="p-3"><span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded">MANTIDO</span></td>
-                </tr>
-              </tbody>
-            </table>
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+            Conecte uma fonte oficial de calendário para consultar os prazos vigentes. Não há datas verificadas disponíveis neste painel.
           </div>
         </div>
       )}
@@ -2215,59 +1441,21 @@ export function AutomacaoFiscalScreen({
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5 animate-in fade-in">
           <div>
             <h3 className="text-base font-black text-[#0F2B5B]">
-              🔑 Certificado Digital A1 / A3 — Regras SERPRO 2026
+              🔑 Certificados digitais — status desta empresa
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Validade máxima de 2 anos, algoritmo criptográfico SHA-3 e alertas programados de 60, 45, 30, 15 e 7 dias.
+              Os certificados não são consultados pelo SERPRO neste painel. Gerencie o arquivo e a validade no cadastro da empresa.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-              <h4 className="font-bold text-slate-900">Regras de Validade e Criptografia</h4>
-              <ul className="space-y-1 text-slate-600 list-disc list-inside">
-                <li>Validade padrão limitada a <strong>2 anos</strong>.</li>
-                <li>Algoritmo com chave <strong>SHA-3</strong> obrigatório nos emissores.</li>
-                <li>Procuração eletrônica no e-CAC estendida para até <strong>5 anos</strong>.</li>
-                <li>Renovação 100% online sem necessidade de biometria presencial.</li>
-              </ul>
-            </div>
-
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <h4 className="font-bold text-slate-900">Certificados Ativos no Escritório</h4>
-              
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] font-semibold">
-                  <span>Murade Contabilidade Matriz</span>
-                  <span className="text-amber-700">Vence em 42 dias</span>
-                </div>
-                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="w-3/4 h-full bg-amber-500 rounded-full" />
-                </div>
+              <h4 className="font-bold text-slate-900">Empresa ativa</h4>
+              <p className="text-slate-700">{empresaAtiva?.razaoSocial || empresaAtiva?.nomeFantasia || 'Nenhuma empresa selecionada'}</p>
+              <p className="text-slate-500">Validade e autorização oficial não foram verificadas aqui.</p>
+              <div role="status" className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-900">
+                Orientação de renovação indisponível neste painel. Consulte o canal oficial do emissor do certificado.
               </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between text-[11px] font-semibold">
-                  <span>Empresa XYZ Alimentos Ltda</span>
-                  <span className="text-emerald-700">Vence em 18 meses ✅</span>
-                </div>
-                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="w-11/12 h-full bg-emerald-500 rounded-full" />
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setNotificacao({
-                    tipo: 'sucesso',
-                    texto: '🔑 Link de renovação online gerado com sucesso via autoridade certificadora Serpro!'
-                  });
-                }}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold cursor-pointer transition-colors mt-2 shadow-xs"
-              >
-                🔄 Solicitar Renovação Automática Online
-              </button>
             </div>
           </div>
         </div>
@@ -2279,21 +1467,6 @@ export function AutomacaoFiscalScreen({
         onFechar={() => setModalCalculadoraAberto(false)}
       />
 
-      {/* MODAL DE CONSULTA CONTROLADA FISCOIA */}
-      <ModalConfirmacaoConsultaFiscoia
-        aberto={modalFiscoiaAberto}
-        cnpj="12.345.678/0001-90"
-        nomeCliente="MURADE CONTABILIDADE LTDA"
-        tipoConsulta="Sincronização SERPRO e Fiscal"
-        onFechar={() => setModalFiscoiaAberto(false)}
-        onConsultaConcluida={() => {
-          setNotificacao({
-            tipo: 'sucesso',
-            texto: '✅ Consulta FiscoIA executada com sucesso! Dados confrontados e sincronizados.'
-          });
-          setTimeout(() => setNotificacao(null), 5000);
-        }}
-      />
     </div>
   );
 }

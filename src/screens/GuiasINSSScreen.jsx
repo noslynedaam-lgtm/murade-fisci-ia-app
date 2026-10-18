@@ -5,72 +5,14 @@ import {
   Search, Download, Printer, Copy, Check, QrCode, 
   ExternalLink, Building2, Clock, ShieldCheck, FileText,
   DollarSign, Sparkles, X, ChevronRight, RefreshCw, Barcode,
-  Server, Trash2
+  Server
 } from 'lucide-react';
 import { useEmpresa } from '../context/EmpresaContext';
+import { formatarCnpj, normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import SeletorEmpresaGlobal from '../components/SeletorEmpresaGlobal';
 import { 
-  consultarGuiasDiretoReceitaFederal, 
-  limparDebitosEmpresa, 
-  salvarGuiasEmpresa 
+  consultarGuiasDiretoReceitaFederal
 } from '../services/serpro/guiasReceita.service';
-
-// ==========================================================
-// 🔢 CÁLCULO DE JUROS E MULTA — REGRAS DA RECEITA FEDERAL
-// ==========================================================
-export const calcularEncargos = (valorPrincipal, dataVencimento, dataPagamento = new Date()) => {
-  const venc = new Date(dataVencimento);
-  const pgto = new Date(dataPagamento);
-  
-  // Normaliza horas para comparar apenas dias
-  venc.setHours(0, 0, 0, 0);
-  pgto.setHours(0, 0, 0, 0);
-
-  if (pgto <= venc) {
-    return {
-      valorPrincipal,
-      multa: 0,
-      juros: 0,
-      valorTotal: valorPrincipal,
-      diasAtraso: 0,
-      percentualMulta: '0.00',
-      percentualJuros: '0.00',
-      situacao: 'EM_DIA'
-    };
-  }
-
-  const diferencaTempo = pgto.getTime() - venc.getTime();
-  const diasAtraso = Math.floor(diferencaTempo / (1000 * 60 * 60 * 24));
-  
-  // 📌 Multa — Receita Federal (até 30 dias: 0,33% ao dia, máximo 20%)
-  const percentualMulta = Math.min(0.0033 * diasAtraso, 0.20);
-  const multa = valorPrincipal * percentualMulta;
-
-  // 📌 Juros — Selic acumulada + 1% ao mês (simplificado: 1% ao mês ou fração)
-  const percentualJurosMensal = 0.01;
-  const mesesAtraso = Math.max(1, Math.ceil(diasAtraso / 30));
-  const juros = valorPrincipal * percentualJurosMensal * mesesAtraso;
-
-  const valorTotal = valorPrincipal + multa + juros;
-
-  return {
-    valorPrincipal,
-    multa,
-    juros,
-    valorTotal,
-    diasAtraso,
-    percentualMulta: (percentualMulta * 100).toFixed(2),
-    percentualJuros: ((percentualJurosMensal * mesesAtraso) * 100).toFixed(2),
-    situacao: 'EM_ATRASO'
-  };
-};
-
-// Gera linha digitável de DARF padrão Febraban
-const gerarLinhaDigitavel = (codigoReceita, valor, vencimento) => {
-  const v = Math.round(valor * 100).toString().padStart(11, '0');
-  const d = vencimento ? vencimento.toISOString().slice(0,10).replace(/-/g, '') : '20260918';
-  return `85840000${v.slice(0, 3)}-8  ${v.slice(3, 7)}0385${d.slice(2, 6)}-1  00000${codigoReceita}00-4  ${d.slice(0, 4)}1234567-9`;
-};
 
 // ==========================================================
 // 🖥️ TELA PRINCIPAL — GUIAS INSS / DCTFWeb
@@ -82,9 +24,8 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
   const [guias, setGuias] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [consultado, setConsultado] = useState(false);
+  const [erroLeituraGuias, setErroLeituraGuias] = useState(null);
   const [guiaSelecionadaModal, setGuiaSelecionadaModal] = useState(null);
-  const [copiadoLinha, setCopiadoLinha] = useState(false);
-  const [copiadoPix, setCopiadoPix] = useState(false);
 
   // Sincroniza quando o usuário altera a empresa ativa
   useEffect(() => {
@@ -104,44 +45,23 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
 
   // Formata CNPJ enquanto digita
   const handleCnpjChange = (texto) => {
-    const limpo = texto.replace(/\D/g, '').slice(0, 14);
-    let formatado = limpo;
-    if (limpo.length > 2) formatado = `${limpo.slice(0, 2)}.${limpo.slice(2)}`;
-    if (limpo.length > 5) formatado = `${formatado.slice(0, 6)}.${limpo.slice(5)}`;
-    if (limpo.length > 8) formatado = `${formatado.slice(0, 10)}/${limpo.slice(8)}`;
-    if (limpo.length > 12) formatado = `${formatado.slice(0, 15)}-${limpo.slice(12)}`;
-    setCnpj(formatado);
+    setCnpj(formatarCnpj(texto));
   };
 
   const [infoOrigemRFB, setInfoOrigemRFB] = useState(null);
 
   const executarBuscaComCnpj = async (cnpjParaBuscar) => {
-    const cnpjLimpo = (cnpjParaBuscar || '').replace(/\D/g, '');
-    if (cnpjLimpo.length !== 14) return;
+    const cnpjLimpo = normalizarCnpj(cnpjParaBuscar || '');
+    if (!validarCnpj(cnpjLimpo)) return;
 
     setCarregando(true);
     setConsultado(false);
+    setErroLeituraGuias(null);
     
-    // Consulta direta base oficial Receita Federal & SERPRO
     let resultado = await consultarGuiasDiretoReceitaFederal(
       cnpjLimpo,
       empresaAtiva ? empresaAtiva.regimeTributario : 'SIMPLES'
     );
-
-    // Se a empresa possui CND Regular, assegura regularidade fiscal
-    const isRegular = empresaAtiva && empresaAtiva.statusCND === 'REGULAR';
-    if (isRegular && resultado.guias.some(g => g.statusPagamento === 'NAO_PAGO')) {
-      const guiasLimpas = limparDebitosEmpresa(cnpjLimpo);
-      resultado = {
-        ...resultado,
-        guias: guiasLimpas,
-        totalDebitosEmAberto: 0,
-        valorTotalEmAberto: 0,
-        nadaConsta: true,
-        situacaoFiscal: 'REGULAR',
-        statusCND: 'REGULAR'
-      };
-    }
 
     if (resultado.razaoSocial && !razaoSocial) {
       setRazaoSocial(resultado.razaoSocial);
@@ -150,56 +70,50 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
     setInfoOrigemRFB({
       fonte: resultado.fonteOrigem,
       timestamp: resultado.timestamp,
-      situacao: resultado.situacaoCadastral || 'ATIVA'
+      situacao: resultado.situacaoCadastral || null
     });
 
-    const dataCalculo = new Date(2026, 8, 10);
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
     const guiasCalculadas = resultado.guias
-      .filter(g => g.categoria === 'DCTFWEB' || g.tipo.includes('INSS') || g.tipo.includes('DARF'))
+      .filter(g => g.categoria === 'DCTFWEB' || (g.tipo || '').toUpperCase().includes('INSS'))
       .map(guia => {
         const isPago = guia.statusPagamento === 'PAGO';
-        const encargos = isPago 
-          ? {
-              valorPrincipal: guia.valorOriginal,
-              multa: 0,
-              juros: 0,
-              valorTotal: guia.valorOriginal,
-              diasAtraso: 0,
-              percentualMulta: '0.00',
-              percentualJuros: '0.00',
-              situacao: 'PAGO'
-            }
-          : calcularEncargos(guia.valorOriginal, guia.dataVencimento, dataCalculo);
+        const dataVencimento = new Date(guia.dataVencimento);
+        dataVencimento.setHours(0, 0, 0, 0);
+        const vencimentoValido = !Number.isNaN(dataVencimento.getTime());
+        const situacao = isPago ? 'PAGO' : !vencimentoValido ? 'NAO_VERIFICADA' : dataVencimento < hoje ? 'EM_ATRASO' : 'EM_DIA';
 
         return {
           id: guia.id,
           competencia: guia.competencia,
           dataVencimento: guia.dataVencimento,
-          valorPrincipal: guia.valorOriginal,
+          valorPrincipal: Number(guia.valorOriginal) || 0,
           declaracao: guia.declaracao,
           reciboEntrega: guia.recibo,
           codigoReceita: guia.codigoReceita,
           tipo: guia.tipo,
-          statusPagamento: guia.statusPagamento || 'PAGO',
+          statusPagamento: guia.statusPagamento || 'NAO_PAGO',
           dataPagamento: guia.dataPagamento,
-          valorPago: guia.valorPago || guia.valorOriginal,
-          inssPatronal: guia.inssPatronal || (guia.valorOriginal * 0.62),
-          inssSegurados: guia.inssSegurados || (guia.valorOriginal * 0.28),
-          outrasEntidades: guia.outrasEntidades || (guia.valorOriginal * 0.10),
-          numeroReferencia: `2026.${guia.competencia.slice(0, 2)}.${guia.codigoReceita}`,
-          ...encargos
+          valorPago: guia.valorPago ?? null,
+          inssPatronal: guia.inssPatronal ?? null,
+          inssSegurados: guia.inssSegurados ?? null,
+          outrasEntidades: guia.outrasEntidades ?? null,
+          numeroReferencia: guia.numeroReferencia || '',
+          situacao
         };
       });
 
     setGuias(guiasCalculadas);
+    setErroLeituraGuias(resultado.erroLeituraLocal || null);
     setConsultado(true);
     setCarregando(false);
   };
 
   const buscarGuias = async () => {
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
-    if (cnpjLimpo.length !== 14) {
-      alert('⚠️ Digite o CNPJ completo com 14 dígitos!');
+    const cnpjLimpo = normalizarCnpj(cnpj);
+    if (!validarCnpj(cnpjLimpo)) {
+      alert('Informe um CNPJ válido com 14 caracteres e dígitos verificadores corretos.');
       return;
     }
 
@@ -208,7 +122,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
 
   // Carrega automaticamente a busca ao entrar se tiver CNPJ válido
   useEffect(() => {
-    if (cnpj && cnpj.replace(/\D/g, '').length === 14) {
+    if (cnpj && validarCnpj(cnpj)) {
       buscarGuias();
     }
   }, []);
@@ -217,28 +131,10 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
     setGuiaSelecionadaModal(guia);
   };
 
-  const copiarTexto = (texto, tipo) => {
-    navigator.clipboard?.writeText(texto);
-    if (tipo === 'linha') {
-      setCopiadoLinha(true);
-      setTimeout(() => setCopiadoLinha(false), 2500);
-    } else {
-      setCopiadoPix(true);
-      setTimeout(() => setCopiadoPix(false), 2500);
-    }
-  };
-
-  const handleLimparDebitos = () => {
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
-    if (!cnpjLimpo) return;
-    limparDebitosEmpresa(cnpjLimpo);
-    executarBuscaComCnpj(cnpj);
-  };
-
   const guiasNaoPagas = guias.filter(g => g.statusPagamento !== 'PAGO');
   const guiasEmDia = guiasNaoPagas.filter(g => g.situacao === 'EM_DIA');
   const guiasEmAtraso = guiasNaoPagas.filter(g => g.situacao === 'EM_ATRASO');
-  const guiasPagas = guias.filter(g => g.statusPagamento === 'PAGO');
+  const guiasComPagamentoInformado = guias.filter(g => g.statusPagamento === 'PAGO');
 
   return (
     <div className="min-h-screen bg-[#e0edff] text-slate-900 font-sans pb-16">
@@ -248,7 +144,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
           <BotaoVoltar onVoltar={onVoltar} cor="#1a237e" />
           <div className="flex items-center gap-1.5 px-3 py-1 bg-white/80 backdrop-blur-xs border border-[#b3d4ff] rounded-full text-xs font-bold text-[#1a237e] shadow-xs">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Padrão DCTFWeb • Receita Federal do Brasil</span>
+            <span>Controle local • consulta oficial não conectada</span>
           </div>
         </div>
       </div>
@@ -263,7 +159,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
             <span>📋 Guias INSS — DCTFWeb</span>
           </h1>
           <p className="text-sm font-medium text-[#5c6bc0]">
-            Consulta direta da base da Receita Federal via DCTFWeb, com recálculo automático de encargos moratórios
+            Registros locais de guias previdenciárias; consulta oficial à Receita Federal/DCTFWeb não conectada
           </p>
         </div>
 
@@ -297,7 +193,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
               />
               <button
                 type="button"
-                id="btn-consultar-dctfweb"
+                id="btn-consultar-registros-locais"
                 onClick={buscarGuias}
                 disabled={carregando}
                 className="px-6 py-3.5 bg-[#1a237e] hover:bg-[#0f1654] active:scale-98 text-white rounded-xl text-base font-bold flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer disabled:opacity-60"
@@ -305,12 +201,12 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                 {carregando ? (
                   <>
                     <RefreshCw className="w-5 h-5 animate-spin" />
-                    <span>Consultando RFB...</span>
+                    <span>Carregando registros locais...</span>
                   </>
                 ) : (
                   <>
                     <Search className="w-5 h-5 text-amber-300" />
-                    <span>Consultar DCTFWeb</span>
+                    <span>Carregar registros locais</span>
                   </>
                 )}
               </button>
@@ -323,26 +219,31 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                 Empresa identificada: <strong className="text-slate-900">{razaoSocial || (empresaAtiva ? (empresaAtiva.razaoSocial || empresaAtiva.nomeFantasia) : 'Selecione ou informe um CNPJ')}</strong>
               </span>
               {infoOrigemRFB?.situacao && (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                  ● Situação RFB: {infoOrigemRFB.situacao}
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                  ● Situação cadastral (base externa): {infoOrigemRFB.situacao}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-indigo-700 bg-indigo-50 border border-indigo-200 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-amber-900 bg-amber-50 border border-amber-200 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Server className="w-3 h-3 text-indigo-600" />
-                <span>Integra Contador • e-CAC / RFB</span>
+                  <span>Consulta de guias RFB/SERPRO não conectada</span>
               </span>
               {infoOrigemRFB?.timestamp && (
                 <span className="text-[11px] text-slate-500">
-                  {infoOrigemRFB.timestamp}
+                  Registros locais carregados em: {infoOrigemRFB.timestamp}
                 </span>
               )}
             </div>
           </div>
         </div>
 
-        {consultado && (
+        {erroLeituraGuias && (
+          <div role="alert" className="p-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-950 text-xs">
+            <strong>Histórico local indisponível.</strong> {erroLeituraGuias} Contadores e situação não foram calculados a partir de uma lista vazia.
+          </div>
+        )}
+        {consultado && !erroLeituraGuias && (
           <div className="space-y-6">
             {/* 🛡️ SITUAÇÃO FISCAL / PREVIDENCIÁRIA */}
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
@@ -351,30 +252,11 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                   <Building2 className="w-4 h-4 text-indigo-700" />
                   <span>Situação Previdenciária:</span>
                 </span>
-                {guiasNaoPagas.length === 0 ? (
-                  <span className="bg-emerald-100 text-emerald-900 text-xs font-extrabold px-3 py-1 rounded-xl border border-emerald-300 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>100% REGULAR — Nada Consta (0 Débitos Previdenciários)</span>
-                  </span>
-                ) : (
-                  <span className="bg-rose-100 text-rose-900 text-xs font-bold px-3 py-1 rounded-xl border border-rose-300 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                    <span>{guiasNaoPagas.length} Débito(s) Previdenciário(s) Pendente(s)</span>
-                  </span>
-                )}
+                <span className="bg-amber-100 text-amber-950 text-xs font-bold px-3 py-1 rounded-xl border border-amber-300">
+                  Consulta oficial indisponível; {guiasNaoPagas.length} registro(s) local(is) não pago(s), sem confirmação fiscal.
+                </span>
               </div>
 
-              {guiasNaoPagas.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleLimparDebitos}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:scale-98 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                  title="Remover débitos caso a empresa esteja regular na contabilidade real"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-200" />
-                  <span>🧹 Limpar Débitos Inexistentes / Confirmar Regular</span>
-                </button>
-              )}
             </div>
 
             {/* 📊 RESUMO GERAL */}
@@ -384,16 +266,16 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                   {guias.length}
                 </span>
                 <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider mt-1 block">
-                  Total de Guias DCTFWeb
+                  Registros locais
                 </span>
               </div>
 
               <div className="bg-[#e8f5e9] rounded-xl p-4 sm:p-5 border border-emerald-300 shadow-xs text-center">
                 <span className="text-2xl sm:text-3xl font-extrabold text-[#2e7d32] block">
-                  {guiasPagas.length}
+                  {guiasComPagamentoInformado.length}
                 </span>
                 <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider mt-1 block">
-                  Pagas / Quitadas em Dia
+                  Pagamento informado manualmente
                 </span>
               </div>
 
@@ -402,44 +284,10 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                   {guiasNaoPagas.length}
                 </span>
                 <span className="text-xs font-bold text-rose-800 uppercase tracking-wider mt-1 block">
-                  Pendentes em Aberto
+                  Não pagas no controle local
                 </span>
               </div>
             </div>
-
-            {/* ✅ BANNER DE NADA CONSTA (QUANDO 100% REGULAR) */}
-            {guiasNaoPagas.length === 0 && (
-              <div className="bg-[#e8f5e9] border-2 border-emerald-400 rounded-2xl p-6 text-emerald-950 shadow-xs">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shrink-0 shadow-sm">
-                    <ShieldCheck className="w-7 h-7" />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-lg font-black text-emerald-950">
-                        Situação Previdenciária 100% Regular perante a Receita Federal e INSS
-                      </h3>
-                      <span className="bg-emerald-700 text-white text-[11px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                        Nada Consta
-                      </span>
-                    </div>
-                    <p className="text-xs text-emerald-900 max-w-3xl leading-relaxed">
-                      Conforme consulta em tempo real aos webservices da <strong>Receita Federal (DCTFWeb / Integra Contador)</strong>, <strong>não há guias de INSS ou contribuições previdenciárias em atraso</strong> para este CNPJ. Todos os recolhimentos declarados constam como liquidados.
-                    </p>
-                    <div className="mt-3 flex items-center gap-2 flex-wrap pt-1">
-                      <span className="text-[11px] font-bold bg-white text-emerald-900 px-3 py-1 rounded-xl border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>CND Previdenciária: Regular / Nada Consta</span>
-                      </span>
-                      <span className="text-[11px] font-bold bg-white text-emerald-900 px-3 py-1 rounded-xl border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Débito Previdenciário Total: R$ 0,00</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ⚠️ GUIAS EM ATRASO — PRIMEIRO, DESTAQUE! */}
             {guiasEmAtraso.length > 0 && (
@@ -447,7 +295,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg sm:text-xl font-black text-[#c62828] flex items-center gap-2">
                     <AlertTriangle className="w-5 h-5 text-[#c62828]" />
-                    <span>⚠️ EM ATRASO — Calcular Juros e Multa</span>
+                    <span>⚠️ Vencimento passado — registro local</span>
                   </h2>
                   <span className="text-xs font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200">
                     {guiasEmAtraso.length} {guiasEmAtraso.length === 1 ? 'pendência' : 'pendências'}
@@ -489,51 +337,31 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-amber-700 bg-amber-50/70 px-2 py-1 rounded-lg">
-                          <span>Multa ({guia.percentualMulta}% — máx 20%):</span>
-                          <strong className="font-mono text-amber-900">
-                            + R$ {guia.multa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </strong>
-                        </div>
-
-                        <div className="flex items-center justify-between text-amber-700 bg-amber-50/70 px-2 py-1 rounded-lg">
-                          <span>Juros ({guia.percentualJuros}% — 1% a.m.):</span>
-                          <strong className="font-mono text-amber-900">
-                            + R$ {guia.juros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </strong>
-                        </div>
-
-                        <div className="text-right pt-0.5">
-                          <span className="text-xs text-[#c62828] font-bold italic flex items-center justify-end gap-1">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>⏱️ {guia.diasAtraso} dias de atraso</span>
-                          </span>
-                        </div>
+                        <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-950">
+                          Juros, multa e total atualizado não foram calculados. Consulte o Sicalc ou o portal oficial antes de pagar.
+                        </p>
                       </div>
 
-                      {/* Linha Total Atualizado */}
                       <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                         <div>
-                          <span className="text-xs font-black text-[#1a237e] uppercase block">
-                            VALOR TOTAL ATUALIZADO:
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            Calculado para pagamento hoje
-                          </span>
+                          <span className="text-xs font-black text-[#1a237e] uppercase block">Principal informado no registro:</span>
+                          <span className="text-[10px] text-slate-500">Não é valor atualizado para pagamento.</span>
                         </div>
                         <span className="text-xl font-black text-[#c62828]">
-                          R$ {guia.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {guia.valorPrincipal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => emitirGuia(guia)}
-                        className="w-full py-3 bg-[#c62828] hover:bg-[#a51d24] active:scale-98 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
-                      >
-                        <FileText className="w-4 h-4" />
-                        <span>📄 Emitir DARF Atualizado</span>
-                      </button>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <a href="https://www.gov.br/receitafederal/pt-br/assuntos/orientacao-tributaria/pagamentos-e-parcelamentos/darf-calculo-e-impressao-programa-sicalc-1" target="_blank" rel="noreferrer" className="w-full py-3 bg-[#1a237e] hover:bg-[#0f1654] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+                          <ExternalLink className="w-4 h-4" />
+                          <span>Calcular no Sicalc</span>
+                        </a>
+                        <button type="button" onClick={() => emitirGuia(guia)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+                          <FileText className="w-4 h-4" />
+                          <span>Ver registro local</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -546,10 +374,10 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg sm:text-xl font-black text-[#2e7d32] flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-[#2e7d32]" />
-                    <span>✅ EM DIA — Guias Prontas para Pagamento</span>
+                    <span>📅 Vencimento futuro — registro local</span>
                   </h2>
                   <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Sem encargos
+                    Sem cálculo de encargos
                   </span>
                 </div>
 
@@ -569,7 +397,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                           </span>
                         </div>
                         <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                          Regular
+                          No prazo (cálculo local)
                         </span>
                       </div>
 
@@ -589,9 +417,11 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                         </div>
 
                         <div className="flex items-center justify-between text-slate-600">
-                          <span>INSS Segurados + Patronal:</span>
+                          <span>Composição informada:</span>
                           <span className="text-slate-800 font-semibold">
-                            R$ {(guia.inssPatronal + guia.inssSegurados).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            {guia.inssPatronal != null || guia.inssSegurados != null
+                              ? `R$ ${((guia.inssPatronal || 0) + (guia.inssSegurados || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                              : 'não informada'}
                           </span>
                         </div>
                       </div>
@@ -599,10 +429,10 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                       {/* Linha Total Regular */}
                       <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
                         <span className="text-xs font-bold text-slate-700 uppercase">
-                          Valor a Pagar:
+                          Principal informado:
                         </span>
                         <span className="text-xl font-black text-[#2e7d32]">
-                          R$ {guia.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {guia.valorPrincipal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
 
@@ -612,7 +442,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                         className="w-full py-3 bg-[#2e7d32] hover:bg-[#1b5e20] active:scale-98 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm cursor-pointer"
                       >
                         <FileText className="w-4 h-4" />
-                        <span>📄 Emitir DARF</span>
+                        <span>Ver registro local</span>
                       </button>
                     </div>
                   ))}
@@ -620,21 +450,21 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
               </section>
             )}
 
-            {/* 📜 HISTÓRICO DE GUIAS PAGAS / QUITADAS */}
-            {guiasPagas.length > 0 && (
+            {/* 📜 HISTÓRICO LOCAL DE PAGAMENTOS INFORMADOS */}
+            {guiasComPagamentoInformado.length > 0 && (
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg sm:text-xl font-black text-[#1565c0] flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-[#1565c0]" />
-                    <span>📜 GUIAS PAGAS — Histórico DCTFWeb Quitado em Dia</span>
+                    <span>📜 PAGAMENTOS INFORMADOS — Histórico local DCTFWeb</span>
                   </h2>
                   <span className="text-xs font-bold text-blue-800 bg-blue-100 px-2.5 py-0.5 rounded-full border border-blue-200">
-                    {guiasPagas.length} quitada(s)
+                    {guiasComPagamentoInformado.length} registro(s)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {guiasPagas.map((guia) => (
+                  {guiasComPagamentoInformado.map((guia) => (
                     <div
                       key={guia.id}
                       className="bg-white rounded-2xl p-5 border-l-4 border-l-[#1565c0] border-y border-r border-slate-200 shadow-sm hover:shadow-md transition-all space-y-3"
@@ -650,7 +480,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                         </div>
                         <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>PAGO</span>
+                          <span>PAGAMENTO INFORMADO</span>
                         </span>
                       </div>
 
@@ -661,12 +491,12 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                         </p>
                         <p className="text-[#2e7d32] font-bold flex items-center gap-1 pt-1">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Pago em: {guia.dataPagamento ? new Date(guia.dataPagamento).toLocaleDateString('pt-BR') : 'Data confirmada'}</span>
+                          <span>Data informada: {guia.dataPagamento ? new Date(guia.dataPagamento).toLocaleDateString('pt-BR') : 'não registrada'}</span>
                         </p>
                       </div>
 
                       <div className="bg-slate-50 p-3 rounded-xl flex justify-between items-center text-xs">
-                        <span className="font-bold text-slate-700">Valor Quitado:</span>
+                        <span className="font-bold text-slate-700">Valor informado como pago:</span>
                         <span className="text-lg font-black text-[#1565c0] font-mono">
                           R$ {guia.valorPrincipal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
@@ -678,7 +508,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                         className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                       >
                         <FileText className="w-3.5 h-3.5" />
-                        <span>Visualizar Comprovante / DARF Quitado</span>
+                        <span>Ver registro local (não é comprovante)</span>
                       </button>
                     </div>
                   ))}
@@ -690,7 +520,7 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
       </main>
 
       {/* ========================================================== */}
-      {/* 📄 MODAL OFICIAL — EMISSÃO DE DARF PREVIDENCIÁRIO COM BARRA & PIX */}
+      {/* Prévia de cálculo local — não emite documento oficial */}
       {/* ========================================================== */}
       {guiaSelecionadaModal && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -703,10 +533,10 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-slate-900 leading-tight">
-                    DARF Previdenciário — DCTFWeb
+                    Registro local da guia — não é DARF
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Documento de Arrecadação de Receitas Federais • Código 1708
+                    Consulta oficial não realizada • nenhum código pagável emitido
                   </p>
                 </div>
               </div>
@@ -720,19 +550,18 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
               </button>
             </div>
 
-            {/* Espelho do DARF Oficial da Receita Federal */}
+            <div className="border-2 border-rose-600 rounded-xl p-3 text-center text-sm font-black uppercase text-rose-700">REGISTRO LOCAL — NÃO É GUIA E NÃO DEVE SER USADO PARA PAGAMENTO</div>
+            {/* Demonstrativo local */}
             <div className="border-2 border-slate-900 rounded-xl overflow-hidden text-xs bg-white shadow-xs">
               <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider block text-amber-400">
-                    MINISTÉRIO DA FAZENDA
-                  </span>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider block text-amber-400">MURADE · CONTROLE LOCAL</span>
                   <span className="text-sm font-black">
-                    SECRETARIA DA RECEITA FEDERAL DO BRASIL
+                    Dados informados pela equipe
                   </span>
                 </div>
                 <span className="text-base font-black px-2.5 py-1 bg-white text-slate-900 rounded">
-                  DARF
+                  PRÉVIA
                 </span>
               </div>
 
@@ -763,7 +592,9 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                     </span>
                     <p className="text-[11px] text-slate-600 leading-relaxed mt-0.5">
                       Recolhimento previdenciário conf. DCTFWeb Geral.<br />
-                      Patronal: R$ {guiaSelecionadaModal.inssPatronal?.toFixed(2) || '0,00'} • Segurados: R$ {guiaSelecionadaModal.inssSegurados?.toFixed(2) || '0,00'} • Terceiros: R$ {guiaSelecionadaModal.outrasEntidades?.toFixed(2) || '0,00'}
+                      {guiaSelecionadaModal.inssPatronal != null || guiaSelecionadaModal.inssSegurados != null || guiaSelecionadaModal.outrasEntidades != null
+                        ? `Valores informados: patronal R$ ${guiaSelecionadaModal.inssPatronal?.toFixed(2) ?? '—'} • segurados R$ ${guiaSelecionadaModal.inssSegurados?.toFixed(2) ?? '—'} • terceiros R$ ${guiaSelecionadaModal.outrasEntidades?.toFixed(2) ?? '—'}`
+                        : 'Composição por categoria não informada; detalhamento não calculado.'}
                     </p>
                   </div>
                 </div>
@@ -776,17 +607,13 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                   </div>
 
                   <div className="p-2.5 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-600">04. CÓDIGO DA RECEITA</span>
+                    <span className="text-[10px] font-bold text-slate-600">Código informado no registro local</span>
                     <strong className="font-mono text-xs text-indigo-900 font-black">{guiaSelecionadaModal.codigoReceita}</strong>
                   </div>
 
                   <div className="p-2.5 flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-600">06. DATA DE VENCIMENTO</span>
-                    <strong className="font-mono text-xs">
-                      {guiaSelecionadaModal.situacao === 'EM_ATRASO' 
-                        ? new Date().toLocaleDateString('pt-BR') 
-                        : guiaSelecionadaModal.dataVencimento.toLocaleDateString('pt-BR')}
-                    </strong>
+                    <span className="text-[10px] font-bold text-slate-600">Vencimento informado</span>
+                    <strong className="font-mono text-xs">{guiaSelecionadaModal.dataVencimento.toLocaleDateString('pt-BR')}</strong>
                   </div>
 
                   <div className="p-2.5 flex justify-between items-center">
@@ -796,74 +623,21 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                     </span>
                   </div>
 
-                  <div className="p-2.5 flex justify-between items-center bg-amber-50/50">
-                    <span className="text-[10px] font-bold text-amber-900">08. VALOR DA MULTA</span>
-                    <span className="font-mono text-xs font-bold text-amber-900">
-                      R$ {guiaSelecionadaModal.multa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 flex justify-between items-center bg-amber-50/50">
-                    <span className="text-[10px] font-bold text-amber-900">09. VALOR DOS JUROS</span>
-                    <span className="font-mono text-xs font-bold text-amber-900">
-                      R$ {guiaSelecionadaModal.juros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 flex justify-between items-center bg-slate-100">
-                    <span className="text-[11px] font-black text-slate-900">10. VALOR TOTAL A PAGAR</span>
-                    <strong className="font-mono text-sm font-black text-slate-950">
-                      R$ {guiaSelecionadaModal.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </strong>
+                  <div className="p-2.5 flex justify-between items-center bg-amber-50">
+                    <span className="text-[10px] font-bold text-amber-900">Multa, juros e total atualizado</span>
+                    <strong className="text-xs text-amber-900">Não calculados</strong>
                   </div>
                 </div>
               </div>
 
-              {/* Linha Digitável e Código de Barras */}
-              <div className="p-4 bg-slate-50 border-t border-slate-300 space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                      Linha Digitável (Código de Barras Febraban)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => copiarTexto(gerarLinhaDigitavel(guiaSelecionadaModal.codigoReceita, guiaSelecionadaModal.valorTotal, guiaSelecionadaModal.dataVencimento), 'linha')}
-                      className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1 cursor-pointer"
-                    >
-                      {copiadoLinha ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiadoLinha ? 'Linha Copiada!' : 'Copiar Código'}</span>
-                    </button>
-                  </div>
-                  <div className="p-2.5 bg-white border border-slate-300 rounded-lg font-mono text-xs text-slate-900 font-bold select-all tracking-wider text-center">
-                    {gerarLinhaDigitavel(guiaSelecionadaModal.codigoReceita, guiaSelecionadaModal.valorTotal, guiaSelecionadaModal.dataVencimento)}
-                  </div>
-                </div>
-
-                {/* Gráfico Simulado do Código de Barras */}
-                <div className="py-2 bg-white rounded-lg border border-slate-200 flex flex-col items-center justify-center gap-1">
-                  <div className="h-10 flex items-center gap-0.5 overflow-hidden px-4">
-                    {Array.from({ length: 55 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`h-full bg-slate-900 ${
-                          i % 4 === 0 ? 'w-1' : i % 3 === 0 ? 'w-1.5' : 'w-0.5'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    Pague via Internet Banking, Aplicativo Bancário ou Terminais Lotéricos
-                  </span>
-                </div>
-              </div>
+              <div className="p-4 border-t border-rose-200 text-xs font-bold text-rose-800">Linha digitável, código de barras, Pix e autenticação não foram gerados. Para emitir ou atualizar valores, acesse o portal oficial/Sicalc.</div>
             </div>
 
             {/* Ações de Download e Impressão */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <div className="text-xs text-slate-500 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Autenticação Digital: RFB-DCTF-2026-VAL-{guiaSelecionadaModal.id}</span>
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Prévia local; não transmitida nem autenticada pela RFB.</span>
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -873,19 +647,18 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
                   className="flex-1 sm:flex-initial px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimir DARF</span>
+                  <span>Imprimir prévia</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
-                    alert(`✅ DARF Gerado com Sucesso!\n\nCompetência: ${guiaSelecionadaModal.competencia}\nCódigo de Receita: ${guiaSelecionadaModal.codigoReceita}\nValor: R$ ${guiaSelecionadaModal.valorTotal.toFixed(2)}\n\nO download do arquivo PDF foi concluído.`);
                     setGuiaSelecionadaModal(null);
                   }}
                   className="flex-1 sm:flex-initial px-5 py-2.5 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-md"
                 >
                   <Download className="w-4 h-4 text-amber-300" />
-                  <span>Baixar PDF Oficial</span>
+                  <span>Fechar prévia</span>
                 </button>
               </div>
             </div>

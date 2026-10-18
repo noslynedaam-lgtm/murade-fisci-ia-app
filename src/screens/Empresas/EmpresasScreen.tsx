@@ -16,7 +16,7 @@ interface EmpresasScreenProps {
 }
 
 export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: EmpresasScreenProps) {
-  const { empresas, empresaAtiva, selecionarEmpresa, removerEmpresa, salvarNovaEmpresa, limparTodasEmpresas } = useEmpresa();
+  const { empresas, empresaAtiva, erroEmpresas, selecionarEmpresa, removerEmpresa, salvarNovaEmpresa, limparTodasEmpresas } = useEmpresa();
   const [busca, setBusca] = useState('');
   const [telaAtiva, setTelaAtiva] = useState<'lista' | 'novo' | 'editar' | 'guias'>('lista');
   const [empresaEmEdicao, setEmpresaEmEdicao] = useState<EmpresaDados | null>(null);
@@ -32,11 +32,15 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
   };
 
   const handleSalvarNovaEmpresa = (nova: EmpresaDados) => {
-    salvarNovaEmpresa(nova);
-    selecionarEmpresa(nova);
+    const salva = salvarNovaEmpresa(nova);
+    if (!salva) {
+      mostrarToast('Não foi possível salvar. Os dados anteriores foram preservados; verifique o armazenamento local.');
+      return;
+    }
+    selecionarEmpresa(salva);
     setTelaAtiva('lista');
     setEmpresaEmEdicao(null);
-    mostrarToast(`Empresa "${nova.razaoSocial}" salva e selecionada com sucesso!`);
+    mostrarToast(`Empresa "${salva.razaoSocial}" salva e selecionada com sucesso!`);
   };
 
   const handleEditarEmpresa = (emp: EmpresaDados, comFocoCertificado = false) => {
@@ -50,22 +54,29 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
   };
 
   const handleSalvarCertificadoModal = (empresaAtualizada: EmpresaDados) => {
-    salvarNovaEmpresa(empresaAtualizada);
+    const salva = salvarNovaEmpresa(empresaAtualizada);
+    if (!salva) {
+      mostrarToast('Não foi possível salvar as alterações. Os dados anteriores foram preservados.');
+      return;
+    }
     if (empresaAtiva?.id === empresaAtualizada.id) {
-      selecionarEmpresa(empresaAtualizada);
+      selecionarEmpresa(salva);
     }
     setEmpresaCertificadoModal(null);
-    mostrarToast(`Certificado digital da empresa "${empresaAtualizada.razaoSocial}" atualizado com sucesso! Empresa legalizada.`);
+    mostrarToast(`Referência local do certificado de "${empresaAtualizada.razaoSocial}" salva. Validade e conexão oficial não foram verificadas.`);
   };
 
-  const confirmarExclusao = () => {
+  const confirmarExclusao = async () => {
     if (!empresaParaDeletar || !empresaParaDeletar.id) return;
     const nome = empresaParaDeletar.razaoSocial;
-    const sucesso = removerEmpresa(empresaParaDeletar.id);
+    const cadastroCentral = Boolean(empresaParaDeletar.idCentral);
+    const sucesso = await removerEmpresa(empresaParaDeletar.id);
     if (sucesso) {
-      mostrarToast(`Empresa "${nome}" foi excluída com sucesso!`);
+      mostrarToast(cadastroCentral
+        ? `Empresa "${nome}" arquivada. Os documentos fiscais permanentes foram preservados.`
+        : `Empresa "${nome}" e os dados fiscais locais associados foram excluídos deste navegador.`);
     } else {
-      mostrarToast(`Não foi possível excluir a empresa.`);
+      mostrarToast('Não foi possível excluir a empresa e confirmar a limpeza dos XMLs locais. O cadastro foi preservado.');
     }
     setEmpresaParaDeletar(null);
   };
@@ -135,6 +146,13 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
         <BotaoVoltar />
       </div>
 
+      {erroEmpresas && (
+        <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+          <strong>Não foi possível ler ou salvar o cadastro de empresas.</strong>
+          <p className="mt-1">{erroEmpresas} Nenhuma lista vazia foi presumida.</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -147,28 +165,34 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Controle e selecione a empresa ativa para os módulos de DCTFWeb, Guias e Fiscal. Capacidade de até {maxCnpjs} CNPJs simultâneos.
+            Controle local e seleção de empresas. Limite de referência do plano: {maxCnpjs} CNPJs; não é aplicado por serviço central.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-semibold text-indigo-900">
-            Cadastradas: <strong>{empresas.length}</strong> / {maxCnpjs} CNPJs
+            Cadastradas: <strong>{empresas.length}</strong> · referência: {maxCnpjs} CNPJs
           </div>
           {empresas.length > 0 && (
             <button
               type="button"
+              disabled={empresas.some(empresa => Boolean(empresa.idCentral))}
               onClick={() => {
-                if (window.confirm('Tem certeza que deseja limpar todas as empresas cadastradas? Esta ação deixará a carteira totalmente zerada.')) {
-                  limparTodasEmpresas();
-                  mostrarToast('Todas as empresas foram removidas. Sistema 100% zerado!');
+                if (window.confirm('Apagar todas as empresas e os dados fiscais locais associados neste navegador, incluindo livros, Radar, XMLs originais, guias e lembretes? Esta ação não pode ser desfeita.')) {
+                  void limparTodasEmpresas().then(sucesso => {
+                    mostrarToast(sucesso
+                      ? 'Empresas, registros fiscais e XMLs locais foram removidos deste navegador.'
+                      : 'Não foi possível confirmar a limpeza de todos os XMLs. A carteira foi preservada.');
+                  });
                 }
               }}
-              className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-300 hover:border-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Limpar todas as empresas do banco de dados"
+              className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-300 hover:border-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              title={empresas.some(empresa => Boolean(empresa.idCentral))
+                ? 'Limpeza em massa bloqueada para proteger a carteira central e os documentos vinculados.'
+                : 'Limpar empresas e arquivos somente deste navegador'}
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-              <span>Limpar Todas</span>
+              <span>Limpar dados locais</span>
             </button>
           )}
           <button
@@ -305,16 +329,20 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs flex-wrap gap-1.5">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {emp.statusCND === 'REGULAR' ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        <CheckCircle2 className="w-3 h-3" /> CND Regular
+                      <span title="Status informado no cadastro; não foi consultado nem validado no órgão." className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        <AlertTriangle className="w-3 h-3" /> CND informada • não verificada
+                      </span>
+                    ) : emp.statusCND === 'PENDENCIA' || emp.statusCND === 'VENCIDA' ? (
+                      <span title="Status informado no cadastro; confirme no portal oficial." className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        <AlertTriangle className="w-3 h-3" /> Status CND informado: {emp.statusCND === 'VENCIDA' ? 'vencida' : 'pendência'}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                        <AlertTriangle className="w-3 h-3" /> Pendência CND
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                        <AlertTriangle className="w-3 h-3" /> CND não consultada
                       </span>
                     )}
 
-                    {/* Badge Interativo do Certificado Digital — Clique direto para vincular ou legalizar */}
+                    {/* Referência local de validade; não indica validação do arquivo nem conexão. */}
                     {(() => {
                       const validade = emp.certificado?.validade;
                       if (!validade) {
@@ -323,16 +351,36 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                             type="button"
                             onClick={() => handleAbrirModalCertificado(emp)}
                             className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 transition-all cursor-pointer shadow-2xs group"
-                            title="Clique para cadastrar o certificado digital desta empresa e legalizá-la agora"
+                            title="Cadastre uma referência local. O arquivo e a conexão oficial não serão validados nesta tela."
                           >
                             <KeyRound className="w-3.5 h-3.5 text-amber-600 group-hover:scale-110 transition-transform" />
-                            <span>🔐 Sem Certificado • Inserir Agora</span>
+                            <span>🔐 Sem referência local • Cadastrar</span>
+                          </button>
+                        );
+                      }
+                      const partesValidade = /^(\d{4})-(\d{2})-(\d{2})$/.exec(validade);
+                      const anoValidade = partesValidade ? Number(partesValidade[1]) : NaN;
+                      const mesValidade = partesValidade ? Number(partesValidade[2]) : NaN;
+                      const diaValidade = partesValidade ? Number(partesValidade[3]) : NaN;
+                      const data = new Date(anoValidade, mesValidade - 1, diaValidade);
+                      const dataInformadaValida = Boolean(partesValidade
+                        && data.getFullYear() === anoValidade
+                        && data.getMonth() === mesValidade - 1
+                        && data.getDate() === diaValidade);
+                      if (!dataInformadaValida) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirModalCertificado(emp)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 transition-colors cursor-pointer"
+                            title="A data local está em formato inválido. Nenhum certificado foi validado."
+                          >
+                            <KeyRound className="w-3 h-3 text-rose-600" /> Data informada inválida • Corrigir
                           </button>
                         );
                       }
                       const hoje = new Date();
                       hoje.setHours(0, 0, 0, 0);
-                      const data = new Date(validade + 'T00:00:00');
                       const dias = Math.ceil((data.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
                       if (dias < 0) {
                         return (
@@ -340,9 +388,9 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                             type="button"
                             onClick={() => handleAbrirModalCertificado(emp)}
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded border border-rose-200 transition-colors cursor-pointer"
-                            title="Certificado Vencido. Clique para renovar agora."
+                            title="A data de validade cadastrada passou; a validade criptográfica não foi verificada."
                           >
-                            <KeyRound className="w-3 h-3 text-rose-600" /> ❌ Certificado Vencido • Renovar
+                            <KeyRound className="w-3 h-3 text-rose-600" /> ❌ Data cadastrada passou • Conferir
                           </button>
                         );
                       }
@@ -352,9 +400,9 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                             type="button"
                             onClick={() => handleAbrirModalCertificado(emp)}
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded border border-amber-200 transition-colors cursor-pointer"
-                            title={`Vence em ${dias} dias. Clique para gerenciar certificado.`}
+                            title={`Data de validade cadastrada para ${dias} dias; autenticidade não verificada.`}
                           >
-                            <KeyRound className="w-3 h-3 text-amber-600" /> ⚠️ Vence em {dias}d
+                            <KeyRound className="w-3 h-3 text-amber-600" /> ⚠️ Data informada: {dias}d
                           </button>
                         );
                       }
@@ -362,10 +410,10 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                         <button
                           type="button"
                           onClick={() => handleAbrirModalCertificado(emp)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 transition-colors cursor-pointer"
-                          title="Certificado Digital e-CNPJ Válido. Clique para ver detalhes ou atualizar."
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-300 transition-colors cursor-pointer"
+                          title="Data de validade cadastrada no futuro; autenticidade e validade criptográfica não foram verificadas."
                         >
-                          <KeyRound className="w-3 h-3 text-emerald-600" /> ✅ Certificado Válido
+                          <KeyRound className="w-3 h-3 text-slate-600" /> Data futura • não validada
                         </button>
                       );
                     })()}
@@ -373,7 +421,7 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
 
                   {emp.procuracaoAtiva ? (
                     <span className="text-[11px] font-medium text-indigo-700 flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" /> Procuração RFB
+                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" /> Procuração informada
                     </span>
                   ) : (
                     <span className="text-[11px] text-slate-400">Sem Procuração</span>
@@ -463,8 +511,15 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                 Excluir Empresa?
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Tem certeza que deseja excluir a empresa <strong className="text-slate-900 font-semibold">{empresaParaDeletar.razaoSocial}</strong> (CNPJ: {empresaParaDeletar.cnpj})? 
-                Esta ação removerá todos os dados locais desta empresa.
+                {empresaParaDeletar.idCentral ? (
+                  <>
+                    Arquivar <strong className="text-slate-900 font-semibold">{empresaParaDeletar.razaoSocial}</strong> (CNPJ: {empresaParaDeletar.cnpj}) da carteira. O cadastro continuará guardado no banco, e nenhum documento fiscal será apagado. Você poderá cadastrar novamente o CNPJ; restauração do cadastro antigo exige suporte administrativo.
+                  </>
+                ) : (
+                  <>
+                    Excluir <strong className="text-slate-900 font-semibold">{empresaParaDeletar.razaoSocial}</strong> (CNPJ: {empresaParaDeletar.cnpj}) também apagará o livro local, documentos do Radar, XMLs originais e lembretes desta empresa neste navegador. Esta ação não pode ser desfeita.
+                  </>
+                )}
               </p>
             </div>
 
@@ -479,10 +534,10 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
               <button
                 type="button"
                 id="btn-confirmar-exclusao-empresa"
-                onClick={confirmarExclusao}
+                onClick={() => void confirmarExclusao()}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-sm"
               >
-                Sim, Excluir Empresa
+                {empresaParaDeletar.idCentral ? 'Arquivar Empresa' : 'Sim, Excluir Empresa'}
               </button>
             </div>
           </div>

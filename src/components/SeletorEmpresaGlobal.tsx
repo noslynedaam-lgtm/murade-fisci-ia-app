@@ -139,12 +139,12 @@ export default function SeletorEmpresaGlobal({
                           </span>
                         )}
                         {emp.certificado?.validade ? (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-sans font-semibold flex items-center gap-0.5">
-                            🔐 Certificado OK
+                          <span title="Há uma data de validade informada localmente; o arquivo e a conexão não foram validados." className="text-[9px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200 font-sans font-semibold flex items-center gap-0.5">
+                            🔐 Validade informada
                           </span>
                         ) : (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200 font-sans font-semibold flex items-center gap-0.5">
-                            ⚠️ Sem Certificado
+                          <span title="Nenhuma referência local de validade cadastrada; o sistema não verificou se há certificado." className="text-[9px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200 font-sans font-semibold flex items-center gap-0.5">
+                            ⚠️ Sem referência
                           </span>
                         )}
                       </div>

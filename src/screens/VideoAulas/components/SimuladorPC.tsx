@@ -38,13 +38,13 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
           {/* Barra de Endereço URL com Cadeado Seguro */}
           <div className="hidden sm:flex items-center gap-1.5 bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 text-[11px] text-slate-300 font-mono w-72 max-w-xs truncate">
             <Lock className="w-3 h-3 text-emerald-400" />
-            <span>https://app.fiscoia.com.br/{telaSimulada.toLowerCase()}</span>
+            <span>Demonstração local • sem conexão oficial</span>
           </div>
 
           {/* Badge Indicador de Modo PC */}
-          <div className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-300 bg-indigo-950/80 px-2.5 py-0.5 rounded-md border border-indigo-500/30">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-200 bg-amber-950/80 px-2.5 py-0.5 rounded-md border border-amber-500/40">
             <Laptop className="w-3.5 h-3.5 text-indigo-400" />
-            <span>MODO PC / DESKTOP</span>
+            <span>SIMULAÇÃO · MODO PC</span>
           </div>
         </div>
 
@@ -124,6 +124,9 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
 
           {/* ÁREA PRINCIPAL DO PC COM RESOLUÇÃO AMPLA */}
           <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-3 bg-slate-50 relative">
+            <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-950">
+              SIMULAÇÃO: nomes, CNPJs, valores, status e botões são ilustrativos. Nenhum dado é consultado, transmitido, pago ou enviado.
+            </div>
             {/* TELA DE LOGIN PC */}
             {telaSimulada === 'LOGIN' && (
               <div className="max-w-md mx-auto my-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 text-center">
@@ -172,20 +175,20 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-[11px] text-slate-400 font-bold block">TOTAL APURADO</span>
-                    <div className="text-base font-black text-indigo-950">R$ 58.420,10</div>
-                    <span className="text-[10px] text-emerald-600 font-semibold">✓ 18 declarações</span>
+                    <div className="text-base font-black text-indigo-950">Valor fictício</div>
+                    <span className="text-[10px] text-amber-700 font-semibold">Quantidade demonstrativa</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-xl border-2 border-amber-400 shadow-2xs">
                     <span className="text-[11px] text-slate-400 font-bold block">DARF DIA 20</span>
-                    <div className="text-base font-black text-rose-600">R$ 14.850,20</div>
-                    <span className="text-[10px] text-amber-700 font-semibold">Pendente de Transmissão</span>
+                    <div className="text-base font-black text-rose-600">Valor fictício</div>
+                    <span className="text-[10px] text-amber-700 font-semibold">Status demonstrativo</span>
                   </div>
 
                   <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-[11px] text-slate-400 font-bold block">STATUS SERPRO</span>
-                    <div className="text-base font-black text-emerald-600">Conectado</div>
-                    <span className="text-[10px] text-slate-500 font-semibold">Latência: 120ms</span>
+                    <div className="text-base font-black text-amber-700">Não conectado</div>
+                    <span className="text-[10px] text-slate-500 font-semibold">Latência não medida</span>
                   </div>
                 </div>
 
@@ -210,14 +213,14 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-black text-slate-900">DCTFWeb Previdenciária & Fiscais</h3>
-                    <p className="text-xs text-slate-500">Transmissão em lote e conferência com a Receita Federal</p>
+                    <p className="text-xs text-amber-800">Exemplo fictício; transmissão oficial indisponível no Murade.</p>
                   </div>
                   <button
                     type="button"
                     onClick={onAvancar}
                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm ring-2 ring-amber-400 cursor-pointer"
                   >
-                    Transmitir DCTFWeb
+                    Exemplo de transmissão
                   </button>
                 </div>
 
@@ -237,10 +240,10 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                       <tr className="hover:bg-slate-50">
                         <td className="p-2.5 font-bold text-slate-900">Empresa Exemplo (Demonstração)</td>
                         <td className="p-2.5 text-slate-500 font-mono text-[11px]">00.000.000/0000-00</td>
-                        <td className="p-2.5 font-black text-indigo-950">R$ 4.250,00</td>
+                        <td className="p-2.5 font-black text-indigo-950">Valor fictício</td>
                         <td className="p-2.5">
                           <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px]">
-                            Pronto p/ Envio
+                            Exemplo fictício
                           </span>
                         </td>
                         <td className="p-2.5 text-right">
@@ -249,7 +252,7 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                             onClick={onAvancar}
                             className="px-2 py-1 bg-indigo-600 text-white rounded-lg text-[10px] font-bold ring-2 ring-amber-400 cursor-pointer"
                           >
-                            Transmitir Agora
+                            Ação demonstrativa
                           </button>
                         </td>
                       </tr>
@@ -263,21 +266,21 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
             {telaSimulada === 'GUIAS' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-black text-slate-900">Visualização de Guia DARF Oficial</h3>
+                  <h3 className="text-sm font-black text-slate-900">Exemplo fictício de guia — não pagar</h3>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={onAvancar}
                       className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold ring-2 ring-amber-400 cursor-pointer"
                     >
-                      Copiar Pix Copia e Cola
+                      Exemplo de código (não copiar)
                     </button>
                     <button
                       type="button"
                       onClick={onAvancar}
                       className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 ring-2 ring-amber-400 cursor-pointer"
                     >
-                      <Share2 className="w-3.5 h-3.5" /> Enviar WhatsApp
+                      <Share2 className="w-3.5 h-3.5" /> Ação demonstrativa
                     </button>
                   </div>
                 </div>
@@ -290,12 +293,12 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 uppercase font-bold">Valor Total</span>
-                      <div className="text-base font-black text-indigo-700">R$ 2.450,80</div>
+                      <div className="text-base font-black text-indigo-700">Valor fictício</div>
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-slate-50 rounded-xl font-mono text-[11px] text-slate-700 border border-slate-200 break-all">
-                    Linha Digitável: 85800000002-4 45080182202-6 60920261012-8 34567890123-0
+                    Código e linha digitável omitidos — não usar para pagamento
                   </div>
                 </div>
               </div>
@@ -307,7 +310,7 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-black text-slate-900">Integração Governamental SERPRO</h3>
-                    <p className="text-xs text-slate-500">Conexão direta com os servidores oficiais da Receita Federal</p>
+                    <p className="text-xs text-amber-800">Exemplo visual. Nenhum serviço oficial está conectado.</p>
                   </div>
                   <button
                     type="button"
@@ -324,23 +327,23 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                     <div className="space-y-1 text-slate-600">
                       <div className="flex justify-between">
                         <span>Integra Contador (DCTFWeb)</span>
-                        <span className="text-emerald-700 font-bold">100% Online</span>
+                        <span className="text-amber-700 font-bold">Exemplo</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Consulta CNPJ e Cadastros</span>
-                        <span className="text-emerald-700 font-bold">100% Online</span>
+                        <span className="text-amber-700 font-bold">Exemplo</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Certidões Negativas CND</span>
-                        <span className="text-emerald-700 font-bold">100% Online</span>
+                        <span className="text-amber-700 font-bold">Exemplo</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="bg-indigo-950 text-white p-3 rounded-xl shadow-2xs space-y-2">
-                    <strong className="text-yellow-400 block">Status da Conexão Desktop:</strong>
-                    <div className="text-sm font-bold">Gateway Oficial Ativo</div>
-                    <div className="text-xs text-indigo-200 font-mono">Latência Média: 110 ms</div>
+                    <strong className="text-yellow-400 block">Status demonstrativo:</strong>
+                    <div className="text-sm font-bold">Sem conexão oficial</div>
+                    <div className="text-xs text-indigo-200">Latência não medida</div>
                   </div>
                 </div>
               </div>
@@ -367,11 +370,11 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                       <span className="text-slate-500 block">CNPJ: 00.000.000/0000-00</span>
                     </div>
                     <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[11px]">
-                      Ativa no e-CAC
+                      Exemplo fictício
                     </span>
                   </div>
                   <div className="text-slate-600 text-[11px]">
-                    Poderes: DCTFWeb, Transmissão Folha, Certidões Negativas e Parcelamentos.
+                    Poderes ilustrativos. Esta tela não consulta procurações no e-CAC.
                   </div>
                 </div>
               </div>
@@ -387,11 +390,11 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                     <p className="mt-0.5">&quot;Qual o prazo de entrega da DCTFWeb de Setembro e penalidades?&quot;</p>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-800 space-y-1">
-                    <span className="font-bold text-indigo-700 flex items-center gap-1">
-                      <Sparkles className="w-3.5 h-3.5" /> Análise da Legislação em Tempo Real:
+                    <span className="font-bold text-amber-800 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5" /> Resposta fictícia — não usar como orientação:
                     </span>
                     <p className="text-[11px] leading-relaxed text-slate-600">
-                      O prazo de transmissão da DCTFWeb é até o dia 20 do mês seguinte à apuração. Em caso de atraso, incide a MAED (Multa por Atraso na Entrega da Declaração) com valor mínimo legal de R$ 200 para pessoas jurídicas inativas e R$ 500 nos demais casos.
+                      Conteúdo de demonstração removido. Faça uma pergunta no assistente real e confira as fontes oficiais citadas; esta resposta estática não é atualizada nem validada.
                     </p>
                   </div>
                   <button
@@ -399,7 +402,7 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                     onClick={onAvancar}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold ring-2 ring-amber-400 cursor-pointer"
                   >
-                    Enviar Consulta Fiscal
+                    Ação demonstrativa
                   </button>
                 </div>
               </div>

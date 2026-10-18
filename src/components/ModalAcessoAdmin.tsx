@@ -11,13 +11,12 @@ interface ModalAcessoAdminProps {
 }
 
 const STORAGE_SENHA_ADMIN_KEY = 'murade_admin_master_pwd';
-const SENHA_PADRAO = 'murade2026';
 
 export function obterSenhaAdmin(): string {
   try {
-    return localStorage.getItem(STORAGE_SENHA_ADMIN_KEY) || SENHA_PADRAO;
+    return localStorage.getItem(STORAGE_SENHA_ADMIN_KEY) || '';
   } catch {
-    return SENHA_PADRAO;
+    return '';
   }
 }
 
@@ -67,8 +66,12 @@ export default function ModalAcessoAdmin({
     setErro(null);
 
     const senhaCorreta = obterSenhaAdmin();
+    if (!senhaCorreta) {
+      setErro('Acesso administrativo não configurado. Não existe chave segura de administrador neste ambiente.');
+      return;
+    }
     if (senhaDigitada.trim() === senhaCorreta) {
-      setSucesso('Acesso Master concedido com sucesso!');
+      setSucesso('Chave local conferida. Isso não autentica chamadas no servidor.');
       setTimeout(() => {
         onDesbloquear();
         onFechar();
@@ -84,6 +87,10 @@ export default function ModalAcessoAdmin({
     setSucesso(null);
 
     const senhaCorreta = obterSenhaAdmin();
+    if (!senhaCorreta) {
+      setErro('Acesso administrativo não configurado. A chave local não pode ser inicializada de forma segura neste navegador.');
+      return;
+    }
     if (senhaAtual.trim() !== senhaCorreta) {
       setErro('Senha atual incorreta.');
       return;

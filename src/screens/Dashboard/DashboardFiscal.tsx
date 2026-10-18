@@ -18,7 +18,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
 
   return (
     <div id="dashboard-fiscal-screen" className="space-y-3.5 max-w-6xl mx-auto pb-8">
-      {/* Banner de Boas-vindas 3D com Símbolo Contábil Oficial */}
+      {/* Banner de boas-vindas com marca Murade */}
       <div 
         className="text-white rounded-2xl p-4 sm:p-5 shadow-lg border relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4"
         style={{
@@ -33,26 +33,17 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
 
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-400/15 text-emerald-300 text-[11px] font-bold border border-emerald-400/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Homologado SERPRO • e-CAC • Receita Federal • Gestão MURADE</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+              <span>Painel fiscal local • integrações externas não conectadas</span>
             </div>
             <h1 className="text-lg sm:text-2xl font-black tracking-tight flex items-center gap-2 flex-wrap">
               <span className="text-white tracking-tight">Murade Fisco IA</span>
-              <span 
-                className="text-xs px-2 py-0.5 rounded font-black uppercase text-slate-950 shadow-xs"
-                style={{
-                  background: 'linear-gradient(135deg, #F2D26E 0%, #D4AF37 100%)',
-                  border: '1px solid #AA820A'
-                }}
-              >
-                OFICIAL
-              </span>
               <span className="text-xs text-indigo-300 font-semibold hidden sm:inline">
-                • Compliance Fiscal com IA
+                • Ferramentas de apoio fiscal com IA
               </span>
             </h1>
             <p className="text-slate-300 text-xs max-w-xl">
-              Monitoramento automático em tempo real: DCTFWeb, DARF, FGTS Digital (vencimento dia 20), certidões CND e conformidade tributária oficial com a IA Murade.
+              Painel de acompanhamento local. DCTFWeb, DARF, FGTS Digital, certidões e situação fiscal oficial não são consultados automaticamente neste ambiente.
             </p>
           </div>
         </div>
@@ -60,10 +51,10 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
         <div className="flex items-center gap-3 shrink-0 z-10">
           <div className="p-2.5 bg-white/10 backdrop-blur-md rounded-xl border border-white/15 text-left shadow-sm">
             <span className="text-[9px] text-amber-300 uppercase tracking-wider block font-bold">
-              Próximo Fechamento DCTFWeb
+              Integração oficial
             </span>
             <span className="text-xs font-bold text-white flex items-center gap-1 mt-0.5">
-              <Calendar className="w-3.5 h-3.5 text-amber-400" /> 20 de Outubro (Competência 09/2026)
+              <Calendar className="w-3.5 h-3.5 text-amber-400" /> Não conectada
             </span>
           </div>
         </div>
@@ -73,7 +64,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider">
               Conexão com Órgãos Públicos Federais e Estaduais (Exercício 2026)
             </span>
@@ -87,9 +78,9 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <Server className="w-3 h-3 text-indigo-600" />
               Homologação SERPRO (Roteiro)
             </button>
-            <span className="text-[10px] text-emerald-700 bg-emerald-50 font-bold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1 w-fit">
-              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-              Sistemas 100% Sincronizados
+            <span className="text-[10px] text-amber-800 bg-amber-50 font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1 w-fit">
+              <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+              Integrações externas não validadas
             </span>
           </div>
         </div>
@@ -106,8 +97,8 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-indigo-700" />
             </span>
             <strong className="text-slate-900 text-[10px]">Gateway Oficial</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Homologação OK
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Não validado
             </span>
           </div>
 
@@ -122,8 +113,8 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-emerald-700" />
             </span>
             <strong className="text-slate-900 text-[10px]">e-CAC & DCTFWeb</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Ativo / Regular
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Não consultado
             </span>
           </div>
 
@@ -138,8 +129,8 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-blue-700" />
             </span>
             <strong className="text-slate-900 text-[10px]">CNDs & Certidões</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Módulo CND
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Emissão externa não conectada
             </span>
           </div>
 
@@ -147,15 +138,15 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
           <div 
             onClick={() => onNavegar('guias')}
             className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 hover:border-amber-400 hover:bg-amber-100/80 hover:shadow-md hover:scale-[1.02] transition-all cursor-pointer flex flex-col gap-0.5 group"
-            title="Clique para emitir FGTS Digital (Pix) e guias da Caixa"
+            title="Abrir o painel local de guias; emissão do FGTS Digital não está conectada"
           >
             <span className="text-[9px] text-amber-800 font-bold uppercase flex items-center justify-between">
               MTE / CAIXA
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-amber-800" />
             </span>
             <strong className="text-slate-900 text-[10px]">FGTS Digital (Pix)</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Vence Dia 20 (Pix)
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Não conectado
             </span>
           </div>
 
@@ -170,8 +161,8 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-purple-700" />
             </span>
             <strong className="text-slate-900 text-[10px]">eSocial & INSS</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Folha em Dia
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Não consultado
             </span>
           </div>
 
@@ -186,8 +177,8 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <ArrowRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all text-teal-700" />
             </span>
             <strong className="text-slate-900 text-[10px]">ICMS / ISS / CNDs</strong>
-            <span className="text-[9px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-              <CheckCircle2 className="w-2 h-2" /> Em Conformidade
+            <span className="text-[9px] text-amber-700 font-bold flex items-center gap-0.5 mt-0.5">
+              <AlertTriangle className="w-2 h-2" /> Não consultado
             </span>
           </div>
         </div>
@@ -206,10 +197,10 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
             <span className="text-xl group-hover:scale-110 transition-transform">🏛️</span>
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
-            Online <span className="text-emerald-500 text-lg">✅</span>
+            Não conectado
           </div>
           <div className="text-[11px] text-indigo-600 font-semibold mt-1 flex items-center gap-1">
-            <span>e-CAC / DCTFWeb Ativos</span>
+            <span>API oficial não configurada</span>
           </div>
         </div>
 
@@ -224,16 +215,16 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
             <span className="text-xl group-hover:scale-110 transition-transform">📄</span>
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
-            Módulo Ativo
+            Painel local disponível
           </div>
           <div className="text-[11px] text-emerald-700 font-semibold mt-1 flex items-center gap-1">
-            <span>FGTS / INSS / Receita</span>
+            <span>Portais externos não integrados</span>
           </div>
         </div>
 
         {/* Card 3: Caixa FGTS Digital */}
         <div 
-          onClick={() => onNavegar('dctfweb')}
+          onClick={() => onNavegar('guias')}
           className="card-3d-fiscal bg-white p-4 rounded-xl border border-slate-200/80 shadow-sm hover:border-amber-400 cursor-pointer relative overflow-hidden group"
         >
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-emerald-500" />
@@ -242,10 +233,10 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
             <span className="text-xl group-hover:scale-110 transition-transform">🏦</span>
           </div>
           <div className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
-            Integrado <span className="text-emerald-500 text-lg">✅</span>
+            Não conectado
           </div>
           <div className="text-[11px] text-amber-700 font-semibold mt-1 flex items-center gap-1">
-            <span>eSocial • Guia Dia 20 (Pix)</span>
+            <span>eSocial/FGTS não consultados</span>
           </div>
         </div>
 
@@ -260,10 +251,10 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
             <span className="text-xl group-hover:scale-110 transition-transform">🎤</span>
           </div>
           <div className="text-xl sm:text-2xl font-black text-purple-900 mt-1">
-            Online 24/7
+            Por demanda
           </div>
           <div className="text-[11px] text-purple-700 font-semibold mt-1 flex items-center gap-1">
-            <span>IA Murade Única ativa</span>
+            <span>Disponível conforme conexão do serviço</span>
           </div>
         </div>
       </div>
@@ -276,11 +267,9 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
           </span>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-slate-600">Carteira de Clientes:</span>
-            <strong className="text-slate-900 font-black">{empresas.length} de {maxCnpjs} CNPJs</strong>
+            <strong className="text-slate-900 font-black">{empresas.length} cadastrada(s) · referência: {maxCnpjs} CNPJs</strong>
             <span className="text-slate-400">•</span>
-            <strong className="text-indigo-900 font-bold">{empresas.length > 0 ? `${empresas.length * 4} Guias DCTFWeb` : '0 Guias'}</strong>
-            <span className="text-slate-400">•</span>
-            <strong className="text-emerald-700 font-bold">{empresas.length > 0 ? `${empresas.length} Procurações e-CAC` : '0 Procurações'}</strong>
+            <strong className="text-slate-600 font-bold">Guias e procurações não consultadas</strong>
           </div>
         </div>
 
@@ -294,76 +283,24 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
         </button>
       </div>
 
-      {/* === GRADE INFERIOR: CALENDÁRIO & GOVERNANÇA MURADE === */}
+      {/* === GRADE INFERIOR: ESTADO DAS INTEGRAÇÕES === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
-        {/* Bloco Calendário & Prazos Imediatos de Compliance */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-2.5">
+        <div className="lg:col-span-2 bg-amber-50 rounded-xl border border-amber-200 p-4 shadow-2xs space-y-2.5">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div>
-              <h2 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <span>📅</span> Calendário & Prazos Imediatos de Compliance
+              <h2 className="text-xs sm:text-sm font-bold text-amber-950 flex items-center gap-1.5">
+                <span>⚠️</span> Obrigações e prazos oficiais
               </h2>
-              <p className="text-[11px] text-slate-500">
-                Monitoramento automatizado de obrigações tributárias e previdenciárias
+              <p className="text-[11px] text-amber-900">
+                Não há consulta oficial ou calendário personalizado conectado para as empresas cadastradas.
               </p>
             </div>
-            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-              Exercício 2026
-            </span>
           </div>
-
-          <div className="space-y-2">
-            {/* DCTFWeb DARF Previdenciário */}
-            <div 
-              onClick={() => onNavegar('dctfweb')}
-              className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-lg flex items-center justify-between text-xs cursor-pointer hover:bg-indigo-100/60 transition-colors"
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 rounded-md bg-indigo-100 text-indigo-800 shrink-0">
-                  <Receipt className="w-3.5 h-3.5" />
-                </span>
-                <div>
-                  <strong className="text-indigo-950 block text-[11px]">DCTFWeb • DARF Previdenciário</strong>
-                  <span className="text-indigo-800 text-[10px]">Competência 08/2026 • Transmissão e-CAC</span>
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <span className="font-bold text-amber-700 block font-mono text-[11px]">18/09/2026</span>
-                <span className="text-[9px] text-slate-500">Vence em 6 dias (Antecipado)</span>
-              </div>
-            </div>
-
-            {/* FGTS Digital */}
-            <div 
-              onClick={() => onNavegar('dctfweb')}
-              className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs cursor-pointer hover:bg-slate-100 transition-colors"
-            >
-              <div className="flex items-center gap-2.5">
-                <span className="p-1.5 rounded-md bg-slate-200 text-slate-700 shrink-0">
-                  <Calendar className="w-3.5 h-3.5" />
-                </span>
-                <div>
-                  <strong className="text-slate-900 block text-[11px]">FGTS Digital • Guia Mensal (Pix)</strong>
-                  <span className="text-slate-500 text-[10px]">Vencimento Oficial Dia 20 (Lei Federal 14.438/2022)</span>
-                </div>
-              </div>
-              <div className="text-right shrink-0">
-                <span className="font-bold text-slate-800 block font-mono text-[11px]">18/09/2026</span>
-                <span className="text-[9px] text-emerald-600 font-semibold">Pix QR Code Disponível</span>
-              </div>
-            </div>
-
-            <div className="pt-1 flex justify-between items-center text-[10.5px] text-slate-500">
-              <span>📌 Set/2026 — 2 guias pendentes • 0 em atraso</span>
-              <button
-                type="button"
-                onClick={() => onNavegar('agenda')}
-                className="text-[11px] text-indigo-700 font-bold hover:text-indigo-900 flex items-center gap-1 cursor-pointer"
-              >
-                <span>Abrir Agenda Fiscal Completa</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950">
+            <span>Os registros exibidos em outros módulos são locais e não comprovam entrega, débito, pagamento ou regularidade oficial.</span>
+            <button type="button" onClick={() => onNavegar('agenda')} className="text-[11px] text-indigo-700 font-bold hover:text-indigo-900 flex items-center gap-1 cursor-pointer">
+              Abrir agenda local <ArrowRight className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
@@ -383,12 +320,12 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
                 </span>
               </div>
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full border border-indigo-200">
-                Planos Oficiais
+                Planos e preços de referência
               </span>
             </div>
 
             <p className="text-[11px] text-slate-600 leading-snug">
-              Tecnologia contábil e fiscal inteligente com IA Murade, DCTFWeb, FGTS Digital e SERPRO 24/7.
+              Ferramentas locais para organização fiscal. Valores e limites são referências; cobrança e limite por servidor não estão conectados.
             </p>
 
             {/* Mini Lista Comparativa de Planos (Baixinha e Discreta) */}
@@ -399,7 +336,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
                   : 'bg-white/80 border-slate-200 text-slate-700'
               }`}>
                 <div className="font-bold text-[10px]">Básico</div>
-                <div className={`text-[9px] ${planoAtivoId === 'basico' ? 'text-indigo-100' : 'text-slate-500'}`}>Até 50 CNPJs</div>
+                <div className={`text-[9px] ${planoAtivoId === 'basico' ? 'text-indigo-100' : 'text-slate-500'}`}>Ref. 50 CNPJs</div>
               </div>
 
               <div className={`p-1.5 rounded-lg border text-[10px] transition-all ${
@@ -408,7 +345,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
                   : 'bg-white/80 border-slate-200 text-slate-700'
               }`}>
                 <div className="font-bold text-[10px]">Profissional</div>
-                <div className={`text-[9px] ${planoAtivoId === 'profissional' ? 'text-indigo-100' : 'text-slate-500'}`}>Até 100 CNPJs</div>
+                <div className={`text-[9px] ${planoAtivoId === 'profissional' ? 'text-indigo-100' : 'text-slate-500'}`}>Ref. 100 CNPJs</div>
               </div>
 
               <div className={`p-1.5 rounded-lg border text-[10px] transition-all ${
@@ -417,14 +354,14 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
                   : 'bg-white/80 border-slate-200 text-slate-700'
               }`}>
                 <div className="font-bold text-[10px]">Empresarial</div>
-                <div className={`text-[9px] ${planoAtivoId === 'empresarial' ? 'text-indigo-100' : 'text-slate-500'}`}>Até 500 CNPJs</div>
+                <div className={`text-[9px] ${planoAtivoId === 'empresarial' ? 'text-indigo-100' : 'text-slate-500'}`}>Ref. 500 CNPJs</div>
               </div>
             </div>
           </div>
 
           <div className="pt-2 border-t border-indigo-100 flex items-center justify-between text-[10.5px]">
             <span className="text-[10px] text-slate-500 font-medium">
-              Plano ativo: <strong className="text-indigo-900 capitalize">{planoAtivoId}</strong>
+              Plano de referência neste acesso: <strong className="text-indigo-900 capitalize">{planoAtivoId}</strong>
             </span>
             <button
               type="button"

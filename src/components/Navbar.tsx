@@ -114,12 +114,12 @@ export default function Navbar({
       {/* Barra de Status do Sistema */}
       <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 flex items-center justify-between border-b border-slate-800">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
           <span className="font-black text-white tracking-wide">Murade Fisco IA</span>
           <span className="text-slate-500">•</span>
-          <span className="hidden sm:inline">Compliance Fiscal com IA</span>
+          <span className="hidden sm:inline">Ferramentas de apoio fiscal com IA</span>
           <span className="text-slate-500 hidden sm:inline">•</span>
-          <strong className="text-[#F2D26E] font-bold">Gestão Oficial MURADE</strong>
+          <strong className="text-[#F2D26E] font-bold">Ambiente de gestão MURADE</strong>
         </div>
 
         <div className="flex items-center gap-2.5 text-slate-400 text-[11px]">
@@ -147,20 +147,20 @@ export default function Navbar({
             type="button"
             onClick={() => onSelecionarAba('serpro')}
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900 transition-all cursor-pointer shadow-xs"
-            title="Conexão com SERPRO 100% Ativa e Homologada"
+            title="A conexão com o SERPRO ainda não foi validada pelo sistema"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-bold text-[10px] tracking-wide">SERPRO: Conectado</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            <span className="font-bold text-[10px] tracking-wide">SERPRO: Não validado</span>
           </button>
 
           <button
             type="button"
             onClick={() => onSelecionarAba('procuracao')}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/70 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-900 transition-all cursor-pointer shadow-xs"
-            title="Sincronização com e-CAC em dia"
+            title="A integração com e-CAC ainda não foi validada pelo sistema"
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span className="font-bold text-[10px] tracking-wide">e-CAC: Sincronizado</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            <span className="font-bold text-[10px] tracking-wide">e-CAC: Não validado</span>
           </button>
         </div>
       </div>
@@ -192,18 +192,9 @@ export default function Navbar({
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Murade Fisco IA</span>
-                  <span 
-                    className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider text-slate-950 shadow-xs"
-                    style={{
-                      background: 'linear-gradient(135deg, #F2D26E 0%, #D4AF37 100%)',
-                      border: '1px solid #AA820A'
-                    }}
-                  >
-                    OFICIAL
-                  </span>
                 </div>
                 <p className="text-[10.5px] text-slate-500 -mt-0.5 font-medium hidden sm:block">
-                  Compliance Fiscal com IA
+                  Ferramentas de apoio fiscal com IA
                 </p>
               </div>
             </div>
@@ -340,9 +331,9 @@ export default function Navbar({
                 className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs cursor-pointer transition-colors"
               >
                 <div className="text-left">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wider block font-bold">Plano Ativo</span>
+                  <span className="text-[9px] text-slate-400 uppercase tracking-wider block font-bold">Perfil local</span>
                   <span className="font-bold text-slate-900 flex items-center gap-1">
-                    {planoAtual.nome} ({planoAtual.maxCnpjs} CNPJs)
+                    {planoAtual.nome} · assinatura não verificada
                   </span>
                 </div>
                 {estaAdminAtivo && <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}

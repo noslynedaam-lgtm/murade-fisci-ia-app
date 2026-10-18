@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Key, ShieldCheck, CheckCircle2, AlertTriangle, 
-  Eye, EyeOff, Building2, UploadCloud, 
-  RefreshCw, Check, Sparkles, Server, HardDrive, ExternalLink
+  Building2, UploadCloud,
+  RefreshCw, Check, Sparkles, HardDrive, ExternalLink
 } from 'lucide-react';
 import { CertificadoDigitalDados } from './typesCertificado';
+import { normalizarCnpj, validarCnpj, validarCpf } from '../../services/cnpj/cnpjValidation';
+import { lerReferenciaCertificadoEmpresa } from '../../services/serpro/certificadoReferencia.service';
 
 interface CertificadoDigitalModuloProps {
   empresaAtiva?: {
@@ -13,51 +15,61 @@ interface CertificadoDigitalModuloProps {
   } | null;
   onCertificadoAtualizado: (cert: CertificadoDigitalDados | null) => void;
   onFalar?: (texto: string) => void;
-  onIrParaClientes?: () => void;
 }
 
 export default function CertificadoDigitalModulo({
   empresaAtiva,
   onCertificadoAtualizado,
-  onFalar,
-  onIrParaClientes
+  onFalar
 }: CertificadoDigitalModuloProps) {
   const [tipo, setTipo] = useState<'A1' | 'A3'>('A1');
   const [nomeArquivo, setNomeArquivo] = useState<string>('');
-  const [senha, setSenha] = useState<string>('');
-  const [mostrarSenha, setMostrarSenha] = useState<boolean>(false);
   const [cnpj, setCnpj] = useState<string>('');
   const [razao, setRazao] = useState<string>('');
   const [carregando, setCarregando] = useState<boolean>(false);
-  const [testando, setTestando] = useState<boolean>(false);
 
-  // Status: 'nenhum' | 'pendente' | 'ok' | 'erro'
-  const [status, setStatus] = useState<'nenhum' | 'pendente' | 'ok' | 'erro'>('nenhum');
+  // Sem integração de validação, o estado máximo disponível é referência pendente.
+  const [status, setStatus] = useState<'nenhum' | 'pendente' | 'erro'>('nenhum');
   const [mensagemStatus, setMensagemStatus] = useState<string>('Nenhum certificado cadastrado');
   const [certificadoSalvo, setCertificadoSalvo] = useState<CertificadoDigitalDados | null>(null);
 
-  // Carregar do localStorage ao iniciar
+  // Cada referência de certificado fica isolada pelo CNPJ da empresa ativa.
   useEffect(() => {
+    setCertificadoSalvo(null);
+    setNomeArquivo('');
+    setStatus('nenhum');
+    setMensagemStatus('Nenhum certificado cadastrado para esta empresa neste navegador.');
+    if (!empresaAtiva?.cnpj) {
+      setCnpj('');
+      setRazao('');
+      onCertificadoAtualizado(null);
+      return;
+    }
+    setCnpj(empresaAtiva.cnpj);
+    setRazao(empresaAtiva.razaoSocial);
     try {
-      const salvo = localStorage.getItem('fiscoia_certificado') || localStorage.getItem('fiasco_certificado');
-      if (salvo) {
-        const parsed: CertificadoDigitalDados = JSON.parse(salvo);
+      const referenciaSalva = lerReferenciaCertificadoEmpresa(empresaAtiva.cnpj);
+      if (referenciaSalva) {
+        const parsed = referenciaSalva as unknown as CertificadoDigitalDados;
+        parsed.valido = false;
         setCertificadoSalvo(parsed);
         setTipo(parsed.tipo || 'A1');
-        setNomeArquivo(parsed.nomeArquivo || 'Certificado_A1.pfx');
-        setCnpj(parsed.cnpj || '');
-        setRazao(parsed.razao || '');
-        setStatus('ok');
-        setMensagemStatus('Certificado ativo — SERPRO e e-CAC conectados!');
+        setNomeArquivo(parsed.nomeArquivo || '');
+        setCnpj(empresaAtiva.cnpj);
+        setRazao(empresaAtiva.razaoSocial);
+        setStatus('pendente');
+        setMensagemStatus('Referência desta empresa salva neste navegador. Não foi enviada, validada ou conectada ao SERPRO/e-CAC.');
         onCertificadoAtualizado(parsed);
-      } else if (empresaAtiva) {
-        setCnpj(empresaAtiva.cnpj || '');
-        setRazao(empresaAtiva.razaoSocial || '');
+      } else {
+        setTipo('A1');
+        onCertificadoAtualizado(null);
       }
     } catch (e) {
       console.error('Erro ao ler certificado:', e);
+      setStatus('erro');
+      setMensagemStatus('Não foi possível ler a referência local deste certificado. Nenhuma empresa foi substituída.');
     }
-  }, []);
+  }, [empresaAtiva?.cnpj]);
 
   const preencherEmpresaAtiva = () => {
     if (empresaAtiva) {
@@ -72,7 +84,16 @@ export default function CertificadoDigitalModulo({
   const handleArquivoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!/\.p(?:fx|12)$/i.test(file.name)) {
+        setNomeArquivo('');
+        setStatus('erro');
+        setMensagemStatus('Arquivo inválido. Selecione um arquivo .pfx ou .p12. O conteúdo não será enviado nem validado.');
+        e.target.value = '';
+        return;
+      }
       setNomeArquivo(file.name);
+      setStatus('pendente');
+      setMensagemStatus('Arquivo selecionado apenas como referência local. O conteúdo não foi enviado nem validado.');
       if (onFalar) {
         onFalar(`Arquivo do certificado selecionado: ${file.name}`);
       }
@@ -82,17 +103,10 @@ export default function CertificadoDigitalModulo({
   const handleSalvarCertificado = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!cnpj || cnpj.replace(/\D/g, '').length < 11) {
+    if (!cnpj || (!validarCnpj(cnpj) && !validarCpf(cnpj))) {
       setStatus('erro');
       setMensagemStatus('⚠️ Preencha um CPF ou CNPJ válido!');
       if (onFalar) onFalar('Por favor, informe o documento do escritório ou empresa!');
-      return;
-    }
-
-    if (!senha) {
-      setStatus('erro');
-      setMensagemStatus('⚠️ Digite a senha do certificado!');
-      if (onFalar) onFalar('A senha do certificado digital é obrigatória!');
       return;
     }
 
@@ -105,60 +119,40 @@ export default function CertificadoDigitalModulo({
 
     setCarregando(true);
     setStatus('pendente');
-    setMensagemStatus('🔐 Conectando com SERPRO, e-CAC e Receita Federal...');
-
-    setTimeout(() => {
-      const novoCert: CertificadoDigitalDados = {
+    const novoCert: CertificadoDigitalDados = {
         tipo,
-        nomeArquivo: nomeArquivo || 'Certificado_Oficial.pfx',
-        senha,
+        nomeArquivo,
         cnpj,
-        razao: razao || 'MURADE CONTABILIDADE & COMPLIANCE',
+        razao,
         dataCadastro: new Date().toLocaleDateString('pt-BR'),
-        validade: '10/09/2027',
-        emissor: 'Serpro / ICP-Brasil Autoridade Certificadora RFB v10',
-        uf: 'GO',
-        valido: true
+        validade: '',
+        emissor: '',
+        uf: '',
+        valido: false
       };
 
+      const chaveEmpresa = `fiscoia_certificado_cliente_${normalizarCnpj(cnpj)}`;
+      let anterior: string | null = null;
       try {
-        localStorage.setItem('fiscoia_certificado', JSON.stringify(novoCert));
-        localStorage.setItem('fiasco_certificado', JSON.stringify(novoCert));
-      } catch (e) {}
-
-      setCertificadoSalvo(novoCert);
-      setStatus('ok');
-      setMensagemStatus('✅ Certificado salvo! Integração com órgãos oficiais (SERPRO / e-CAC) ativa!');
-      setCarregando(false);
-
-      onCertificadoAtualizado(novoCert);
-
-      if (onFalar) {
-        onFalar('Certificado salvo com sucesso! Conexão oficial ativa com SERPRO e Receita Federal! 💙');
+        anterior = localStorage.getItem(chaveEmpresa);
+        localStorage.setItem(chaveEmpresa, JSON.stringify(novoCert));
+        onCertificadoAtualizado(novoCert);
+        setCertificadoSalvo(novoCert);
+        setStatus('pendente');
+        setMensagemStatus('Referência salva para esta empresa neste navegador. O arquivo não foi enviado; a conexão oficial não está configurada.');
+        if (onFalar) onFalar('Referência do certificado salva localmente para a empresa selecionada. Nenhuma conexão oficial foi realizada.');
+      } catch (e) {
+        try {
+          if (anterior === null) localStorage.removeItem(chaveEmpresa);
+          else localStorage.setItem(chaveEmpresa, anterior);
+        } catch {
+          setMensagemStatus('Falha ao salvar e restaurar a referência local. Confira os dados desta empresa antes de tentar novamente.');
+        }
+        setStatus('erro');
+        setMensagemStatus(e instanceof Error ? `Não foi possível salvar a referência deste certificado: ${e.message}` : 'Não foi possível salvar a referência deste certificado neste navegador.');
+      } finally {
+        setCarregando(false);
       }
-    }, 1200);
-  };
-
-  const handleTestarConexao = () => {
-    if (!certificadoSalvo && status !== 'ok') {
-      setStatus('erro');
-      setMensagemStatus('⚠️ Cadastre e salve o certificado primeiro!');
-      return;
-    }
-
-    setTestando(true);
-    setStatus('pendente');
-    setMensagemStatus('🔍 Testando conexão com SERPRO INTEGRA e Receita Federal...');
-
-    setTimeout(() => {
-      setTestando(false);
-      setStatus('ok');
-      setMensagemStatus('✅ Conectado com SERPRO e e-CAC! Gateway Oficial em operação (Código 200 OK)!');
-
-      if (onFalar) {
-        onFalar('Conexão confirmada com SERPRO e Receita Federal! Webservices operando com sucesso! 💙');
-      }
-    }, 1500);
   };
 
   return (
@@ -171,16 +165,10 @@ export default function CertificadoDigitalModulo({
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 flex items-center gap-2 flex-wrap">
-              <span>🔐 CERTIFICADO DIGITAL — CONEXÃO OFICIAL</span>
-              {certificadoSalvo?.valido && (
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  Ativo & Conectado
-                </span>
-              )}
+              <span>🔐 CERTIFICADO DIGITAL — REFERÊNCIA LOCAL</span>
             </h2>
             <p className="text-xs text-slate-500">
-              Conexão e autenticação direta com SERPRO, e-CAC e Receita Federal do Brasil.
+              O cadastro local não envia nem valida o certificado. A integração oficial ainda não está conectada.
             </p>
           </div>
         </div>
@@ -206,7 +194,7 @@ export default function CertificadoDigitalModulo({
             Aviso de Finalidade do Certificado Digital
           </strong>
           <p className="leading-relaxed">
-            Este certificado é usado <strong>apenas para conectar com SERPRO, e-CAC e Receita Federal</strong> (consulta de pendências, DCTFWeb, guias e procurações). <strong>Não emite nota fiscal.</strong> O foco do sistema é cadastro de clientes, conformidade e integração.
+            Esta tela não transmite o arquivo nem testa o certificado. <strong>Não informe a senha aqui.</strong> A conexão oficial exige integração segura no servidor. O cadastro local não emite notas ou consulta pendências.
           </p>
         </div>
       </div>
@@ -260,7 +248,7 @@ export default function CertificadoDigitalModulo({
                 <span className="text-xs font-bold text-purple-900 block">
                   {nomeArquivo ? nomeArquivo : 'Clique para selecionar o arquivo .pfx ou .p12'}
                 </span>
-                <span className="text-[10px] text-slate-500">Criptografia SHA-256 ICP-Brasil</span>
+                <span className="text-[10px] text-slate-500">Somente o nome do arquivo será salvo; o conteúdo não será enviado.</span>
                 <input
                   type="file"
                   accept=".pfx,.p12"
@@ -275,31 +263,11 @@ export default function CertificadoDigitalModulo({
             <HardDrive className="w-5 h-5 text-indigo-600 shrink-0" />
             <div>
               <strong className="block text-slate-900">Modo A3 (Token ou Cartão Físico):</strong>
-              <span>Conecte o token USB na máquina e certifique-se de que a cadeia de certificados da RFB esteja instalada.</span>
+              <span>A conexão com token/cartão A3 e a leitura da cadeia do certificado ainda não estão implementadas nesta aplicação. O cadastro abaixo guarda só uma referência local.</span>
             </div>
           </div>
         )}
 
-        {/* Senha */}
-        <div className="space-y-1.5 sm:col-span-2">
-          <label className="font-bold text-slate-700 block">Senha do Certificado:</label>
-          <div className="relative">
-            <input
-              type={mostrarSenha ? 'text' : 'password'}
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              placeholder="Digite a senha de proteção"
-              className="w-full p-2.5 pr-10 rounded-xl border border-slate-300 bg-slate-50 font-medium text-slate-800 focus:bg-white focus:border-indigo-600 outline-hidden"
-            />
-            <button
-              type="button"
-              onClick={() => setMostrarSenha(!mostrarSenha)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Botões de Ação */}
@@ -311,26 +279,18 @@ export default function CertificadoDigitalModulo({
           className="px-5 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all disabled:opacity-50"
         >
           {carregando ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-          <span>{carregando ? 'Conectando...' : '🔗 Conectar e Salvar'}</span>
+          <span>{carregando ? 'Salvando...' : 'Salvar referência local'}</span>
         </button>
 
-        <button
-          type="button"
-          onClick={handleTestarConexao}
-          disabled={testando}
-          className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-2 cursor-pointer transition-colors border border-slate-200"
-        >
-          {testando ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" /> : <Server className="w-4 h-4 text-indigo-600" />}
-          <span>{testando ? 'Testando SERPRO...' : '🔍 Testar Conexão SERPRO / e-CAC'}</span>
-        </button>
+        <div role="note" className="px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs">
+          SERPRO/e-CAC não estão conectados. Este cadastro não envia nem valida o certificado.
+        </div>
       </div>
 
       {/* Caixa de Status Dinâmico */}
       <div
         className={`p-3.5 rounded-2xl border text-xs flex items-center gap-3 transition-colors ${
-          status === 'ok'
-            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-            : status === 'erro'
+          status === 'erro'
             ? 'bg-rose-50 border-rose-300 text-rose-900'
             : status === 'pendente'
             ? 'bg-amber-50 border-amber-300 text-amber-900'
@@ -338,45 +298,36 @@ export default function CertificadoDigitalModulo({
         }`}
       >
         <span className="text-xl">
-          {status === 'ok' ? '✅' : status === 'erro' ? '❌' : status === 'pendente' ? '⏳' : '⚪'}
+          {status === 'erro' ? '❌' : status === 'pendente' ? '⏳' : '⚪'}
         </span>
         <div className="flex-1 font-medium">{mensagemStatus}</div>
-        {status === 'ok' && onIrParaClientes && (
-          <button
-            type="button"
-            onClick={onIrParaClientes}
-            className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 cursor-pointer shadow-xs shrink-0"
-          >
-            Ir para Clientes 👥
-          </button>
-        )}
       </div>
 
-      {/* Cartão de Informações do Certificado Ativo */}
+      {/* Cartão de informações da referência local do certificado */}
       {certificadoSalvo && (
         <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 text-xs space-y-2 text-purple-950">
           <div className="flex items-center justify-between pb-2 border-b border-purple-200/60 font-bold">
             <span className="flex items-center gap-1.5 text-purple-900">
               <ShieldCheck className="w-4 h-4 text-purple-700" />
-              Dados da Conexão Digital ICP-Brasil (SERPRO / e-CAC)
+              Referência local do certificado
             </span>
-            <span className="text-emerald-700 font-mono text-[11px]">Status: HOMOLOGADO RFB</span>
+            <span className="text-amber-800 font-mono text-[11px]">Status: Não validado</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
             <div>
-              <span className="text-purple-800 font-bold block">Validade Legal:</span>
-              <span className="font-mono text-slate-800">{certificadoSalvo.validade}</span>
+              <span className="text-purple-800 font-bold block">Validade informada:</span>
+              <span className="font-mono text-slate-800">{certificadoSalvo.validade || 'Não informada'}</span>
             </div>
             <div>
-              <span className="text-purple-800 font-bold block">Autoridade Emissora:</span>
+              <span className="text-purple-800 font-bold block">Emissor informado:</span>
               <span className="text-slate-800 truncate block" title={certificadoSalvo.emissor}>
                 {certificadoSalvo.emissor}
               </span>
             </div>
             <div>
               <span className="text-purple-800 font-bold block">Finalidade Autorizada:</span>
-              <span className="font-bold text-slate-800">Conexão SERPRO / e-CAC / RFB</span>
+              <span className="font-bold text-slate-800">Nenhuma conexão validada</span>
             </div>
           </div>
         </div>

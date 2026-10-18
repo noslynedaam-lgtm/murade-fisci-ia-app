@@ -1,179 +1,121 @@
-import { format, differenceInDays } from 'date-fns';
-import { ItemAgendaFiscal, StatusVencimento, ConfigLembretes } from '../../types';
+import { differenceInCalendarDays, format, parseISO } from 'date-fns';
+import { ItemAgendaFiscal, StatusVencimento } from '../../types';
 
-// 🔧 Ajusta vencimento se cair fim de semana (antecipa para dia útil anterior)
-export function ajustarFimDeSemana(dataOriginal: Date): Date {
-  const data = new Date(dataOriginal);
-  const dia = data.getDay();
-  if (dia === 0) data.setDate(data.getDate() - 2); // Domingo → Sexta-feira
-  if (dia === 6) data.setDate(data.getDate() - 1); // Sábado → Sexta-feira
-  return data;
-}
+const STORAGE_KEY = 'murade_agenda_lembretes_locais_v1';
+export const EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS = 'murade_lembretes_fiscais_atualizados';
 
-// 📅 TIPOS DE OBRIGAÇÕES E VENCIMENTOS
-export const TIPOS_OBRIGACOES: Record<string, {
-  nome: string;
-  vencimento: (param: any) => Date;
-  alertas: number[];
-}> = {
-  DARF_PREVIDENCIARIO: {
-    nome: 'DARF Previdenciário (INSS)',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(20);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [10, 5, 2, 1] // ⏰ Avisar com quantos dias antes
-  },
-  FGTS_DIGITAL: {
-    nome: 'FGTS Digital',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(20);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [10, 5, 2, 1]
-  },
-  DAS_SIMPLES: {
-    nome: 'DAS — Simples Nacional',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(20);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [10, 5, 2]
-  },
-  PIS_COFINS: {
-    nome: 'PIS / COFINS (Faturamento)',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(25);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [10, 5, 2]
-  },
-  IRPJ_CSLL_PRESUMIDO: {
-    nome: 'IRPJ / CSLL — Lucro Presumido / Real',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(30);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [15, 7, 3, 1]
-  },
-  EFD_REINF: {
-    nome: 'EFD-Reinf (Retenções)',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(15);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [10, 5, 2]
-  },
-  DCTFWEB: {
-    nome: 'DCTFWeb (Transmissão)',
-    vencimento: (competencia: Date) => {
-      const data = new Date(competencia);
-      data.setMonth(data.getMonth() + 1);
-      data.setDate(20);
-      return ajustarFimDeSemana(data);
-    },
-    alertas: [15, 7, 3, 1]
-  },
-  VENCIMENTO_PROCURACAO: {
-    nome: 'Validade Procuração',
-    vencimento: (dataValidade: string | Date) => new Date(dataValidade),
-    alertas: [30, 15, 7, 1]
-  },
-  VENCIMENTO_CND: {
-    nome: 'Validade CND',
-    vencimento: (dataValidade: string | Date) => new Date(dataValidade),
-    alertas: [15, 7, 2]
-  }
-};
-
-// 🟢🟡🔴 Status do vencimento
-export function getStatus(dataVencimento: Date): StatusVencimento {
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const dataAlvo = new Date(dataVencimento);
-  dataAlvo.setHours(0, 0, 0, 0);
-
-  const dias = differenceInDays(dataAlvo, hoje);
-  
-  if (dias < 0) return { texto: 'VENCIDO', cor: '#d32f2f', icone: '❌' };
-  if (dias === 0) return { texto: 'HOJE', cor: '#d32f2f', icone: '🔴' };
-  if (dias <= 3) return { texto: 'URGENTE', cor: '#f57c00', icone: '⚠️' };
-  if (dias <= 10) return { texto: 'ATENÇÃO', cor: '#fbc02d', icone: '🟡' };
-  return { texto: 'NO PRAZO', cor: '#388e3c', icone: '✅' };
-}
-
-export interface EmpresaAgenda {
-  razaoSocial: string;
+/** Lembrete manual; não representa uma obrigação consultada ou validada em órgão oficial. */
+export interface LembreteFiscalLocal {
+  id: string;
+  empresaId: string;
+  empresa: string;
   cnpj: string;
-  procuracaoValidade?: string;
-  cndValidade?: string;
+  titulo: string;
+  dataVencimento: string;
+  alertas: number[];
+  concluido: boolean;
+  criadoEm: string;
 }
 
-// 📅 Gerar agenda do mês
-export function gerarAgenda(mes: Date, empresas: EmpresaAgenda[] = []): ItemAgendaFiscal[] {
-  const agenda: ItemAgendaFiscal[] = [];
+export type ResultadoLeituraLembretes =
+  | { ok: true; lembretes: LembreteFiscalLocal[] }
+  | { ok: false; erro: string };
+
+function dataLocalValida(valor: unknown): valor is string {
+  if (typeof valor !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
+  if (!match) return false;
+  const data = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return data.getUTCFullYear() === Number(match[1])
+    && data.getUTCMonth() === Number(match[2]) - 1
+    && data.getUTCDate() === Number(match[3]);
+}
+
+function lembreteValido(item: unknown): item is LembreteFiscalLocal {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const lembrete = item as Record<string, unknown>;
+  return typeof lembrete.id === 'string' && Boolean(lembrete.id.trim())
+    && typeof lembrete.empresaId === 'string' && Boolean(lembrete.empresaId.trim())
+    && typeof lembrete.empresa === 'string'
+    && typeof lembrete.cnpj === 'string'
+    && typeof lembrete.titulo === 'string' && Boolean(lembrete.titulo.trim()) && lembrete.titulo.length <= 100
+    && dataLocalValida(lembrete.dataVencimento)
+    && Array.isArray(lembrete.alertas)
+    && lembrete.alertas.every(dia => typeof dia === 'number' && Number.isInteger(dia) && dia >= 0 && dia <= 365)
+    && typeof lembrete.concluido === 'boolean'
+    && typeof lembrete.criadoEm === 'string' && Number.isFinite(Date.parse(lembrete.criadoEm));
+}
+
+export function listarLembretesFiscais(): ResultadoLeituraLembretes {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return { ok: true, lembretes: [] };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every(lembreteValido)
+      || new Set(parsed.map(item => (item as LembreteFiscalLocal).id)).size !== parsed.length) {
+      return { ok: false, erro: 'A agenda contém dados inválidos. Os registros foram preservados e nenhuma lista vazia foi presumida.' };
+    }
+    return { ok: true, lembretes: parsed as LembreteFiscalLocal[] };
+  } catch (error) {
+    console.error('Não foi possível carregar os lembretes locais:', error);
+    return { ok: false, erro: 'Não foi possível ler a agenda local. Os dados armazenados foram preservados.' };
+  }
+}
+
+export function salvarLembretesFiscais(lembretes: LembreteFiscalLocal[]): boolean {
+  try {
+    if (!Array.isArray(lembretes) || !lembretes.every(lembreteValido)
+      || new Set(lembretes.map(lembrete => lembrete.id)).size !== lembretes.length) return false;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lembretes));
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS));
+    return true;
+  } catch (error) {
+    console.error('Não foi possível salvar os lembretes locais:', error);
+    return false;
+  }
+}
+
+export function getStatus(dataVencimento: Date, concluido = false): StatusVencimento {
+  if (concluido) return { texto: 'CONCLUÍDO', cor: '#475569', icone: '✓' };
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
-  
-  empresas.forEach(empresa => {
-    Object.entries(TIPOS_OBRIGACOES).forEach(([chave, tipo]) => {
-      let dataVenc: Date;
-      
-      // Trata vencimentos com data específica
-      if (chave === 'VENCIMENTO_PROCURACAO' && empresa.procuracaoValidade) {
-        dataVenc = tipo.vencimento(empresa.procuracaoValidade);
-      } else if (chave === 'VENCIMENTO_CND' && empresa.cndValidade) {
-        dataVenc = tipo.vencimento(empresa.cndValidade);
-      } else if (chave !== 'VENCIMENTO_PROCURACAO' && chave !== 'VENCIMENTO_CND') {
-        dataVenc = tipo.vencimento(mes);
-      } else {
-        return; // Pula se não tiver data
-      }
-
-      const targetZero = new Date(dataVenc);
-      targetZero.setHours(0, 0, 0, 0);
-      const dias = differenceInDays(targetZero, hoje);
-
-      agenda.push({
-        id: `${empresa.cnpj}_${chave}_${format(mes, 'MMyyyy')}`,
-        empresa: empresa.razaoSocial,
-        cnpj: empresa.cnpj,
-        tipo: tipo.nome,
-        dataVencimento: dataVenc,
-        diasParaVencer: dias,
-        status: getStatus(dataVenc),
-        alertas: tipo.alertas
-      });
-    });
-  });
-
-  return agenda.sort((a, b) => a.dataVencimento.getTime() - b.dataVencimento.getTime());
+  const dias = differenceInCalendarDays(dataVencimento, hoje);
+  if (dias < 0) return { texto: 'VENCIDO', cor: '#d32f2f', icone: '!' };
+  if (dias === 0) return { texto: 'HOJE', cor: '#d32f2f', icone: '!' };
+  if (dias <= 3) return { texto: 'URGENTE', cor: '#f57c00', icone: '!' };
+  if (dias <= 10) return { texto: 'ATENÇÃO', cor: '#fbc02d', icone: '!' };
+  return { texto: 'NO PRAZO', cor: '#388e3c', icone: '•' };
 }
 
-// 🔔 Verifica quais lembretes disparar HOJE
+export function gerarAgenda(lembretes: LembreteFiscalLocal[]): ItemAgendaFiscal[] {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  return lembretes
+    .map(lembrete => {
+      const dataVencimento = parseISO(lembrete.dataVencimento);
+      if (Number.isNaN(dataVencimento.getTime())) return null;
+      dataVencimento.setHours(0, 0, 0, 0);
+      return {
+        id: lembrete.id,
+        empresa: lembrete.empresa,
+        cnpj: lembrete.cnpj,
+        tipo: lembrete.titulo,
+        dataVencimento,
+        diasParaVencer: differenceInCalendarDays(dataVencimento, hoje),
+        status: getStatus(dataVencimento, lembrete.concluido),
+        alertas: lembrete.alertas
+      } satisfies ItemAgendaFiscal;
+    })
+    .filter((item): item is ItemAgendaFiscal => item !== null)
+    .sort((a, b) => a.dataVencimento.getTime() - b.dataVencimento.getTime());
+}
+
+/** Encontra lembretes manuais que devem chamar atenção hoje; não envia mensagens externas. */
 export function verificarLembretesDoDia(agenda: ItemAgendaFiscal[]): ItemAgendaFiscal[] {
-  return agenda.filter(item => {
-    // Dispara se for exatamente dia de alerta ou se vence hoje ou se está vencido recente
-    return item.alertas.includes(item.diasParaVencer) || item.diasParaVencer === 0 || (item.diasParaVencer <= 3 && item.diasParaVencer > 0);
-  });
+  return agenda.filter(item => item.status.texto !== 'CONCLUÍDO' &&
+    (item.alertas.includes(item.diasParaVencer) || item.diasParaVencer <= 0));
 }
 
-// ⚙️ Configuração padrão dos lembretes
-export const configLembretes: ConfigLembretes = {
-  notificacaoApp: true,
-  email: true,
-  whatsapp: false,
-  horaLembrete: '08:00'
-};
+export function chaveNotificacaoLembrete(id: string, data = new Date()): string {
+  return `murade_agenda_notificado_${id}_${format(data, 'yyyy-MM-dd')}`;
+}

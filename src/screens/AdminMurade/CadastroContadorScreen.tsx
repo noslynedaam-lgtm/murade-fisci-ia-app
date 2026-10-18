@@ -19,7 +19,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
     cpfCnpj: '',
     crc: '',
     idPlano: 'empresarial' as 'basico' | 'profissional' | 'empresarial',
-    dataVencimento: '09/10/2026'
+    dataVencimento: ''
   });
 
   const [carregando, setCarregando] = useState(false);
@@ -67,7 +67,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
         cpfCnpj: '',
         crc: '',
         idPlano: 'empresarial',
-        dataVencimento: '09/10/2026'
+        dataVencimento: ''
       });
     } else {
       setErro(resp.mensagem || 'Erro ao cadastrar contador.');
@@ -76,7 +76,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
 
   const copiarAcesso = () => {
     if (!sucesso) return;
-    const texto = `🎉 SEU ACESSO AO FISCOIA — MURADE!\n\nOlá ${sucesso.nome}!\n\nSeu acesso foi criado com sucesso.\n\n🔐 Login: ${sucesso.email}\n🔑 Senha temporária: ${sucesso.senhaProvisoria}\n📋 Plano: ${sucesso.nomePlano}\n\n⚠️ Ao entrar pela primeira vez, você DEVERÁ trocar sua senha por uma sua exclusiva.\n\nAcesse: https://app.fiscoia.com.br/login`;
+    const texto = `DADOS DE ACESSO — MURADE FISCO IA\n\nOlá ${sucesso.nome}.\n\nSua conta foi criada no servidor. Nenhum e-mail foi enviado.\n\nLogin: ${sucesso.email}\nSenha temporária: ${sucesso.senhaProvisoria}\nPerfil selecionado: ${sucesso.nomePlano} (não comprova assinatura ou pagamento)\n\nTroque a senha no primeiro acesso. Entregue estes dados por um canal seguro.`;
     navigator.clipboard.writeText(texto);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 2000);
@@ -100,7 +100,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Gestão Master MURADE: cadastre o cliente, gere a senha temporária automática e envie os dados de acesso por e-mail.
+            Este cadastro fica apenas neste navegador. A senha temporária é exibida para entrega manual; não há envio de e-mail nem autenticação central.
           </p>
         </div>
       </div>
@@ -118,7 +118,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-200 pb-3">
             <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
               <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              <span>Contador Cadastrado e E-mail de Boas-Vindas Disparado!</span>
+              <span>Conta local criada; e-mail não enviado</span>
             </div>
             <button
               type="button"
@@ -126,7 +126,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               {copiado ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiado ? 'Acesso Copiado!' : 'Copiar Acesso para WhatsApp'}</span>
+              <span>{copiado ? 'Texto copiado' : 'Copiar texto para entrega manual'}</span>
             </button>
           </div>
 
@@ -142,16 +142,14 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             </div>
 
             <div className="p-3 bg-white rounded-xl border border-emerald-200">
-              <span className="text-slate-500 block text-[11px]">Plano Habilitado:</span>
+              <span className="text-slate-500 block text-[11px]">Perfil local (sem assinatura):</span>
               <strong className="text-emerald-800 text-xs block">{sucesso.nomePlano}</strong>
             </div>
           </div>
 
           <div className="p-3 bg-white/80 rounded-xl border border-emerald-200/80 text-[11px] text-emerald-950 flex items-center gap-2">
             <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>
-              Ao entrar pela primeira vez com essa senha temporária, o sistema exigirá que o contador defina sua senha exclusiva e definitiva.
-            </span>
+            <span>O perfil e os dados de login não são compartilhados com outros dispositivos. Autenticação central ainda não está configurada.</span>
           </div>
         </div>
       )}
@@ -233,11 +231,12 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
           </div>
         </div>
 
-        {/* Seleção do Plano Contratado */}
+        {/* Seleção do perfil local */}
         <div className="pt-3 border-t border-slate-100 space-y-3">
           <label className="font-bold text-slate-800 block text-xs">
-            Plano Contratado * (Define o Limite de CNPJs e Recursos)
+            Perfil local de referência (não representa contratação ou pagamento)
           </label>
+          <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-2">O gateway de cobrança e a validação central de limites não estão configurados. A seleção abaixo não ativa assinatura.</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {Object.values(PLANOS).map((plano) => {
@@ -257,10 +256,10 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
                     {ativo && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>}
                   </div>
                   <div className="text-xs text-indigo-700 font-bold mt-1">
-                    R$ {plano.valorMensal.toFixed(2).replace('.', ',')}/mês
+                    Referência: R$ {plano.valorMensal.toFixed(2).replace('.', ',')}/mês
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
-                    Capacidade: até <strong>{plano.maxCnpjs} CNPJs</strong>
+                    Limite de referência: <strong>{plano.maxCnpjs} CNPJs</strong>
                   </div>
                 </div>
               );
@@ -271,13 +270,13 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
           <div>
             <label className="font-semibold text-slate-700 block mb-1">
-              Data de Vencimento da Mensalidade
+              Data informativa (sem cobrança conectada)
             </label>
             <input
               type="text"
               value={dados.dataVencimento}
               onChange={(e) => setDados({ ...dados, dataVencimento: e.target.value })}
-              placeholder="09/10/2026"
+              placeholder="Opcional; sem pagamento configurado"
               className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 font-mono"
             />
           </div>
@@ -291,7 +290,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             className="px-6 py-3 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50 transition-all"
           >
             <Send className="w-4 h-4 text-amber-400" />
-            <span>{carregando ? 'Cadastrando e Enviando E-mail...' : 'Cadastrar Contador e Disparar Acesso'}</span>
+            <span>{carregando ? 'Criando registro local...' : 'Criar conta local'}</span>
           </button>
         </div>
       </form>

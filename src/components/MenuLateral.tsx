@@ -5,7 +5,7 @@ import {
   User, DollarSign, ShieldAlert, Tag, 
   ChevronLeft, ChevronRight, X, LogOut, Receipt, CheckCircle2, Server,
   UserPlus, ShieldCheck, ClipboardCheck, Settings, Cpu, Calculator, Volume2,
-  Key, Eye, EyeOff, RefreshCw, Lock, Unlock, Radio
+  Key, Eye, EyeOff, RefreshCw, Lock, Unlock, Radio, LayoutGrid
 } from 'lucide-react';
 import { UsuarioAuth } from '../types';
 import { TIPOS_USUARIO, ehUsuarioAdmin, obterMenuPermitido } from '../config/Permissoes';
@@ -62,7 +62,7 @@ export default function MenuLateral({
   // Estados dos serviços Murade 2026 para os controles na barra lateral esquerda
   const [monitorAberto, setMonitorAberto] = useState(false);
   const [certAberto, setCertAberto] = useState(false);
-  const [certAtivo, setCertAtivo] = useState(false);
+  const certAtivo = false;
 
   // Refs para isolamento estrito de rolagem (evita que o scroll vaze para a tela principal)
   const asideMenuRef = useRef<HTMLElement>(null);
@@ -115,7 +115,6 @@ export default function MenuLateral({
       const cert = document.getElementById('cert-murade');
       setMonitorAberto(painel ? painel.style.display !== 'none' : false);
       setCertAberto(cert ? cert.style.display !== 'none' : false);
-      setCertAtivo(Boolean((window as any).CERTIFICADO_ATIVO));
     };
 
     verificarStatus();
@@ -194,6 +193,7 @@ export default function MenuLateral({
     admin_bloqueio: ShieldAlert,
     admin_precos: Tag,
     dashboard: LayoutDashboard,
+    modulos: LayoutGrid,
     conformidade: ClipboardCheck,
     empresas: Building2,
     agenda: CalendarCheck,
@@ -211,7 +211,8 @@ export default function MenuLateral({
   const itensMuradeAdmin = [
     { id: 'admin', rotulo: 'Painel MURADE', icone: Crown, admin: true },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026', admin: true },
-    { id: 'fiscal', rotulo: 'NFe & Apuração', icone: Receipt, tag: 'v3.2.1', admin: true },
+    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP', admin: true },
+    { id: 'fiscal', rotulo: 'Notas & Resumo Local', icone: Receipt, tag: 'v3.2.1', admin: true },
     { id: 'configuracao', rotulo: 'Config. Integração', icone: Settings, tag: '3 Sistemas', admin: true },
     { id: 'admin_faturamento', rotulo: 'Faturamento', icone: DollarSign, admin: true },
     { id: 'admin_bloqueio', rotulo: 'Bloqueio de Inadimplentes', icone: ShieldAlert, admin: true },
@@ -228,10 +229,11 @@ export default function MenuLateral({
   const itensContador = [
     { id: 'dashboard', rotulo: 'Início', icone: LayoutDashboard },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026' },
+    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP' },
     { id: 'cadastro-empresa', rotulo: 'Cadastrar Empresa', icone: UserPlus },
     { id: 'conformidade', rotulo: 'Relatório de Conformidade', icone: ClipboardCheck, tag: 'Empresas' },
     { id: 'empresas', rotulo: 'Clientes / Empresas', icone: Building2 },
-    { id: 'fiscal', rotulo: 'NFe & Apuração', icone: Receipt, tag: 'v3.2.1' },
+    { id: 'fiscal', rotulo: 'Notas & Resumo Local', icone: Receipt, tag: 'v3.2.1' },
     { id: 'agenda', rotulo: 'Fiscal (Agenda)', icone: CalendarCheck },
     { id: 'cnd', rotulo: 'CND / Certidões', icone: ShieldCheck },
     { id: 'dctfweb', rotulo: 'Guias', icone: Receipt },
@@ -366,7 +368,7 @@ export default function MenuLateral({
                       fontWeight: 500
                     }}
                   >
-                    Compliance Fiscal com IA
+                    Ferramentas de apoio fiscal com IA
                   </p>
                 </div>
               </div>
@@ -649,7 +651,7 @@ export default function MenuLateral({
               <div className="mx-2 mt-3 mb-2 p-2.5 rounded-xl bg-slate-900/80 border border-blue-500/30 text-xs shadow-inner space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-black text-blue-300">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
                     <span>MURADE FISCO IA</span>
                   </div>
                   <span className="text-[9px] bg-blue-900/60 text-blue-200 border border-blue-400/30 px-1.5 py-0.5 rounded font-bold">2026</span>
@@ -674,7 +676,7 @@ export default function MenuLateral({
                     <span className={`text-[9px] px-1 py-0.2 rounded font-bold ${
                       certAtivo ? 'bg-emerald-500 text-white' : 'bg-amber-500/80 text-white'
                     }`}>
-                      {certAtivo ? 'Ativo' : 'Pendente'}
+                      {certAtivo ? 'Validado' : 'Não validado'}
                     </span>
                   </button>
 
@@ -708,7 +710,7 @@ export default function MenuLateral({
                   className={`p-2 rounded-lg transition-colors cursor-pointer ${
                     certAtivo ? 'bg-emerald-500/30 text-emerald-300' : 'bg-white/10 text-amber-300 hover:bg-white/20'
                   }`}
-                  title={certAtivo ? "Certificado Conectado" : "Certificado Pendente"}
+                  title={certAtivo ? "Certificado validado" : "Referência do certificado não validada"}
                 >
                   <Key className="w-4 h-4" />
                 </button>

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { EmpresaDados, StatusComplianceEmpresa } from '../../types';
 import { useEmpresa } from '../../context/EmpresaContext';
+import { normalizarCnpj } from '../../services/cnpj/cnpjValidation';
 import { 
   obterStatusTodasEmpresas, 
   atualizarStatusCompliance,
@@ -65,11 +66,27 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     setTimeout(() => setToastMensagem(null), 3000);
   };
 
+  const registrarAtualizacaoManual = (
+    empresa: EmpresaDados,
+    updates: Partial<StatusComplianceEmpresa>,
+    mensagemSucesso: string
+  ) => {
+    try {
+      atualizarStatusCompliance(empresa, updates, competencia);
+      setVersaoEstado(v => v + 1);
+      mostrarToast(mensagemSucesso);
+    } catch (error) {
+      setVersaoEstado(v => v + 1);
+      mostrarToast(error instanceof Error ? error.message : 'Não foi possível salvar o registro manual.');
+    }
+  };
+
   // Mapa de compliance para todas as empresas da carteira
-  const mapaCompliance = useMemo(() => {
+  const resultadoCompliance = useMemo(() => {
     // dependemos de versaoEstado para forçar re-render quando atualizar
     return obterStatusTodasEmpresas(empresas, competencia);
   }, [empresas, competencia, versaoEstado]);
+  const mapaCompliance = 'erro' in resultadoCompliance ? {} : resultadoCompliance.status;
 
   // Cálculos consolidados para os indicadores
   const estatisticas = useMemo(() => {
@@ -77,10 +94,10 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     let dadosNaoEnviados = 0;
     let dctfwebEnviadas = 0;
     let dctfwebNaoEnviadas = 0;
-    let cndRegulares = 0;
-    let cndNaoSaiu = 0;
-    let empresas100Ok = 0;
-    let empresasComPendencia = 0;
+    let cndComNumeroInformado = 0;
+    let cndSemNumeroInformado = 0;
+    let checklistsInformadosCompletos = 0;
+    let checklistsInformadosIncompletos = 0;
 
     empresas.forEach(emp => {
       const id = emp.id || emp.cnpj;
@@ -100,16 +117,16 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
       }
 
       if (st.cndEmitida) {
-        cndRegulares++;
+        cndComNumeroInformado++;
       } else {
-        cndNaoSaiu++;
+        cndSemNumeroInformado++;
       }
 
-      const isTotalmenteOk = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
-      if (isTotalmenteOk) {
-        empresas100Ok++;
+      const checklistCompleto = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
+      if (checklistCompleto) {
+        checklistsInformadosCompletos++;
       } else {
-        empresasComPendencia++;
+        checklistsInformadosIncompletos++;
       }
     });
 
@@ -119,10 +136,10 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
       dadosNaoEnviados,
       dctfwebEnviadas,
       dctfwebNaoEnviadas,
-      cndRegulares,
-      cndNaoSaiu,
-      empresas100Ok,
-      empresasComPendencia
+      cndComNumeroInformado,
+      cndSemNumeroInformado,
+      checklistsInformadosCompletos,
+      checklistsInformadosIncompletos
     };
   }, [empresas, mapaCompliance]);
 
@@ -131,16 +148,14 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     const id = emp.id || emp.cnpj;
     const st = mapaCompliance[id];
     const novoValor = !st.dadosMesEnviados;
-    atualizarStatusCompliance(
+    registrarAtualizacaoManual(
       emp,
       {
         dadosMesEnviados: novoValor,
         dataEnvioDados: novoValor ? new Date().toLocaleString('pt-BR') : undefined
       },
-      competencia
+      `Registro manual de recebimento atualizado para ${emp.razaoSocial}. Nenhum dado foi transmitido pelo sistema.`
     );
-    setVersaoEstado(v => v + 1);
-    mostrarToast(`Envio de dados do mês atualizado para "${emp.razaoSocial}": ${novoValor ? '✅ Enviado' : '⏳ Pendente'}`);
   };
 
   // Alternar envio de DCTFWeb
@@ -148,17 +163,17 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     const id = emp.id || emp.cnpj;
     const st = mapaCompliance[id];
     const novoValor = !st.dctfwebEnviada;
-    atualizarStatusCompliance(
+    const recibo = novoValor ? window.prompt('Informe o número do recibo oficial da DCTFWeb já transmitida. O sistema não fará a transmissão:')?.trim() : '';
+    if (novoValor && !recibo) return;
+    registrarAtualizacaoManual(
       emp,
       {
         dctfwebEnviada: novoValor,
         dataEnvioDCTFWeb: novoValor ? new Date().toLocaleString('pt-BR') : undefined,
-        reciboDCTFWeb: novoValor ? `2026.09.${Math.floor(1000 + Math.random() * 9000)}.${Math.floor(1000 + Math.random() * 9000)}` : undefined
+        reciboDCTFWeb: novoValor ? recibo : undefined
       },
-      competencia
+      `Registro manual da DCTFWeb ${novoValor ? 'salvo com recibo informado' : 'removido'} para ${emp.razaoSocial}.`
     );
-    setVersaoEstado(v => v + 1);
-    mostrarToast(`DCTFWeb atualizada para "${emp.razaoSocial}": ${novoValor ? '✅ Transmitida' : '⚠️ Não transmitida'}`);
   };
 
   // Alternar status da CND
@@ -166,38 +181,26 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     const id = emp.id || emp.cnpj;
     const st = mapaCompliance[id];
     const novoValor = !st.cndEmitida;
-    atualizarStatusCompliance(
+    const numeroCertidao = novoValor ? window.prompt('Informe o código da certidão oficial emitida. O sistema não consulta nem emite CND:')?.trim() : '';
+    if (novoValor && !numeroCertidao) return;
+    registrarAtualizacaoManual(
       emp,
       {
         cndEmitida: novoValor,
-        motivoCndNaoSaiu: novoValor ? undefined : 'Constam pendências de débitos ou cadastro na Receita Federal / PGFN'
+        motivoCndNaoSaiu: novoValor ? `Certidão informada manualmente: ${numeroCertidao}` : 'Situação não verificada pelo sistema.'
       },
-      competencia
+      `Registro manual da CND ${novoValor ? 'salvo' : 'removido'} para ${emp.razaoSocial}.`
     );
-    setVersaoEstado(v => v + 1);
-    mostrarToast(`CND de "${emp.razaoSocial}": ${novoValor ? '🛡️ CND Saiu / Regular' : '🚨 CND NÃO Saiu / Com Pendência'}`);
   };
 
   // Marcar todas da carteira como dados enviados
   const handleMarcarTodosDadosEnviados = () => {
-    empresas.forEach(emp => {
-      atualizarStatusCompliance(emp, { dadosMesEnviados: true, dataEnvioDados: new Date().toLocaleString('pt-BR') }, competencia);
-    });
-    setVersaoEstado(v => v + 1);
-    mostrarToast('✅ Todos os dados do mês foram marcados como enviados!');
+    mostrarToast('Registre o recebimento real por empresa. Este painel não envia nem recebe documentos em lote.');
   };
 
   // Marcar todas as DCTFWeb como transmitidas
   const handleMarcarTodasDCTFWebEnviadas = () => {
-    empresas.forEach(emp => {
-      atualizarStatusCompliance(emp, { 
-        dctfwebEnviada: true, 
-        dataEnvioDCTFWeb: new Date().toLocaleString('pt-BR'),
-        reciboDCTFWeb: `2026.09.${Math.floor(1000 + Math.random() * 9000)}.${Math.floor(1000 + Math.random() * 9000)}`
-      }, competencia);
-    });
-    setVersaoEstado(v => v + 1);
-    mostrarToast('✅ Todas as DCTFWeb foram marcadas como transmitidas!');
+    mostrarToast('Para registrar uma transmissão, abra cada empresa e informe o recibo oficial. Nenhum envio é feito por este painel.');
   };
 
   // Filtragem da lista
@@ -209,11 +212,11 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
 
       // Filtro de busca de texto
       if (termoBusca.trim()) {
-        const t = termoBusca.toLowerCase().replace(/\D/g, '');
+        const t = normalizarCnpj(termoBusca);
         const tTexto = termoBusca.toLowerCase();
         const nomeMatch = (emp.razaoSocial || '').toLowerCase().includes(tTexto) ||
                           (emp.nomeFantasia || '').toLowerCase().includes(tTexto);
-        const cnpjMatch = (emp.cnpj || '').replace(/\D/g, '').includes(t);
+        const cnpjMatch = normalizarCnpj(emp.cnpj || '').includes(t);
         if (!nomeMatch && !cnpjMatch) return false;
       }
 
@@ -240,6 +243,23 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
     window.print();
   };
 
+  if ('erro' in resultadoCompliance) {
+    return (
+      <section className="bg-white rounded-3xl border border-rose-300 p-5 sm:p-7 shadow-sm space-y-4" role="alert">
+        <div>
+          <h2 className="text-xl font-black text-rose-950">Histórico de compliance indisponível</h2>
+          <p className="mt-2 text-sm text-rose-900">{resultadoCompliance.erro}</p>
+          <p className="mt-1 text-xs text-slate-700">O relatório foi suspenso para não mostrar status padrão como se fossem dados reais nem sobrescrever o histórico.</p>
+        </div>
+        <button type="button" onClick={() => setVersaoEstado(v => v + 1)} className="px-4 py-2 rounded-lg bg-indigo-700 text-white text-sm font-bold">Tentar ler novamente</button>
+        <div className="border-t pt-3">
+          <p className="text-xs font-bold text-slate-700">Empresas cadastradas (sem status de compliance carregado):</p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-600">{empresas.map(empresa => <li key={empresa.id || empresa.cnpj}>{empresa.razaoSocial || 'Razão social não informada'} · {empresa.cnpj || 'CNPJ não informado'}</li>)}</ul>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="bg-white rounded-3xl border border-[#b3d4ff] p-5 sm:p-7 shadow-sm space-y-6">
       {/* Toast flutuante de notificação */}
@@ -264,7 +284,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-slate-600 font-medium">
-            Painel consolidado: Envio de Dados no Mês, Transmissão da DCTFWeb e Status das CNDs
+            Controle manual da equipe. Não consulta a RFB/PGFN nem transmite declarações.
           </p>
         </div>
 
@@ -328,28 +348,28 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
 
           <div className="grid grid-cols-2 gap-2">
             <div 
-              className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-emerald-100/60 transition-colors"
+              className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-slate-100 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('dados_enviados'); }}
-              title="Clique para ver só as empresas que enviaram os dados"
+              title="Filtrar empresas com recebimento de dados marcado manualmente."
             >
-              <span className="text-xl font-black text-[#2e7d32] block">
+              <span className="text-xl font-black text-slate-800 block">
                 {estatisticas.dadosEnviados}
               </span>
               <span className="text-[10px] font-bold text-emerald-800 uppercase">
-                ✅ Enviaram
+                Recebimento informado
               </span>
             </div>
 
             <div 
               className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-rose-100/60 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('dados_nao_enviados'); }}
-              title="Clique para ver só as empresas que NÃO enviaram os dados"
+              title="Filtrar empresas sem recebimento de dados registrado."
             >
               <span className="text-xl font-black text-[#c62828] block">
                 {estatisticas.dadosNaoEnviados}
               </span>
               <span className="text-[10px] font-bold text-rose-800 uppercase">
-                ⏳ Não Enviaram
+                Sem recebimento informado
               </span>
             </div>
           </div>
@@ -380,28 +400,28 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
 
           <div className="grid grid-cols-2 gap-2">
             <div 
-              className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-emerald-100/60 transition-colors"
+              className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-slate-100 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('dctfweb_enviadas'); }}
-              title="Clique para ver só as empresas com DCTFWeb transmitida"
+              title="Filtrar empresas com recibo DCTFWeb registrado manualmente; o sistema não verifica a transmissão."
             >
-              <span className="text-xl font-black text-[#2e7d32] block">
+              <span className="text-xl font-black text-slate-800 block">
                 {estatisticas.dctfwebEnviadas}
               </span>
               <span className="text-[10px] font-bold text-emerald-800 uppercase">
-                ✅ Transmitidas
+                Recibo informado
               </span>
             </div>
 
             <div 
               className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-rose-100/60 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('dctfweb_nao_enviadas'); }}
-              title="Clique para ver só as empresas com DCTFWeb NÃO transmitida"
+              title="Filtrar empresas sem recibo DCTFWeb registrado; o sistema não consulta a transmissão."
             >
               <span className="text-xl font-black text-[#c62828] block">
                 {estatisticas.dctfwebNaoEnviadas}
               </span>
               <span className="text-[10px] font-bold text-rose-800 uppercase">
-                ⚠️ Não Enviadas
+                Sem recibo local
               </span>
             </div>
           </div>
@@ -434,41 +454,41 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             <div 
               className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-emerald-100/60 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('cnd_regular'); }}
-              title="Clique para ver as empresas com CND Regular / Emitida"
+              title="Clique para ver empresas com número de certidão informado manualmente"
             >
               <span className="text-xl font-black text-[#2e7d32] block">
-                {estatisticas.cndRegulares}
+                {estatisticas.cndComNumeroInformado}
               </span>
-              <span className="text-[10px] font-bold text-emerald-800 uppercase">
-                🛡️ CND Saiu
+              <span className="text-[10px] font-bold text-slate-700 uppercase">
+                Número informado • não verificado
               </span>
             </div>
 
             <div 
               className={`rounded-xl p-2.5 text-center cursor-pointer transition-colors ${
-                estatisticas.cndNaoSaiu > 0 
+                estatisticas.cndSemNumeroInformado > 0
                   ? 'bg-rose-100 border-2 border-rose-400 animate-pulse' 
                   : 'bg-slate-50 border border-slate-200'
               }`}
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('cnd_nao_saiu'); }}
-              title="Clique para ver QUAIS empresas a CND NÃO SAIU"
+              title="Clique para ver empresas sem número de certidão informado"
             >
               <span className="text-xl font-black text-[#c62828] block">
-                {estatisticas.cndNaoSaiu}
+                {estatisticas.cndSemNumeroInformado}
               </span>
               <span className="text-[10px] font-black text-rose-900 uppercase">
-                🚨 CND NÃO SAIU
+                ⚠️ Sem registro local
               </span>
             </div>
           </div>
 
           <div className="text-[11px] font-medium text-rose-700 text-center flex items-center justify-center gap-1 font-bold">
-            <span>Ver empresas que CND não saiu</span>
+            <span>Ver empresas sem número de certidão informado</span>
             <ChevronRight className="w-3 h-3 text-rose-700" />
           </div>
         </div>
 
-        {/* Card 4: Diagnóstico da Carteira — OK vs. Pendências */}
+        {/* Card 4: checklist de registros informados, não um atestado de conformidade */}
         <div
           className={`p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer space-y-3 ${
             filtroAtivo === 'todas_ok' || filtroAtivo === 'com_pendencias'
@@ -479,7 +499,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-              4. Diagnóstico da Carteira
+              4. Checklist de registros informados
             </span>
             <span className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
               <CheckCircle2 className="w-4 h-4" />
@@ -490,26 +510,26 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             <div 
               className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-emerald-100/60 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('todas_ok'); }}
-              title="Clique para ver as empresas 100% OK / Certinhas"
+              title="Ver empresas com os três registros manuais preenchidos; não representa validação fiscal."
             >
               <span className="text-xl font-black text-[#2e7d32] block">
-                {estatisticas.empresas100Ok}
+                {estatisticas.checklistsInformadosCompletos}
               </span>
-              <span className="text-[10px] font-bold text-emerald-800 uppercase">
-                🟢 100% Certinhas
+              <span className="text-[10px] font-bold text-slate-700 uppercase">
+                Checklist preenchido • não verificado
               </span>
             </div>
 
             <div 
               className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-center cursor-pointer hover:bg-amber-100/60 transition-colors"
               onClick={(e) => { e.stopPropagation(); setFiltroAtivo('com_pendencias'); }}
-              title="Clique para ver as empresas com qualquer pendência"
+              title="Ver empresas com pelo menos um registro manual faltando."
             >
               <span className="text-xl font-black text-amber-900 block">
-                {estatisticas.empresasComPendencia}
+                {estatisticas.checklistsInformadosIncompletos}
               </span>
               <span className="text-[10px] font-bold text-amber-800 uppercase">
-                ⚠️ Com Pendência
+                Registro faltando
               </span>
             </div>
           </div>
@@ -586,17 +606,17 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
               title="Marcar todas as empresas como dados enviados no mês"
             >
               <Check className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Marcar Dados (Todos)</span>
+              <span>Como registrar recebimento</span>
             </button>
 
             <button
               type="button"
               onClick={handleMarcarTodasDCTFWebEnviadas}
               className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-emerald-200"
-              title="Marcar todas as empresas com DCTFWeb transmitida"
+              title="O painel não transmite em lote; informe o recibo oficial em cada empresa"
             >
               <Receipt className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Marcar DCTFWeb (Todos)</span>
+              <span>Como registrar recibos</span>
             </button>
           </div>
         </div>
@@ -628,9 +648,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             }`}
           >
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>✅ 100% OK / Certinhas</span>
+            <span>Checklist informado completo</span>
             <span className="px-1.5 py-0.2 bg-white/20 rounded-full text-[10px]">
-              {estatisticas.empresas100Ok}
+              {estatisticas.checklistsInformadosCompletos}
             </span>
           </button>
 
@@ -644,9 +664,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             }`}
           >
             <AlertTriangle className="w-3.5 h-3.5" />
-            <span>⚠️ Com Alguma Pendência</span>
+            <span>Registro manual faltando</span>
             <span className="px-1.5 py-0.2 bg-white/20 rounded-full text-[10px]">
-              {estatisticas.empresasComPendencia}
+              {estatisticas.checklistsInformadosIncompletos}
             </span>
           </button>
 
@@ -661,7 +681,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>📤 Dados NÃO Enviados</span>
+              <span>📤 Sem recebimento informado</span>
             <span className="px-1.5 py-0.2 bg-rose-200 text-rose-900 rounded-full text-[10px]">
               {estatisticas.dadosNaoEnviados}
             </span>
@@ -676,7 +696,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>📤 Dados Enviados</span>
+            <span>📤 Recebimento de dados informado</span>
             <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded-full text-[10px]">
               {estatisticas.dadosEnviados}
             </span>
@@ -691,7 +711,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>📑 DCTFWeb NÃO Enviada</span>
+            <span>📑 Sem recibo informado</span>
             <span className="px-1.5 py-0.2 bg-rose-200 text-rose-900 rounded-full text-[10px]">
               {estatisticas.dctfwebNaoEnviadas}
             </span>
@@ -706,7 +726,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>📑 DCTFWeb Enviada</span>
+            <span>📑 Recibo informado manualmente</span>
             <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded-full text-[10px]">
               {estatisticas.dctfwebEnviadas}
             </span>
@@ -722,9 +742,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
-            <span>🚨 CND NÃO SAIU</span>
+            <span>⚠️ Sem número de certidão informado</span>
             <span className="px-1.5 py-0.2 bg-rose-300 text-rose-950 rounded-full text-[10px]">
-              {estatisticas.cndNaoSaiu}
+              {estatisticas.cndSemNumeroInformado}
             </span>
           </button>
         </div>
@@ -744,9 +764,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
             </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
               {filtroAtivo === 'cnd_nao_saiu'
-                ? '🎉 Excelente notícia! Todas as empresas da carteira estão com a CND emitida e regular perante a Receita e PGFN.'
+                ? 'Não há empresas sem registro manual de certidão nesse filtro. A situação perante RFB/PGFN não foi consultada.'
                 : filtroAtivo === 'todas_ok'
-                ? 'Nenhuma empresa cumpre todos os requisitos de 100% OK nesta competência ainda.'
+                ? 'Nenhuma empresa tem os três registros manuais preenchidos nesta competência. Isso não consulta obrigações oficiais.'
                 : 'Ajuste os filtros ou a busca acima para localizar as empresas cadastradas.'}
             </p>
           </div>
@@ -781,7 +801,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                   <th className="py-3.5 px-3">1. Dados do Mês</th>
                   <th className="py-3.5 px-3">2. DCTFWeb</th>
                   <th className="py-3.5 px-3">3. CND RFB/PGFN</th>
-                  <th className="py-3.5 px-3">Diagnóstico</th>
+                  <th className="py-3.5 px-3">Registros informados</th>
                   <th className="py-3.5 px-4 text-right">Informações & Ações</th>
                 </tr>
               </thead>
@@ -791,9 +811,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                   const st = mapaCompliance[id] || {
                     dadosMesEnviados: false,
                     dctfwebEnviada: false,
-                    cndEmitida: true
+                    cndEmitida: false
                   };
-                  const is100Ok = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
+                  const checklistCompleto = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
 
                   return (
                     <tr 
@@ -846,14 +866,14 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                       <td className="py-3.5 px-3">
                         <div className="space-y-1">
                           {st.dadosMesEnviados ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              Enviado
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              <Check className="w-3 h-3 text-slate-600" />
+                              Recebimento informado
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
                               <Clock className="w-3 h-3 text-rose-600" />
-                              Não Enviado
+                              Sem recebimento informado
                             </span>
                           )}
                           <div>
@@ -862,7 +882,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                               onClick={() => handleAlternarDadosMes(emp)}
                               className="text-[10px] text-indigo-700 hover:text-indigo-900 font-semibold underline cursor-pointer"
                             >
-                              {st.dadosMesEnviados ? 'Reverter' : 'Marcar Enviado'}
+                              {st.dadosMesEnviados ? 'Remover registro manual' : 'Registrar recebimento'}
                             </button>
                           </div>
                         </div>
@@ -872,14 +892,14 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                       <td className="py-3.5 px-3">
                         <div className="space-y-1">
                           {st.dctfwebEnviada ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              Transmitida
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              <Check className="w-3 h-3 text-slate-600" />
+                              Recibo informado manualmente
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
                               <Clock className="w-3 h-3 text-amber-600" />
-                              Pendente
+                              Sem recibo informado
                             </span>
                           )}
                           <div>
@@ -888,7 +908,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                               onClick={() => handleAlternarDCTFWeb(emp)}
                               className="text-[10px] text-indigo-700 hover:text-indigo-900 font-semibold underline cursor-pointer"
                             >
-                              {st.dctfwebEnviada ? 'Reverter' : 'Marcar Transmitida'}
+                              {st.dctfwebEnviada ? 'Remover registro manual' : 'Registrar número do recibo'}
                             </button>
                           </div>
                         </div>
@@ -898,14 +918,14 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                       <td className="py-3.5 px-3">
                         <div className="space-y-1">
                           {st.cndEmitida ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                              CND Regular
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              <ShieldCheck className="w-3 h-3 text-slate-600" />
+                              Número informado • não verificado
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-200 text-rose-950 ring-1 ring-rose-400">
                               <ShieldAlert className="w-3 h-3 text-rose-700" />
-                              🚨 NÃO SAIU
+                              Sem registro local
                             </span>
                           )}
                           <div className="flex items-center gap-2">
@@ -914,7 +934,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                               onClick={() => handleAlternarCND(emp)}
                               className="text-[10px] text-indigo-700 hover:text-indigo-900 font-semibold underline cursor-pointer"
                             >
-                              {st.cndEmitida ? 'Marcar Pendente' : 'Marcar Regular'}
+                              {st.cndEmitida ? 'Remover registro manual' : 'Registrar número da certidão'}
                             </button>
                           </div>
                         </div>
@@ -922,15 +942,15 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
 
                       {/* Diagnóstico Geral */}
                       <td className="py-3.5 px-3 whitespace-nowrap">
-                        {is100Ok ? (
-                          <span className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-900 text-[11px] font-black inline-flex items-center gap-1 border border-emerald-300">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            100% OK
+                        {checklistCompleto ? (
+                          <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-800 text-[11px] font-black inline-flex items-center gap-1 border border-slate-300">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
+                            Registros manuais completos • não verificados
                           </span>
                         ) : (
                           <span className="px-2.5 py-1 rounded-xl bg-rose-100 text-rose-900 text-[11px] font-black inline-flex items-center gap-1 border border-rose-300">
                             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                            Pendência
+                            Registro manual faltando
                           </span>
                         )}
                       </td>
@@ -997,17 +1017,17 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
               const st = mapaCompliance[id] || {
                 dadosMesEnviados: false,
                 dctfwebEnviada: false,
-                cndEmitida: true
+                    cndEmitida: false
               };
 
-              const is100Ok = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
+              const checklistCompleto = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
 
               return (
                 <div
                   key={id}
                   className={`bg-white rounded-2xl p-4 sm:p-5 border transition-all hover:shadow-md space-y-4 ${
-                    is100Ok
-                      ? 'border-emerald-300 border-l-4 border-l-[#2e7d32]'
+                    checklistCompleto
+                      ? 'border-slate-300 border-l-4 border-l-slate-500'
                       : !st.cndEmitida
                       ? 'border-rose-300 border-l-4 border-l-[#c62828] bg-rose-50/20'
                       : 'border-slate-200 border-l-4 border-l-amber-500'
@@ -1040,9 +1060,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                       <div className="flex items-center gap-3 text-xs text-slate-500">
                         <span>Local: {emp.cidade || 'Goiânia'} - {emp.uf || 'GO'}</span>
                         {emp.procuracaoAtiva && (
-                          <span className="text-emerald-700 font-bold flex items-center gap-1">
-                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                            Procuração e-CAC Ativa
+                          <span className="text-slate-700 font-bold flex items-center gap-1" title="Procuração marcada no cadastro; não foi consultada no e-CAC.">
+                            <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
+                            Procuração informada • não verificada
                           </span>
                         )}
                       </div>
@@ -1059,15 +1079,15 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                         <span>Ver Informações</span>
                       </button>
 
-                      {is100Ok ? (
-                        <span className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-black flex items-center gap-1.5 shadow-2xs">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>100% OK / CERTINHA</span>
+                      {checklistCompleto ? (
+                        <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-300 text-xs font-black flex items-center gap-1.5 shadow-2xs">
+                          <CheckCircle2 className="w-4 h-4 text-slate-600" />
+                          <span>REGISTROS MANUAIS COMPLETOS • NÃO VERIFICADOS</span>
                         </span>
                       ) : (
                         <span className="px-3 py-1.5 rounded-xl bg-rose-100 text-rose-900 border border-rose-300 text-xs font-black flex items-center gap-1.5 shadow-2xs">
                           <AlertTriangle className="w-4 h-4 text-rose-600" />
-                          <span>COM PENDÊNCIA</span>
+                          <span>REGISTRO MANUAL FALTANDO</span>
                         </span>
                       )}
                     </div>
@@ -1082,21 +1102,21 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                           1. Dados do Mês
                         </span>
                         {st.dadosMesEnviados ? (
-                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            Enviado
+                          <span className="text-[10px] font-extrabold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Check className="w-3 h-3 text-slate-600" />
+                            Recebimento informado
                           </span>
                         ) : (
                           <span className="text-[10px] font-extrabold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full flex items-center gap-1">
                             <Clock className="w-3 h-3 text-rose-600" />
-                            Não Enviado
+                            Sem recebimento informado
                           </span>
                         )}
                       </div>
 
                       <p className="text-[11px] text-slate-600">
                         {st.dadosMesEnviados
-                          ? `Enviado em: ${st.dataEnvioDados || '05/09/2026'}`
+                          ? `Data informada: ${st.dataEnvioDados || 'não registrada'}`
                           : 'Aguardando envio do movimento mensal pelo cliente.'}
                       </p>
 
@@ -1110,11 +1130,11 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                         }`}
                       >
                         {st.dadosMesEnviados ? (
-                          <span>Reverter p/ Não Enviado</span>
+                          <span>Remover registro manual</span>
                         ) : (
                           <>
                             <Check className="w-3.5 h-3.5" />
-                            <span>Marcar Dados como Enviados</span>
+                            <span>Registrar recebimento dos dados</span>
                           </>
                         )}
                       </button>
@@ -1127,22 +1147,22 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                           2. DCTFWeb
                         </span>
                         {st.dctfwebEnviada ? (
-                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            Transmitida
+                          <span className="text-[10px] font-extrabold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Check className="w-3 h-3 text-slate-600" />
+                            Recibo informado manualmente
                           </span>
                         ) : (
                           <span className="text-[10px] font-extrabold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3 text-rose-600" />
-                            Não Enviada
+                            Sem recibo informado
                           </span>
                         )}
                       </div>
 
                       <p className="text-[11px] text-slate-600 truncate">
                         {st.dctfwebEnviada
-                          ? `Recibo: ${st.reciboDCTFWeb || '2026.09.8472.9912'}`
-                          : 'Declaração não transmitida à Receita Federal.'}
+                          ? `Recibo informado: ${st.reciboDCTFWeb || 'sem número'}`
+                          : 'Sem registro local de recibo; situação oficial não consultada.'}
                       </p>
 
                       <div className="flex items-center gap-2">
@@ -1155,7 +1175,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                               : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs'
                           }`}
                         >
-                          {st.dctfwebEnviada ? 'Reverter' : 'Marcar Transmitida'}
+                          {st.dctfwebEnviada ? 'Remover registro manual' : 'Registrar número do recibo'}
                         </button>
                         <button
                           type="button"
@@ -1183,22 +1203,22 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                           3. CND (Certidão Negativa)
                         </span>
                         {st.cndEmitida ? (
-                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            CND Regular
+                          <span className="text-[10px] font-extrabold text-slate-800 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-slate-600" />
+                            Número informado • não verificado
                           </span>
                         ) : (
                           <span className="text-[10px] font-black text-rose-900 bg-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                             <ShieldAlert className="w-3 h-3 text-rose-700" />
-                            🚨 NÃO SAIU
+                            Sem registro local
                           </span>
                         )}
                       </div>
 
                       <p className={`text-[11px] ${!st.cndEmitida ? 'text-rose-900 font-bold' : 'text-slate-600'}`}>
                         {st.cndEmitida
-                          ? 'Certidão Negativa de Débitos emitida com sucesso.'
-                          : (st.motivoCndNaoSaiu || 'CND bloqueada por pendência perante RFB/PGFN.')}
+                          ? `Número informado manualmente: ${st.motivoCndNaoSaiu || 'não registrado'}. Situação não verificada.`
+                          : (st.motivoCndNaoSaiu || 'Certidão e situação fiscal não consultadas.')}
                       </p>
 
                       <div className="flex items-center gap-2">
@@ -1211,7 +1231,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                               : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
                           }`}
                         >
-                          {st.cndEmitida ? 'Marcar Pendente' : 'Marcar CND Regular'}
+                          {st.cndEmitida ? 'Remover registro manual' : 'Registrar número da certidão'}
                         </button>
 
                         <button
@@ -1249,9 +1269,9 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
         const st = mapaCompliance[id] || {
           dadosMesEnviados: false,
           dctfwebEnviada: false,
-          cndEmitida: true
+          cndEmitida: false
         };
-        const is100Ok = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
+        const checklistCompleto = st.dadosMesEnviados && st.dctfwebEnviada && st.cndEmitida;
 
         return (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200 overflow-y-auto">
@@ -1270,20 +1290,20 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
               <div className="space-y-2 pr-10">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
-                    Ficha Cadastral & Compliance
+                    Ficha Cadastral & Registros Locais
                   </span>
                   <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
                     Competência {competencia}
                   </span>
-                  {is100Ok ? (
-                    <span className="text-xs font-black px-3 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      100% OK / Regular
+                  {checklistCompleto ? (
+                    <span className="text-xs font-black px-3 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-300 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
+                      Registros manuais completos • não verificados
                     </span>
                   ) : (
                     <span className="text-xs font-black px-3 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300 flex items-center gap-1">
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                      Com Pendências
+                      Registro manual faltando
                     </span>
                   )}
                 </div>
@@ -1319,20 +1339,20 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                     </span>
                     <div>
                       {st.dadosMesEnviados ? (
-                        <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          Enviado
+                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-slate-600" />
+                          Recebimento informado
                         </span>
                       ) : (
                         <span className="text-xs font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-rose-600" />
-                          Não Enviado
+                          Sem recebimento informado
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500">
                       {st.dadosMesEnviados
-                        ? `Data: ${st.dataEnvioDados || '05/09/2026'}`
+                        ? `Data informada: ${st.dataEnvioDados || 'não informada'}`
                         : 'Aguardando cliente enviar movimento.'}
                     </p>
                     <button
@@ -1340,7 +1360,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                       onClick={() => handleAlternarDadosMes(emp)}
                       className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer transition-colors"
                     >
-                      {st.dadosMesEnviados ? 'Reverter p/ Não Enviado' : 'Marcar como Enviado'}
+                      {st.dadosMesEnviados ? 'Remover registro manual' : 'Registrar recebimento'}
                     </button>
                   </div>
 
@@ -1351,28 +1371,28 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                     </span>
                     <div>
                       {st.dctfwebEnviada ? (
-                        <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          Transmitida
+                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 text-slate-600" />
+                          Recibo informado manualmente
                         </span>
                       ) : (
                         <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          Pendente
+                          Sem recibo informado
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500">
                       {st.dctfwebEnviada
-                        ? `Recibo: ${st.protocoloDctfweb || '2026.09.88219-0'}`
-                        : 'Vencimento no dia 20.'}
+                        ? `Recibo informado: ${st.reciboDCTFWeb || 'sem número'}`
+                        : 'Sem registro local; consulta oficial indisponível.'}
                     </p>
                     <button
                       type="button"
                       onClick={() => handleAlternarDCTFWeb(emp)}
                       className="w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer transition-colors"
                     >
-                      {st.dctfwebEnviada ? 'Reverter DCTFWeb' : 'Marcar Transmitida'}
+                      {st.dctfwebEnviada ? 'Remover registro manual' : 'Registrar número do recibo'}
                     </button>
                   </div>
 
@@ -1385,21 +1405,21 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                     </span>
                     <div>
                       {st.cndEmitida ? (
-                        <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          CND Regular
+                        <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1 border border-slate-200">
+                          <ShieldCheck className="w-3.5 h-3.5 text-slate-600" />
+                          Número informado • não verificado
                         </span>
                       ) : (
                         <span className="text-xs font-black text-rose-950 bg-rose-200 px-2 py-0.5 rounded-md inline-flex items-center gap-1 ring-1 ring-rose-400">
                           <ShieldAlert className="w-3.5 h-3.5 text-rose-700" />
-                          🚨 NÃO SAIU
+                          Sem registro local
                         </span>
                       )}
                     </div>
                     <p className={`text-[11px] ${!st.cndEmitida ? 'text-rose-800 font-bold' : 'text-slate-500'}`}>
                       {st.cndEmitida
-                        ? 'Sem pendências fiscais.'
-                        : (st.motivoCndNaoSaiu || 'Bloqueio na RFB/PGFN.')}
+                        ? `Número informado: ${st.motivoCndNaoSaiu || 'não registrado'}. Situação não verificada.`
+                        : (st.motivoCndNaoSaiu || 'Certidão e situação fiscal não consultadas.')}
                     </p>
                     <button
                       type="button"
@@ -1410,7 +1430,7 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                           : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                       }`}
                     >
-                      {st.cndEmitida ? 'Marcar Pendente' : 'Marcar Regular'}
+                      {st.cndEmitida ? 'Remover registro manual' : 'Registrar número da certidão'}
                     </button>
                   </div>
                 </div>
@@ -1437,10 +1457,10 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
                     <span>Contatos & Responsável</span>
                   </div>
                   <div className="text-xs text-slate-600 space-y-1">
-                    <p><strong>Responsável:</strong> {emp.contatoResponsavel || 'Diretor / Sócio'}</p>
-                    <p><strong>Telefone:</strong> {emp.telefone || '(62) 98888-7777'}</p>
-                    <p><strong>E-mail:</strong> {emp.email || 'contato@empresa.com.br'}</p>
-                    <p><strong>CNAE:</strong> {emp.cnae || '69.20-6-01 (Atividades de contabilidade)'}</p>
+                    <p><strong>Responsável:</strong> {emp.contatoResponsavel || 'Não informado'}</p>
+                    <p><strong>Telefone:</strong> {emp.telefone || 'Não informado'}</p>
+                    <p><strong>E-mail:</strong> {emp.email || 'Não informado'}</p>
+                    <p><strong>CNAE:</strong> {emp.cnae || 'Não informado'}</p>
                   </div>
                 </div>
               </div>

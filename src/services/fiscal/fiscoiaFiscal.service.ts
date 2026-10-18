@@ -15,6 +15,9 @@ export type RegimeTributario = 'PRESUMIDO' | 'REAL' | 'SIMPLES';
 
 export interface NotaFiscalItem {
   chave: string;
+  cfop?: string;
+  origemArquivo?: string;
+  origemVerificada?: boolean;
   numero: string;
   serie: string;
   dataEmissao: string;
@@ -27,7 +30,7 @@ export interface NotaFiscalItem {
   ufOrigem: UF;
   ufDestino: UF;
   regime: RegimeTributario;
-  status: 'PENDENTE' | 'PAGA' | 'VENCIDA';
+  status: 'PENDENTE' | 'PAGA' | 'PAGA_INFORMADA' | 'PAGAMENTO_PARCIAL_INFORMADO' | 'VENCIDA';
   ICMS_aliq: number;
   ICMS_valor: number;
   ICMS_cst: string;
@@ -38,24 +41,197 @@ export interface NotaFiscalItem {
   DAS_valor: number;
   dataPagamento?: string;
   valorPago?: number;
+  pagamentosInformados?: Array<{ valor: number; data: string }>;
+  /** Campos indisponíveis ou não extraídos; valores substitutos não devem ser tratados como apuração. */
+  camposNumericosIndisponiveis?: Array<'VPROD' | 'VNF' | 'ICMS' | 'PIS' | 'COFINS' | 'DAS' | 'ICMS_ALIQUOTA' | 'PIS_ALIQUOTA' | 'COFINS_ALIQUOTA'>;
 }
 
-export interface NotaBaixada {
-  chaveAcesso: string;
-  dataPagamento: string;
-  valorPago: number;
-  status: string;
-  dataBaixa: string;
+export interface NotasFiscaisEmpresa {
+  saidas: NotaFiscalItem[];
+  entradas: NotaFiscalItem[];
 }
 
-export interface ResultadoApuracao {
+export type SituacaoVencimentoInformado = 'VENCIDA' | 'PROXIMA' | null;
+
+/** Classifica somente datas de vencimento que já foram informadas no registro local. */
+export function classificarVencimentoInformado(
+  dataVencimento: string | undefined,
+  dataReferencia: Date = new Date(),
+  diasAlerta = 7
+): SituacaoVencimentoInformado {
+  if (!dataVencimento || !Number.isInteger(diasAlerta) || diasAlerta < 0) return null;
+  const data = dataVencimento.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return null;
+  const [ano, mes, dia] = data.split('-').map(Number);
+  const vencimento = new Date(ano, mes - 1, dia);
+  if (vencimento.getFullYear() !== ano || vencimento.getMonth() !== mes - 1 || vencimento.getDate() !== dia) return null;
+  const referencia = new Date(dataReferencia);
+  vencimento.setHours(0, 0, 0, 0);
+  referencia.setHours(0, 0, 0, 0);
+  if (Number.isNaN(vencimento.getTime()) || Number.isNaN(referencia.getTime())) return null;
+  if (vencimento < referencia) return 'VENCIDA';
+  const limite = new Date(referencia);
+  limite.setDate(limite.getDate() + diasAlerta);
+  return vencimento <= limite ? 'PROXIMA' : null;
+}
+
+export function vencimentoInformadoPassou(dataVencimento: string | undefined, dataReferencia: Date = new Date()): boolean {
+  return classificarVencimentoInformado(dataVencimento, dataReferencia, 0) === 'VENCIDA';
+}
+
+function valorMonetarioLocalSeguro(valor: number): boolean {
+  return Number.isFinite(valor) && valor >= 0 && valor <= Number.MAX_SAFE_INTEGER / 100
+    && Number.isSafeInteger(Math.round(valor * 100));
+}
+
+function dataCivilLocalValida(valor: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
+  if (!match) return false;
+  const ano = Number(match[1]);
+  const mes = Number(match[2]);
+  const dia = Number(match[3]);
+  const data = new Date(ano, mes - 1, dia);
+  return data.getFullYear() === ano && data.getMonth() === mes - 1 && data.getDate() === dia;
+}
+
+/** Total manual acumulado; o registro não consulta nem comprova pagamento bancário. */
+export function obterValorPagoInformado(nota: NotaFiscalItem): number {
+  if (typeof nota.valorPago === 'number' && Number.isFinite(nota.valorPago)) return nota.valorPago;
+  return nota.pagamentosInformados?.reduce((total, pagamento) => total + pagamento.valor, 0) ?? 0;
+}
+
+/** Anexa um pagamento informado pelo usuário, preservando valores legados sem data. */
+export function registrarPagamentoInformado(nota: NotaFiscalItem, valor: number, data: string): NotaFiscalItem {
+  if (!valorMonetarioLocalSeguro(valor) || valor <= 0) throw new Error('Informe um valor positivo dentro da faixa monetária segura.');
+  if (!dataCivilLocalValida(data)) throw new Error('Informe uma data de pagamento válida.');
+  if (!valorMonetarioLocalSeguro(nota.valorTotal) || nota.valorTotal <= 0) throw new Error('O total da nota está fora da faixa monetária segura.');
+
+  const jaInformado = obterValorPagoInformado(nota);
+  if (!valorMonetarioLocalSeguro(jaInformado)) throw new Error('O total de pagamentos anterior está fora da faixa segura.');
+  const valorAcumulado = Math.round((jaInformado + valor + Number.EPSILON) * 100) / 100;
+  if (!valorMonetarioLocalSeguro(valorAcumulado)) throw new Error('O total acumulado excede a faixa monetária segura.');
+  if (valorAcumulado > nota.valorTotal + 0.009) throw new Error('O valor informado excede o saldo local da nota.');
+
+  return {
+    ...nota,
+    status: valorAcumulado + 0.009 >= nota.valorTotal ? 'PAGA_INFORMADA' : 'PAGAMENTO_PARCIAL_INFORMADO',
+    valorPago: valorAcumulado,
+    dataPagamento: data,
+    pagamentosInformados: [...(nota.pagamentosInformados ?? []), { valor, data }]
+  };
+}
+
+const chaveNotasFiscais = (empresaId: string) => `fiscoia_notas_fiscais_${empresaId}`;
+export const EVENTO_DADOS_FISCAIS_ATUALIZADOS = 'fiscoia_dados_fiscais_atualizados';
+
+export function notificarAtualizacaoDadosFiscais(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENTO_DADOS_FISCAIS_ATUALIZADOS));
+}
+
+export type ResultadoLeituraNotasFiscais =
+  | { ok: true; notas: NotasFiscaisEmpresa }
+  | { ok: false; erro: string };
+
+function validarNotaFiscalLocal(valor: unknown, indice: number): valor is NotaFiscalItem {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) throw new Error(`registro ${indice + 1} não é um objeto`);
+  const nota = valor as Record<string, unknown>;
+  const textos = ['chave', 'numero', 'serie', 'dataEmissao', 'clienteOuFornecedor', 'cnpjParceiro', 'ufOrigem', 'ufDestino', 'regime', 'status', 'ICMS_cst'];
+  const numeros = ['valorProdutos', 'valorTotal', 'ICMS_aliq', 'ICMS_valor', 'PIS_aliq', 'PIS_valor', 'COFINS_aliq', 'COFINS_valor', 'DAS_valor'];
+  const estados = new Set(['PENDENTE', 'PAGA', 'PAGA_INFORMADA', 'PAGAMENTO_PARCIAL_INFORMADO', 'VENCIDA']);
+  if (textos.some(campo => typeof nota[campo] !== 'string')) throw new Error(`registro ${indice + 1} tem campos de texto inválidos`);
+  if (nota.tipo !== 'SAIDA' && nota.tipo !== 'ENTRADA') throw new Error(`registro ${indice + 1} tem direção inválida`);
+  if (!estados.has(String(nota.status))) throw new Error(`registro ${indice + 1} tem status inválido`);
+  if (numeros.some(campo => typeof nota[campo] !== 'number' || !Number.isFinite(nota[campo]))) throw new Error(`registro ${indice + 1} tem valores numéricos inválidos`);
+  if (['valorPago', 'dataVencimento', 'dataPagamento', 'origemArquivo', 'cfop'].some(campo =>
+    nota[campo] !== undefined && typeof nota[campo] !== (campo === 'valorPago' ? 'number' : 'string'))
+  ) throw new Error(`registro ${indice + 1} tem dados complementares inválidos`);
+  if (nota.valorPago !== undefined && !valorMonetarioLocalSeguro(nota.valorPago as number)) {
+    throw new Error(`registro ${indice + 1} tem valor pago inválido`);
+  }
+  if (nota.pagamentosInformados !== undefined && (!Array.isArray(nota.pagamentosInformados) || nota.pagamentosInformados.some(pagamento =>
+    !pagamento || typeof pagamento !== 'object' || Array.isArray(pagamento)
+    || typeof (pagamento as Record<string, unknown>).valor !== 'number'
+    || !valorMonetarioLocalSeguro((pagamento as Record<string, unknown>).valor as number)
+    || ((pagamento as Record<string, unknown>).valor as number) <= 0
+    || typeof (pagamento as Record<string, unknown>).data !== 'string'
+    || !dataCivilLocalValida((pagamento as Record<string, unknown>).data as string)
+  ))) throw new Error(`registro ${indice + 1} tem histórico de pagamento inválido`);
+  if (nota.pagamentosInformados !== undefined) {
+    const pagamentos = nota.pagamentosInformados as Array<{ valor: number; data: string }>;
+    const totalHistorico = pagamentos.reduce((total, pagamento) => total + pagamento.valor, 0);
+    if (!valorMonetarioLocalSeguro(totalHistorico) || totalHistorico > (nota.valorTotal as number) + 0.009
+      || (nota.valorPago !== undefined && Math.abs(totalHistorico - (nota.valorPago as number)) > 0.009)) {
+      throw new Error(`registro ${indice + 1} tem histórico de pagamentos incompatível com o total informado`);
+    }
+  }
+  if (nota.camposNumericosIndisponiveis !== undefined && (!Array.isArray(nota.camposNumericosIndisponiveis)
+    || nota.camposNumericosIndisponiveis.some(campo => !['VPROD', 'VNF', 'ICMS', 'PIS', 'COFINS', 'DAS', 'ICMS_ALIQUOTA', 'PIS_ALIQUOTA', 'COFINS_ALIQUOTA'].includes(String(campo))))) {
+    throw new Error(`registro ${indice + 1} tem marcadores numéricos inválidos`);
+  }
+  if (nota.valorPago !== undefined && (nota.valorPago as number) > (nota.valorTotal as number) + 0.009) {
+    throw new Error(`registro ${indice + 1} tem pagamento informado acima do total da nota`);
+  }
+  if (nota.status === 'PAGA_INFORMADA' && (typeof nota.valorPago !== 'number'
+    || Math.abs(nota.valorPago - (nota.valorTotal as number)) > 0.009)) {
+    throw new Error(`registro ${indice + 1} está marcado como pago, mas o valor informado não cobre o total`);
+  }
+  if (nota.status === 'PAGAMENTO_PARCIAL_INFORMADO' && (typeof nota.valorPago !== 'number' || nota.valorPago <= 0 || nota.valorPago + 0.009 >= (nota.valorTotal as number))) {
+    throw new Error(`registro ${indice + 1} tem status parcial incompatível com o valor informado`);
+  }
+  return true;
+}
+
+/** Lê o livro sem transformar erro de armazenamento em uma lista vazia. */
+export function lerNotasFiscaisEmpresa(empresaId: string): ResultadoLeituraNotasFiscais {
+  try {
+    const raw = localStorage.getItem(chaveNotasFiscais(empresaId));
+    if (!raw) return { ok: true, notas: { saidas: [], entradas: [] } };
+    const dados: unknown = JSON.parse(raw);
+    if (!dados || typeof dados !== 'object' || Array.isArray(dados)) throw new Error('formato do livro inválido');
+    const livro = dados as Partial<NotasFiscaisEmpresa>;
+    if (!Array.isArray(livro.saidas) || !Array.isArray(livro.entradas)) throw new Error('listas de entradas/saídas inválidas');
+    [...livro.saidas, ...livro.entradas].forEach(validarNotaFiscalLocal);
+    return { ok: true, notas: { saidas: livro.saidas, entradas: livro.entradas } };
+  } catch (error) {
+    return { ok: false, erro: error instanceof Error ? error.message : 'falha ao ler o livro fiscal local' };
+  }
+}
+
+export function obterNotasFiscaisEmpresa(empresaId: string): NotasFiscaisEmpresa {
+  const resultado = lerNotasFiscaisEmpresa(empresaId);
+  if ('notas' in resultado) return resultado.notas;
+  console.error('Não foi possível carregar as notas locais da empresa:', resultado.erro);
+  return { saidas: [], entradas: [] };
+}
+
+export function salvarNotasFiscaisEmpresa(empresaId: string, notas: NotasFiscaisEmpresa): boolean {
+  try {
+    if (!empresaId.trim() || !notas || typeof notas !== 'object'
+      || !Array.isArray(notas.saidas) || !Array.isArray(notas.entradas)) return false;
+    for (const nota of notas.saidas) {
+      validarNotaFiscalLocal(nota, 0);
+      if (nota.tipo !== 'SAIDA') return false;
+    }
+    for (const nota of notas.entradas) {
+      validarNotaFiscalLocal(nota, 0);
+      if (nota.tipo !== 'ENTRADA') return false;
+    }
+    const xmlSemAutenticacao = [...notas.saidas, ...notas.entradas].some(nota => Boolean(nota.origemArquivo));
+    if (xmlSemAutenticacao) {
+      console.error('O livro fiscal não aceita registros provenientes de XML local sem autenticação oficial.');
+      return false;
+    }
+    localStorage.setItem(chaveNotasFiscais(empresaId), JSON.stringify(notas));
+    notificarAtualizacaoDadosFiscais();
+    return true;
+  } catch (error) {
+    console.error('Não foi possível salvar as notas locais da empresa:', error);
+    return false;
+  }
+}
+
+export interface ResumoTributosInformados {
   periodo: string;
-  uf: UF;
-  regime: RegimeTributario;
-  ICMS_A_PAGAR: number;
-  PIS_A_PAGAR: number;
-  COFINS_A_PAGAR: number;
-  DAS_A_PAGAR: number;
   totalSaida: {
     ICMS: number;
     PIS: number;
@@ -67,201 +243,95 @@ export interface ResultadoApuracao {
     PIS: number;
     COFINS: number;
   };
+  camposInvalidos: number;
   status: string;
 }
 
 export const FISCOIA_FISCAL = {
-  NOME: "FISCOIA — MÓDULO FISCAL COMPLETO",
+  NOME: "MURADE FISCAL — ROTINAS LOCAIS",
   VERSAO: "3.2.1 — CORRIGIDO",
   ATIVO: true,
 
-  // ==========================================================
-  // 🇧🇷 ALÍQUOTAS — BRASIL INTEIRO (27 UFs)
-  // ==========================================================
-  ALIQ_ICMS: {
-    AC: 17, AL: 18, AM: 18, AP: 18, BA: 18, CE: 18, DF: 18, ES: 17, GO: 17, MA: 18, MG: 18,
-    MS: 17, MT: 17, PA: 17, PB: 18, PE: 18, PI: 17, PR: 18, RJ: 18, RN: 18, RO: 17.5,
-    RR: 17, RS: 17, SC: 17, SE: 18, SP: 18, TO: 18, interestadual: 12
-  } as Record<UF | 'interestadual', number>,
+  UFS: ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'] as UF[],
 
   REGIMES: {
-    PRESUMIDO: { nome: "Lucro Presumido", PIS: 0.65, COFINS: 3.00, IRPJ: 15, CSLL: 9 },
-    REAL:      { nome: "Lucro Real",      PIS: 1.65, COFINS: 7.60, IRPJ: 15, CSLL: 9 },
-    SIMPLES:   { nome: "Simples Nacional", PIS: 0,    COFINS: 0,    DAS: true }
-  },
-
-  SIMPLES: {
-    ANEXOS: {
-      I:   { desc: "Comércio" },
-      II:  { desc: "Indústria" },
-      III: { desc: "Serviços" },
-      IV:  { desc: "Transp/Comun" },
-      V:   { desc: "Profissão" }
-    },
-    FAIXAS_DAS: [
-      { lim: 180000,  alq: 6.0 },
-      { lim: 360000,  alq: 8.4 },
-      { lim: 720000,  alq: 10.2 },
-      { lim: 1800000, alq: 11.4 },
-      { lim: 3600000, alq: 14.5 },
-      { lim: 4800000, alq: 16.0 }
-    ],
-    CST_ICMS: "90",
-    CREDITO_ICMS: false
-  },
-
-  REFORMA_TRIBUTARIA: { 
-    IBS: 12.0, 
-    CBS: 9.0 
+    PRESUMIDO: { nome: "Lucro Presumido" },
+    REAL: { nome: "Lucro Real" },
+    SIMPLES: { nome: "Simples Nacional" }
   },
 
   // ==========================================================
-  // 📤 CALCULAR IMPOSTOS DA NFE
+  // Resumo de campos de tributos informados nos XMLs locais; não faz apuração legal.
   // ==========================================================
-  calcularImpostos(
-    nf: Partial<NotaFiscalItem>, 
-    uf: UF = 'GO', 
-    regime: RegimeTributario = "PRESUMIDO", 
-    anexoSimples: string | null = null
-  ): NotaFiscalItem {
-    const valor = Number(nf.valorProdutos) || 0;
-    const ufDest = (nf.ufDestino as UF) || uf;
-    const aliqICMS = ufDest === uf ? this.ALIQ_ICMS[uf] : this.ALIQ_ICMS.interestadual;
-    const reg = this.REGIMES[regime];
-    let ICMS_valor = 0, PIS_valor = 0, COFINS_valor = 0, DAS_valor = 0;
-    let CST_ICMS = ufDest === uf ? "00" : "10";
-
-    if (regime === "SIMPLES") {
-      CST_ICMS = this.SIMPLES.CST_ICMS;
-      if (anexoSimples) {
-        DAS_valor = valor * (this.SIMPLES.FAIXAS_DAS[0].alq / 100);
-      } else {
-        DAS_valor = valor * 0.06;
-      }
-    } else {
-      ICMS_valor = (valor * aliqICMS) / 100;
-      PIS_valor = (valor * reg.PIS) / 100;
-      COFINS_valor = (valor * reg.COFINS) / 100;
-    }
-
-    return {
-      chave: nf.chave || `NFE-${Math.floor(100000000 + Math.random() * 900000000)}`,
-      numero: nf.numero || String(Math.floor(1000 + Math.random() * 9000)),
-      serie: nf.serie || "1",
-      dataEmissao: nf.dataEmissao || new Date().toISOString().split('T')[0],
-      dataVencimento: nf.dataVencimento || new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-      clienteOuFornecedor: nf.clienteOuFornecedor || 'Cliente / Fornecedor Padrão',
-      cnpjParceiro: nf.cnpjParceiro || '00.000.000/0001-00',
-      tipo: nf.tipo || 'SAIDA',
-      valorProdutos: valor,
-      valorTotal: Number(nf.valorTotal) || valor,
-      status: nf.status || 'PENDENTE',
-      ICMS_aliq: aliqICMS,
-      ICMS_valor,
-      ICMS_cst: CST_ICMS,
-      PIS_aliq: reg.PIS,
-      PIS_valor,
-      COFINS_aliq: reg.COFINS,
-      COFINS_valor,
-      DAS_valor,
-      regime,
-      ufOrigem: uf,
-      ufDestino: ufDest
+  resumirTributosInformados(
+    notasSaida: NotaFiscalItem[],
+    notasEntrada: NotaFiscalItem[] = [],
+    mes: string = String(new Date().getMonth() + 1).padStart(2, '0'),
+    ano: string = String(new Date().getFullYear())
+  ): ResumoTributosInformados {
+    let camposInvalidos = 0;
+    const campoOrigem: Record<keyof Pick<NotaFiscalItem, 'ICMS_valor' | 'PIS_valor' | 'COFINS_valor' | 'DAS_valor'>, 'ICMS' | 'PIS' | 'COFINS' | 'DAS'> = {
+      ICMS_valor: 'ICMS', PIS_valor: 'PIS', COFINS_valor: 'COFINS', DAS_valor: 'DAS'
     };
-  },
+    const somar = (notas: NotaFiscalItem[], campo: keyof typeof campoOrigem) =>
+      notas.reduce((total, nota) => {
+        if (nota.camposNumericosIndisponiveis?.includes(campoOrigem[campo])) {
+          camposInvalidos += 1;
+          return total;
+        }
+        const valor: unknown = nota[campo];
+        if (typeof valor !== 'number' || !Number.isFinite(valor) || valor < 0) {
+          camposInvalidos += 1;
+          return total;
+        }
+        const acumulado = total + valor;
+        if (!Number.isFinite(acumulado) || acumulado > Number.MAX_SAFE_INTEGER / 100 || !Number.isSafeInteger(Math.round(acumulado * 100))) {
+          camposInvalidos += 1;
+          return total;
+        }
+        return acumulado;
+      }, 0);
 
-  // ==========================================================
-  // ⚖️ APURAÇÃO — SAÍDA - ENTRADA = VALOR A PAGAR
-  // ==========================================================
-  apurar(
-    notasSaida: NotaFiscalItem[], 
-    notasEntrada: NotaFiscalItem[] = [], 
-    uf: UF = 'GO', 
-    mes: string = '09', 
-    ano: string = '2026', 
-    regime: RegimeTributario = "PRESUMIDO"
-  ): ResultadoApuracao {
-    const totalSaida = { 
-      ICMS: notasSaida.reduce((s, n) => s + (n.ICMS_valor || 0), 0), 
-      PIS: notasSaida.reduce((s, n) => s + (n.PIS_valor || 0), 0), 
-      COFINS: notasSaida.reduce((s, n) => s + (n.COFINS_valor || 0), 0),
-      DAS: notasSaida.reduce((s, n) => s + (n.DAS_valor || 0), 0) 
+    const totalSaida = {
+      ICMS: somar(notasSaida, 'ICMS_valor'),
+      PIS: somar(notasSaida, 'PIS_valor'),
+      COFINS: somar(notasSaida, 'COFINS_valor'),
+      DAS: somar(notasSaida, 'DAS_valor')
     };
-    
-    const totalEntrada = regime === "SIMPLES" 
-      ? { ICMS: 0, PIS: 0, COFINS: 0 } 
-      : { 
-          ICMS: notasEntrada.reduce((s, n) => s + (n.ICMS_valor || 0), 0), 
-          PIS: notasEntrada.reduce((s, n) => s + (n.PIS_valor || 0), 0), 
-          COFINS: notasEntrada.reduce((s, n) => s + (n.COFINS_valor || 0), 0) 
-        };
+
+    const totalEntrada = {
+      ICMS: somar(notasEntrada, 'ICMS_valor'),
+      PIS: somar(notasEntrada, 'PIS_valor'),
+      COFINS: somar(notasEntrada, 'COFINS_valor')
+    };
 
     return {
       periodo: `${mes}/${ano}`, 
-      uf, 
-      regime,
-      ICMS_A_PAGAR: regime === "SIMPLES" ? 0 : Math.max(0, totalSaida.ICMS - totalEntrada.ICMS),
-      PIS_A_PAGAR: regime === "SIMPLES" ? 0 : Math.max(0, totalSaida.PIS - totalEntrada.PIS),
-      COFINS_A_PAGAR: regime === "SIMPLES" ? 0 : Math.max(0, totalSaida.COFINS - totalEntrada.COFINS),
-      DAS_A_PAGAR: totalSaida.DAS,
       totalSaida, 
       totalEntrada,
-      status: "✅ APURADO — FISCOIA"
+      camposInvalidos,
+      status: camposInvalidos
+        ? `RESUMO PARCIAL: ${camposInvalidos} campo(s) numérico(s) inválido(s) ou fora da faixa segura foram omitidos; sem compensação ou apuração legal.`
+        : "RESUMO DOS CAMPOS NUMÉRICOS INFORMADOS — SEM COMPENSAÇÃO OU APURAÇÃO LEGAL"
     };
   },
 
   // ==========================================================
-  // ✅ BAIXA DE NOTAS — MARCAR PAGAS / VENCIDAS
+  // Conferência local de vencimentos informados nas notas
   // ==========================================================
   BAIXA_NOTAS: {
-    STORAGE_KEY: 'fiscoia_notas_baixadas',
-
-    obterBaixadas(): NotaBaixada[] {
-      try {
-        const raw = localStorage.getItem(this.STORAGE_KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {
-        console.error('Erro ao ler baixas do storage:', e);
-      }
-      return [
-        {
-          chaveAcesso: '52260912345678000190550010000012541009876543',
-          dataPagamento: '10/09/2026',
-          valorPago: 4580.00,
-          status: 'PAGA',
-          dataBaixa: '10/09/2026'
-        }
-      ];
-    },
-
-    registrarBaixa(chaveAcesso: string, dataPagamento: string, valorPago: number, status: string = "PAGA") {
-      const baixadas = this.obterBaixadas();
-      const novoRegistro: NotaBaixada = {
-        chaveAcesso, 
-        dataPagamento, 
-        valorPago, 
-        status,
-        dataBaixa: new Date().toLocaleDateString('pt-BR')
-      };
-      
-      const atualizadas = baixadas.filter(b => b.chaveAcesso !== chaveAcesso);
-      atualizadas.unshift(novoRegistro);
-      
-      try {
-        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(atualizadas));
-      } catch (e) {
-        console.error('Erro ao salvar baixa:', e);
-      }
-
-      return { sucesso: true, mensagem: `✅ Nota ${chaveAcesso} baixada com sucesso!` };
-    },
-
     verificarVencidas(notas: NotaFiscalItem[], dataReferencia: Date = new Date()) {
       return notas.filter(nf => {
-        if (!nf.dataVencimento) return false;
-        const vencimento = new Date(nf.dataVencimento);
-        return vencimento < dataReferencia && nf.status !== "PAGA";
+        // PAGA é um estado legado sem prova da origem. Só o registro manual atual
+        // deve retirar a nota da lista de vencimentos locais.
+        return vencimentoInformadoPassou(nf.dataVencimento, dataReferencia) && nf.status !== "PAGA_INFORMADA";
       });
+    },
+    verificarVencimentosProximos(notas: NotaFiscalItem[], dataReferencia: Date = new Date(), diasAlerta = 7) {
+      return notas.filter(nf =>
+        classificarVencimentoInformado(nf.dataVencimento, dataReferencia, diasAlerta) === 'PROXIMA'
+        && nf.status !== 'PAGA_INFORMADA'
+      );
     }
   },
 
@@ -271,7 +341,7 @@ export const FISCOIA_FISCAL = {
   CALCULADORA_FISCAL: {
     NOME: "🧮 CALCULADORA FISCAL — FISCOIA",
 
-    calcularICMS(valorSaida: number, valorEntrada: number, aliqICMS: number = 18) {
+    calcularICMS(valorSaida: number, valorEntrada: number, aliqICMS: number) {
       const debito = (valorSaida * aliqICMS) / 100;
       const credito = (valorEntrada * aliqICMS) / 100;
       return { 
@@ -283,9 +353,7 @@ export const FISCOIA_FISCAL = {
       };
     },
 
-    calcularPisCofins(valorBase: number, regime: RegimeTributario = "PRESUMIDO") {
-      const aliqPIS = regime === "REAL" ? 1.65 : 0.65;
-      const aliqCOFINS = regime === "REAL" ? 7.60 : 3.00;
+    calcularPisCofins(valorBase: number, aliqPIS: number, aliqCOFINS: number, regime: RegimeTributario = "PRESUMIDO") {
       const PIS = (valorBase * aliqPIS) / 100;
       const COFINS = (valorBase * aliqCOFINS) / 100;
       return { 
@@ -300,32 +368,24 @@ export const FISCOIA_FISCAL = {
       };
     },
 
-    calcularSimples(faturamentoAnual: number) {
-      const FAIXAS = [
-        { lim: 180000,  alq: 6.0 },
-        { lim: 360000,  alq: 8.4 },
-        { lim: 720000,  alq: 10.2 },
-        { lim: 1800000, alq: 11.4 },
-        { lim: 3600000, alq: 14.5 },
-        { lim: 4800000, alq: 16.0 }
-      ];
-      const faixa = FAIXAS.find(f => faturamentoAnual <= f.lim) || FAIXAS[FAIXAS.length - 1];
-      const DAS_Mensal = (faturamentoAnual * (faixa.alq / 100)) / 12;
+    calcularSimples(baseMensal: number, aliquotaEfetiva: number) {
+      const DAS_Mensal = baseMensal * (aliquotaEfetiva / 100);
       return { 
-        tipo: "Simples Nacional", 
-        faturamentoAnual, 
-        aliquota: `${faixa.alq}%`, 
-        limiteFaixa: faixa.lim,
+        tipo: "Estimativa manual do DAS",
+        baseMensal,
+        aliquota: `${aliquotaEfetiva}%`,
         DAS_Mensal 
       };
     },
 
-    calcularIBS_CBS(valorBase: number) {
-      const IBS = valorBase * 0.12;
-      const CBS = valorBase * 0.09;
+    calcularIBS_CBS(valorBase: number, aliquotaIBS: number, aliquotaCBS: number) {
+      const IBS = valorBase * (aliquotaIBS / 100);
+      const CBS = valorBase * (aliquotaCBS / 100);
       return { 
-        tipo: "IBS + CBS (Reforma Tributária)", 
+        tipo: "Estimativa manual de IBS + CBS",
         valorBase, 
+        aliquotaIBS,
+        aliquotaCBS,
         IBS, 
         CBS, 
         total: IBS + CBS 
@@ -337,132 +397,7 @@ export const FISCOIA_FISCAL = {
   // 📦 BANCO DE NOTAS EM MEMÓRIA / STORAGE
   // ==========================================================
   obterNotasIniciais(): { saidas: NotaFiscalItem[]; entradas: NotaFiscalItem[] } {
-    const saidas: NotaFiscalItem[] = [
-      {
-        chave: "52260912345678000190550010000012451001234567",
-        numero: "1245",
-        serie: "1",
-        dataEmissao: "2026-09-12",
-        dataVencimento: "2026-09-27",
-        clienteOuFornecedor: "Varejo Centro-Oeste Distribuidora",
-        cnpjParceiro: "12.345.678/0001-90",
-        tipo: "SAIDA",
-        valorProdutos: 15400.00,
-        valorTotal: 15400.00,
-        ufOrigem: "GO",
-        ufDestino: "GO",
-        regime: "PRESUMIDO",
-        status: "PENDENTE",
-        ICMS_aliq: 17,
-        ICMS_valor: 2618.00,
-        ICMS_cst: "00",
-        PIS_aliq: 0.65,
-        PIS_valor: 100.10,
-        COFINS_aliq: 3.00,
-        COFINS_valor: 462.00,
-        DAS_valor: 0
-      },
-      {
-        chave: "52260912345678000190550010000012461002345678",
-        numero: "1246",
-        serie: "1",
-        dataEmissao: "2026-09-11",
-        dataVencimento: "2026-09-26",
-        clienteOuFornecedor: "Supermercados Estrela do Sul SP",
-        cnpjParceiro: "23.456.789/0001-01",
-        tipo: "SAIDA",
-        valorProdutos: 28900.00,
-        valorTotal: 28900.00,
-        ufOrigem: "GO",
-        ufDestino: "SP",
-        regime: "PRESUMIDO",
-        status: "PAGA",
-        ICMS_aliq: 12,
-        ICMS_valor: 3468.00,
-        ICMS_cst: "10",
-        PIS_aliq: 0.65,
-        PIS_valor: 187.85,
-        COFINS_aliq: 3.00,
-        COFINS_valor: 867.00,
-        DAS_valor: 0
-      },
-      {
-        chave: "52260912345678000190550010000012471003456789",
-        numero: "1247",
-        serie: "1",
-        dataEmissao: "2026-09-08",
-        dataVencimento: "2026-09-01",
-        clienteOuFornecedor: "Comercial de Embalagens Brasil",
-        cnpjParceiro: "34.567.890/0001-12",
-        tipo: "SAIDA",
-        valorProdutos: 6200.00,
-        valorTotal: 6200.00,
-        ufOrigem: "GO",
-        ufDestino: "DF",
-        regime: "PRESUMIDO",
-        status: "VENCIDA",
-        ICMS_aliq: 12,
-        ICMS_valor: 744.00,
-        ICMS_cst: "10",
-        PIS_aliq: 0.65,
-        PIS_valor: 40.30,
-        COFINS_aliq: 3.00,
-        COFINS_valor: 186.00,
-        DAS_valor: 0
-      }
-    ];
-
-    const entradas: NotaFiscalItem[] = [
-      {
-        chave: "35260998765432000188550010000045801004567890",
-        numero: "4580",
-        serie: "1",
-        dataEmissao: "2026-09-10",
-        dataVencimento: "2026-09-25",
-        clienteOuFornecedor: "Indústria de Insumos Paulista LTDA",
-        cnpjParceiro: "98.765.432/0001-88",
-        tipo: "ENTRADA",
-        valorProdutos: 12500.00,
-        valorTotal: 12500.00,
-        ufOrigem: "SP",
-        ufDestino: "GO",
-        regime: "PRESUMIDO",
-        status: "PAGA",
-        ICMS_aliq: 12,
-        ICMS_valor: 1500.00,
-        ICMS_cst: "10",
-        PIS_aliq: 0.65,
-        PIS_valor: 81.25,
-        COFINS_aliq: 3.00,
-        COFINS_valor: 375.00,
-        DAS_valor: 0
-      },
-      {
-        chave: "52260987654321000177550010000078901005678901",
-        numero: "7890",
-        serie: "2",
-        dataEmissao: "2026-09-09",
-        dataVencimento: "2026-09-24",
-        clienteOuFornecedor: "Agro Insumos Cerrado Goiano",
-        cnpjParceiro: "87.654.321/0001-77",
-        tipo: "ENTRADA",
-        valorProdutos: 8400.00,
-        valorTotal: 8400.00,
-        ufOrigem: "GO",
-        ufDestino: "GO",
-        regime: "PRESUMIDO",
-        status: "PENDENTE",
-        ICMS_aliq: 17,
-        ICMS_valor: 1428.00,
-        ICMS_cst: "00",
-        PIS_aliq: 0.65,
-        PIS_valor: 54.60,
-        COFINS_aliq: 3.00,
-        COFINS_valor: 252.00,
-        DAS_valor: 0
-      }
-    ];
-
-    return { saidas, entradas };
+    // Não semear notas de exemplo como se fossem dados de clientes.
+    return { saidas: [], entradas: [] };
   }
 };

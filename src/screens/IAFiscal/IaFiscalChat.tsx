@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
-  Bot, Send, Sparkles, ShieldCheck, 
+  Bot, Send, Sparkles, FileText,
   BookOpen, AlertTriangle, Lock, RefreshCw, ExternalLink,
-  Building2, CheckCircle2, Mic, MicOff, Volume2, VolumeX,
+  Building2, Mic, MicOff, Volume2, VolumeX,
   Radio, Play, Gauge, Key, Monitor, ExternalLink as ExtIcon
 } from 'lucide-react';
 import { VERIFICA_PERMISSAO } from '../../config/planos';
@@ -11,7 +11,9 @@ import { useEmpresa } from '../../context/EmpresaContext';
 import { consultarIAFiscal, FonteWeb } from '../../services/iaFiscal.service';
 import { useVoz } from '../../hooks/useVoz';
 import CertificadoDigitalModulo from './CertificadoDigitalModulo';
+import EmissaoNotaFiscalModulo from './EmissaoNotaFiscalModulo';
 import { CertificadoDigitalDados } from './typesCertificado';
+import { lerReferenciaCertificadoEmpresa } from '../../services/serpro/certificadoReferencia.service';
 
 interface MensagemChat {
   id: string;
@@ -36,10 +38,10 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     {
       id: 'msg-1',
       autor: 'ia',
-      texto: 'Olá, eu sou o Dr. Benny.\n\nSou a Inteligência Fiscal Automática do FIASCO IA (Gestão MURADE).\n\nMinha **voz masculina** está pronta para conversar com você! O sistema está 100% conectado com o **SERPRO, Receita Federal, FGTS Digital (vencimento oficial dia 20 - Lei 14.438/2022), SEFAZ, Caixa e e-CAC**.\n\n🎙️ **Clique no microfone para falar comigo** ou digite qualquer dúvida sobre FGTS, DCTFWeb, INSS, IRRF, guias e prazos tributários!',
+      texto: 'Olá, eu sou o Dr. Benny.\n\nPosso ajudar com dúvidas fiscais e trabalhistas. Quando a pergunta depender de uma regra atual, vou pesquisar e mostrar as fontes encontradas. Não tenho acesso automático a dados de SERPRO, SEFAZ, Receita ou e-CAC sem uma integração configurada.\n\n🎙️ Clique no microfone para falar comigo ou digite sua dúvida.',
       timestamp: 'Agora',
-      referencia: 'Dr. Benny Gonçalves • SERPRO, Receita Federal, FGTS Digital & Gestão MURADE',
-      origem: 'SISTEMA_OFICIAL'
+      referencia: 'Murade Fisco IA',
+      origem: 'ASSISTENTE'
     }
   ]);
 
@@ -47,15 +49,27 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
   const [pensando, setPensando] = useState(false);
 
   // Sub-abas do Módulo Oficial: Chat Dr. Benny Gonçalves, Certificado Digital e Tela Standalone FIASCO IA
-  const [abaModulo, setAbaModulo] = useState<'chat' | 'certificado' | 'telaOficial'>('chat');
-  const [certificado, setCertificado] = useState<CertificadoDigitalDados | null>(() => {
-    try {
-      const salvo = localStorage.getItem('fiscoia_certificado') || localStorage.getItem('fiasco_certificado');
-      return salvo ? JSON.parse(salvo) : null;
-    } catch (e) {
-      return null;
+  const [abaModulo, setAbaModulo] = useState<'chat' | 'certificado' | 'rascunho' | 'telaOficial'>('chat');
+  const [certificado, setCertificado] = useState<CertificadoDigitalDados | null>(null);
+
+  useEffect(() => {
+    if (!empresaAtiva?.cnpj) {
+      setCertificado(null);
+      return;
     }
-  });
+    try {
+      const salva = lerReferenciaCertificadoEmpresa(empresaAtiva.cnpj);
+      if (!salva) {
+        setCertificado(null);
+        return;
+      }
+      const referencia = salva as unknown as CertificadoDigitalDados;
+      referencia.valido = false;
+      setCertificado(referencia);
+    } catch {
+      setCertificado(null);
+    }
+  }, [empresaAtiva?.cnpj]);
   
   // Controle de modo contínuo de voz: fale, ele responde com áudio, e reabre o microfone automaticamente
   const [modoVozContinuo, setModoVozContinuo] = useState(false);
@@ -138,13 +152,13 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
 
     // Atalhos imediatos para Certificado e Emissão de Notas
     if (p.includes('cadastrar certificado') || p === 'certificado' || p.includes('como cadastrar meu certificado')) {
-      const respostaCert = 'É só acessar a aba "Certificado Digital" logo acima e preencher: tipo A1 (arquivo .pfx/.p12) ou A3 (token), senha com olhinho, CNPJ e Razão Social da empresa! Depois clique em Salvar e em Testar Conexão com a SEFAZ-GO! 🔐';
+      const respostaCert = 'A tela permite informar os dados do certificado, mas este ambiente ainda não recebe nem valida o arquivo ou a senha e não testa conexão com a SEFAZ. Não envie a senha do certificado por este chat. Para transmitir documentos, é necessário concluir uma integração segura no servidor.';
       const novaMsgIA: MensagemChat = {
         id: `ia-${Date.now()}`,
         autor: 'ia',
         texto: respostaCert,
         timestamp: agoraHora,
-        referencia: 'Manual de Certificação Digital ICP-Brasil & SEFAZ-GO',
+        referencia: 'Limitação funcional do sistema',
         origem: 'SISTEMA_CERTIFICADO'
       };
       setMensagens((prev) => [...prev, novaMsgIA]);
@@ -154,26 +168,26 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
 
     if (p.includes('emitir nota') || p === 'nota fiscal' || p.includes('como emitir nota fiscal')) {
       if (!certificado?.valido) {
-        const respostaSemCert = '⚠️ Você precisa cadastrar o Certificado Digital primeiro! Sem ele a nota fiscal não possui validade jurídica perante a SEFAZ. Cadastre na aba "Certificado Digital" acima que eu já te libero para emissão! 💙';
+        const respostaSemCert = 'A emissão de NF-e ainda não está integrada à SEFAZ neste ambiente. O cadastro de um certificado na interface não libera transmissão nem comprova validade ou autorização.';
         const novaMsgIA: MensagemChat = {
           id: `ia-${Date.now()}`,
           autor: 'ia',
           texto: respostaSemCert,
           timestamp: agoraHora,
-          referencia: 'Regulamento do ICMS / Ajuste SINIEF NF-e SEFAZ',
+          referencia: 'Integração de emissão não configurada',
           origem: 'SISTEMA_CERTIFICADO'
         };
         setMensagens((prev) => [...prev, novaMsgIA]);
         if (respostaAudioAtiva) falarTexto(respostaSemCert);
         return;
       } else {
-        const respostaComCert = 'Seu Certificado Digital já está ativo! Acesse a aba "Emissão de Nota Fiscal (SEFAZ-GO)" para preencher os dados do tomador, itens e assinar digitalmente com validade legal! ✅';
+        const respostaComCert = 'Os dados apresentados no sistema não permitem confirmar que o certificado está válido ou conectado. A emissão e assinatura de NF-e não estão integradas à SEFAZ neste ambiente.';
         const novaMsgIA: MensagemChat = {
           id: `ia-${Date.now()}`,
           autor: 'ia',
           texto: respostaComCert,
           timestamp: agoraHora,
-          referencia: 'SEFAZ-GO • Emissão Autorizada com Certificado Digital A1/A3',
+          referencia: 'Integração de emissão não configurada',
           origem: 'SISTEMA_CERTIFICADO'
         };
         setMensagens((prev) => [...prev, novaMsgIA]);
@@ -185,14 +199,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     setPensando(true);
 
     try {
-      const contexto = empresaAtiva ? {
-        razaoSocial: empresaAtiva.razaoSocial,
-        cnpj: empresaAtiva.cnpj,
-        regimeTributario: empresaAtiva.regimeTributario,
-        cnae: empresaAtiva.cnaePrincipal
-      } : undefined;
-
-      const res = await consultarIAFiscal(texto, historicoAtual, contexto);
+      const res = await consultarIAFiscal(texto, historicoAtual);
 
       const novaMsgIA: MensagemChat = {
         id: `ia-${Date.now()}`,
@@ -211,13 +218,13 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
         falarTexto(res.resposta);
       }
     } catch (err: any) {
-      const respostaErro = 'Houve uma oscilação na conexão com os servidores. Conforme a Lei Federal nº 14.438/2022 e normas da Receita Federal e SERPRO, todas as guias e vencimentos oficiais permanecem válidos. Por favor, repita sua pergunta.';
+      const respostaErro = 'Não consegui acessar a assistente agora e não realizei nenhuma consulta oficial. Tente novamente em alguns minutos.';
       const novaMsgIAErro: MensagemChat = {
         id: `ia-erro-${Date.now()}`,
         autor: 'ia',
         texto: respostaErro,
         timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        referencia: 'SERPRO / Receita Federal do Brasil'
+        referencia: 'Consulta não realizada'
       };
       setMensagens((prev) => [...prev, novaMsgIAErro]);
       if (respostaAudioAtiva) {
@@ -258,9 +265,9 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             <div>
               <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap">
                 <span>Dr. Benny Gonçalves • FIASCO IA</span>
-                <span className="px-2 py-0.5 bg-emerald-100 border border-emerald-300 text-emerald-800 text-[10px] font-bold rounded-full flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                  <span>Conectado ao SERPRO e Órgãos Públicos</span>
+                <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-bold rounded-full flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-700" />
+                  <span>Consultas oficiais não conectadas</span>
                 </span>
                 <span className="px-2 py-0.5 bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-bold rounded-full flex items-center gap-1">
                   <Volume2 className="w-3 h-3 text-indigo-600" />
@@ -270,7 +277,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </div>
           </div>
           <p className="text-xs text-slate-600 mt-1">
-            Converse por voz ou texto com o Dr. Benny Gonçalves sobre FGTS Digital (dia 20), DCTFWeb, INSS, IRRF, Simples Nacional e vencimentos fiscais.
+            Converse por voz ou texto com o Dr. Benny Gonçalves sobre regras e vencimentos do FGTS Digital, DCTFWeb, INSS, IRRF, Simples Nacional e outros assuntos fiscais. Prazos atuais dependem de consulta a fonte oficial.
           </p>
         </div>
 
@@ -296,9 +303,9 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
               </span>
             </div>
           </div>
-          <div className="hidden sm:flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Consultas adaptadas a este CNPJ</span>
+          <div className="hidden sm:flex items-center gap-1 text-[11px] text-amber-800 font-semibold">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Dados da empresa não enviados à IA</span>
           </div>
         </div>
       )}
@@ -354,6 +361,19 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
           ) : (
             <span className="w-2 h-2 rounded-full bg-slate-300"></span>
           )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaModulo('rascunho')}
+          className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            abaModulo === 'rascunho'
+              ? 'bg-emerald-800 text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Rascunho local</span>
         </button>
 
         <button
@@ -418,6 +438,21 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
         </div>
       )}
 
+      {abaModulo === 'rascunho' && (
+        <EmissaoNotaFiscalModulo
+          certificado={certificado}
+          empresaEmitente={empresaAtiva ? {
+            razaoSocial: empresaAtiva.razaoSocial,
+            cnpj: empresaAtiva.cnpj,
+            inscricaoEstadual: empresaAtiva.inscricaoEstadual,
+            endereco: empresaAtiva.endereco || empresaAtiva.logradouro,
+            uf: empresaAtiva.uf
+          } : null}
+          onIrParaCertificado={() => setAbaModulo('certificado')}
+          onFalar={falarTexto}
+        />
+      )}
+
       {abaModulo === 'chat' && (
         <>
           {/* Card de Atalho para Conexão Oficial e Certificado */}
@@ -425,12 +460,12 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             <div className="space-y-0.5">
               <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Integração Oficial SERPRO · Receita Federal · e-CAC</span>
+                <span>Certificado digital · referência local</span>
               </div>
               <p className="text-xs text-slate-200">
-                {certificado?.valido 
-                  ? `Certificado ativo para ${certificado.razao} (${certificado.cnpj}). Integração oficial ativa!`
-                  : 'Cadastre seu Certificado Digital A1/A3 para conectar com SERPRO, e-CAC e RFB (apenas para conexão, não emite nota fiscal).'}
+                {certificado
+                  ? `Referência cadastrada para ${certificado.razao} (${certificado.cnpj}). Arquivo, validade e conexão oficial não foram verificados.`
+                  : 'O cadastro de referência não envia nem valida o arquivo e não conecta com SERPRO, e-CAC ou Receita Federal.'}
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -440,7 +475,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Key className="w-3.5 h-3.5" />
-                <span>{certificado?.valido ? 'Ver Conexão' : 'Cadastrar Certificado'}</span>
+                <span>{certificado ? 'Ver referência local' : 'Cadastrar referência'}</span>
               </button>
               <a
                 href="/fiscoia-v1/index.html"
@@ -686,19 +721,19 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                   {msg.texto}
                 </div>
 
-                {/* Fontes Web e Referências Normativas Oficiais */}
+                {/* Registro da consulta e fontes que a API realmente retornou */}
                 {msg.autor === 'ia' && (
                   <div className="pt-2 border-t border-slate-200/80 space-y-1 text-[11px]">
                     {msg.referencia && (
                       <div className="font-bold text-indigo-900 flex items-center gap-1">
                         <BookOpen className="w-3 h-3 text-indigo-600 shrink-0" />
-                        <span>Base Normativa: {msg.referencia}</span>
+                        <span>Fonte / status: {msg.referencia}</span>
                       </div>
                     )}
 
                     {msg.fontesWeb && msg.fontesWeb.length > 0 && (
                       <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Fontes Oficiais:</span>
+                        <span className="text-[10px] font-semibold text-slate-500 uppercase">Fontes encontradas:</span>
                         {msg.fontesWeb.map((f, idx) => (
                           <a
                             key={idx}

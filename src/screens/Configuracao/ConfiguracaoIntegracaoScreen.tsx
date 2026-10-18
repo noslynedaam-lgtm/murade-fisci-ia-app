@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import { 
   Settings, 
   CheckCircle2, 
@@ -28,6 +28,7 @@ import {
   VOZES_PREDEFINIDAS 
 } from '../../services/murade/elevenLabsVoz.service';
 import { MURADE_CONFIG, SistemaMurade } from '../../services/murade/muradeConfigIntegracoes.service';
+import { MODULOS_MURADE } from '../../config/modulosMurade';
 
 interface ConfigIntegracao {
   sistemaAtual: 'fiasco' | 'dp' | 'fiscal';
@@ -47,7 +48,7 @@ interface ConfigIntegracao {
   syncGuias: boolean;
   frequenciaSync: string;
   integracaoAtiva: boolean;
-  ultimaSincronizacao?: string;
+  ultimaVerificacao?: string;
 }
 
 interface UsuarioPermissao {
@@ -60,40 +61,79 @@ interface UsuarioPermissao {
   badgeCor: string;
 }
 
+async function verificarEndpointSaude(urlServico: string): Promise<{ disponivel: boolean; detalhe: string }> {
+  if (!urlServico) return { disponivel: false, detalhe: 'URL do serviço não configurada.' };
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const endpoint = new URL('/api/health', urlServico).toString();
+    const resposta = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+    const tipoConteudo = resposta.headers.get('content-type') || '';
+    if (!resposta.ok || !tipoConteudo.includes('application/json')) {
+      return { disponivel: false, detalhe: `Endpoint respondeu HTTP ${resposta.status} sem health JSON válido.` };
+    }
+    const dados = await resposta.json() as { status?: string };
+    if (dados.status !== 'ok') return { disponivel: false, detalhe: 'Endpoint respondeu, mas não declarou status ok.' };
+    return { disponivel: true, detalhe: 'Endpoint de saúde respondeu status ok.' };
+  } catch {
+    return { disponivel: false, detalhe: 'Sem resposta confirmada (rede, CORS, timeout ou endpoint indisponível).' };
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function ConfiguracaoIntegracaoScreen({
   onVoltar
 }: {
   onVoltar?: () => void;
 }) {
   const [config, setConfig] = useState<ConfigIntegracao>(() => {
-    const salvo = localStorage.getItem('configIntegracaoMurade');
-    if (salvo) {
-      try {
-        return JSON.parse(salvo);
-      } catch (e) {
-        console.error('Erro ao ler configIntegracaoMurade:', e);
-      }
-    }
-    return {
+    const moduloDp = MODULOS_MURADE.find(modulo => modulo.id === 'dp')?.url ?? '';
+    const moduloFiscal = MODULOS_MURADE.find(modulo => modulo.id === 'fiscal')?.url ?? '';
+    const padrao: ConfigIntegracao = {
       sistemaAtual: 'fiasco',
       cnpjContabilidade: '',
       nomeContabilidade: 'Contabilidade Integrada',
       codigoLigacao: 'MURADE-2026',
-      urlDp: 'https://dp.murade.com.br/api/sync',
-      urlFiscal: 'https://fiscal.murade.com.br/api/sync',
-      urlFiasco: 'https://fiasco.murade.com.br/api/sync',
-      statusDp: true,
-      statusFiscal: true,
-      statusFiasco: true,
-      syncEmpresas: true,
-      syncPessoas: true,
-      syncCertificado: true,
-      syncAgenda: true,
-      syncGuias: true,
+      urlDp: moduloDp,
+      urlFiscal: moduloFiscal,
+      urlFiasco: typeof window !== 'undefined' ? window.location.origin : '',
+      statusDp: false,
+      statusFiscal: false,
+      statusFiasco: false,
+      syncEmpresas: false,
+      syncPessoas: false,
+      syncCertificado: false,
+      syncAgenda: false,
+      syncGuias: false,
       frequenciaSync: '5min',
-      integracaoAtiva: true,
-      ultimaSincronizacao: '12/09/2026 às 11:45:00'
+      integracaoAtiva: false
     };
+    try {
+      const salvo = localStorage.getItem('configIntegracaoMurade');
+      if (!salvo) return padrao;
+      const anterior = JSON.parse(salvo) as Partial<ConfigIntegracao>;
+      // Estados de conexão gravados por versões antigas eram simulados. Só uma checagem real nesta sessão pode marcá-los disponíveis.
+      return {
+        ...padrao,
+        ...anterior,
+        urlDp: moduloDp,
+        urlFiscal: moduloFiscal,
+        urlFiasco: typeof window !== 'undefined' ? window.location.origin : '',
+        statusDp: false,
+        statusFiscal: false,
+        statusFiasco: false,
+        integracaoAtiva: false,
+        ultimaVerificacao: undefined
+      };
+    } catch (e) {
+      console.error('Erro ao ler configIntegracaoMurade:', e);
+      return padrao;
+    }
   });
 
   const [usuariosPermissao, setUsuariosPermissao] = useState<UsuarioPermissao[]>([
@@ -143,7 +183,7 @@ export function ConfiguracaoIntegracaoScreen({
   const [novoNome, setNovoNome] = useState('');
   const [novoCargo, setNovoCargo] = useState('Auxiliar');
 
-  // Estado da configuração MURADE_CONFIG (Desvincular + Ocultar Integrações)
+  // Identificação local do módulo; não configura conexões externas.
   const [sistemaMurade, setSistemaMurade] = useState<SistemaMurade>(() => {
     return MURADE_CONFIG.sistemaAtual;
   });
@@ -153,30 +193,27 @@ export function ConfiguracaoIntegracaoScreen({
     setSistemaMurade(novo);
     MURADE_CONFIG.setSistema(novo);
     MURADE_CONFIG.aplicar();
-    setStatusOcultacaoMurade(`🔒 MURADE_CONFIG aplicado para ${novo}! Elementos de integração isolados e ocultados da visão do cliente.`);
+    setStatusOcultacaoMurade(`${novo} selecionado. As integrações permanecem indisponíveis até configurar APIs e credenciais no servidor.`);
     setTimeout(() => setStatusOcultacaoMurade(null), 5000);
   };
 
   const reaplicarMuradeConfig = () => {
     const res = MURADE_CONFIG.aplicar();
-    setStatusOcultacaoMurade(`✅ MURADE_CONFIG v${MURADE_CONFIG.versao} reexecutado com sucesso para ${res.sistema}!`);
+    setStatusOcultacaoMurade(`Módulo atual: ${res.sistema}. Nenhuma conexão externa foi executada.`);
     setTimeout(() => setStatusOcultacaoMurade(null), 4000);
   };
 
   // Estados de IA Voz ElevenLabs
   const [configVoz, setConfigVoz] = useState(obterConfigVoz());
-  const [apiKeyVoz, setApiKeyVoz] = useState(configVoz.apiKeyElevenLabs);
   const [voiceIdVoz, setVoiceIdVoz] = useState(configVoz.voiceId);
   const [falandoVoz, setFalandoVoz] = useState(false);
 
   const handleSalvarChaveVoz = () => {
     const atualizado = salvarConfigVoz({
-      apiKeyElevenLabs: apiKeyVoz.trim(),
-      voiceId: voiceIdVoz,
-      chaveAtiva: apiKeyVoz.trim().length > 10
+      voiceId: voiceIdVoz
     });
     setConfigVoz(atualizado);
-    setMensagemSucesso('🎤 Chave ElevenLabs e configurações de voz atualizadas com sucesso!');
+    setMensagemSucesso('Preferência de voz salva neste navegador. A chave fica somente no servidor.');
     setTimeout(() => setMensagemSucesso(null), 4000);
   };
 
@@ -188,7 +225,7 @@ export function ConfiguracaoIntegracaoScreen({
     }
     setFalandoVoz(true);
     await falarTextoNatural(
-      "Olá! Sou a IA Murad. Esta é a voz natural brasileira configurada no seu sistema. Integração com a ElevenLabs ativa e pronta para leitura contábil e fiscal!",
+      "Amostra de síntese de voz. Nenhuma integração fiscal foi consultada por esta demonstração.",
       () => setFalandoVoz(true),
       () => setFalandoVoz(false),
       () => setFalandoVoz(false)
@@ -197,93 +234,79 @@ export function ConfiguracaoIntegracaoScreen({
 
   // Atualiza localStorage sempre que salva
   const salvarConfiguracoes = () => {
-    if (!config.codigoLigacao || config.codigoLigacao.trim().length < 5) {
-      setMensagemErro('⚠️ Digite o Código de Ligação com no mínimo 5 caracteres (Ex: MURADE-2026-GO)!');
-      setTimeout(() => setMensagemErro(null), 5000);
-      return;
-    }
-
     const configAtualizada: ConfigIntegracao = {
       ...config,
-      ultimaSincronizacao: new Date().toLocaleString('pt-BR')
+      integracaoAtiva: false
     };
 
     setConfig(configAtualizada);
     localStorage.setItem('configIntegracaoMurade', JSON.stringify(configAtualizada));
-    setMensagemSucesso('💾 Configurações de integração salvas com sucesso no sistema!');
+    setMensagemSucesso('Preferências salvas neste navegador. Isso não conectou nem sincronizou os sistemas.');
     setTimeout(() => setMensagemSucesso(null), 4000);
   };
 
-  const testarTodasConexoes = () => {
-    if (!config.codigoLigacao || config.codigoLigacao.trim().length < 5) {
-      setMensagemErro('⚠️ Digite o Código de Ligação primeiro para validar o handshake com os sistemas parceiros!');
-      setTimeout(() => setMensagemErro(null), 5000);
-      return;
-    }
-
+  const testarTodasConexoes = async () => {
     setTestando(true);
     setMensagemErro(null);
-
-    setTimeout(() => {
-      setTestando(false);
-      setConfig(prev => ({
-        ...prev,
-        statusDp: true,
-        statusFiscal: true,
-        statusFiasco: true,
-        ultimaSincronizacao: new Date().toLocaleString('pt-BR')
-      }));
-      setMensagemSucesso('✅ TODAS AS CONEXÕES OK! Os 3 sistemas (MURAD DP, MURADE FISCAL e FIASCO IA) estão 100% interligados via Código: ' + config.codigoLigacao);
-      setTimeout(() => setMensagemSucesso(null), 5000);
-    }, 900);
+    const [dp, fiscal, fiscoIa] = await Promise.all([
+      verificarEndpointSaude(config.urlDp),
+      verificarEndpointSaude(config.urlFiscal),
+      verificarEndpointSaude(config.urlFiasco)
+    ]);
+    const verificacao = new Date().toLocaleString('pt-BR');
+    const resultado: ConfigIntegracao = {
+      ...config,
+      statusDp: dp.disponivel,
+      statusFiscal: fiscal.disponivel,
+      statusFiasco: fiscoIa.disponivel,
+      integracaoAtiva: false,
+      ultimaVerificacao: verificacao
+    };
+    setConfig(resultado);
+    localStorage.setItem('configIntegracaoMurade', JSON.stringify(resultado));
+    const detalhes = `DP: ${dp.detalhe} Fiscal: ${fiscal.detalhe} Fisco IA: ${fiscoIa.detalhe}`;
+    const disponiveis = [dp, fiscal, fiscoIa].filter(item => item.disponivel).length;
+    if (disponiveis === 3) {
+      setMensagemSucesso(`Os três endpoints de saúde responderam. Isso só confirma disponibilidade; nenhum dado foi sincronizado. ${detalhes}`);
+      setTimeout(() => setMensagemSucesso(null), 8000);
+    } else {
+      setMensagemErro(`${disponiveis}/3 endpoints de saúde confirmados. Sincronização de dados não foi testada. ${detalhes}`);
+      setTimeout(() => setMensagemErro(null), 10000);
+    }
+    setTestando(false);
   };
 
   const ativarIntegracao = () => {
-    if (!config.codigoLigacao || config.codigoLigacao.trim().length < 5) {
-      setMensagemErro('⚠️ Salve as configurações primeiro e digite o Código de Ligação (o mesmo nos 3 sistemas)!');
-      setTimeout(() => setMensagemErro(null), 5000);
-      return;
-    }
-
-    const configAtivada: ConfigIntegracao = {
-      ...config,
-      statusDp: true,
-      statusFiscal: true,
-      statusFiasco: true,
-      integracaoAtiva: true,
-      ultimaSincronizacao: new Date().toLocaleString('pt-BR')
-    };
-
-    setConfig(configAtivada);
-    localStorage.setItem('configIntegracaoMurade', JSON.stringify(configAtivada));
-    setMensagemSucesso('🚀 INTEGRAÇÃO ATIVADA! Os 3 sistemas agora sincronizam funcionários, notas fiscais, DCTFWeb e alertas em tempo real!');
-    setTimeout(() => setMensagemSucesso(null), 6000);
+    setConfig(prev => ({ ...prev, integracaoAtiva: false }));
+    setMensagemErro('Ativação indisponível: os serviços ainda não oferecem endpoints autenticados de sincronização /api/sync. O teste de saúde não transfere dados.');
+    setTimeout(() => setMensagemErro(null), 8000);
   };
 
   const restaurarPadroes = () => {
+    const moduloDp = MODULOS_MURADE.find(modulo => modulo.id === 'dp')?.url ?? '';
+    const moduloFiscal = MODULOS_MURADE.find(modulo => modulo.id === 'fiscal')?.url ?? '';
     const padrao: ConfigIntegracao = {
       sistemaAtual: 'fiasco',
       cnpjContabilidade: '',
       nomeContabilidade: 'Contabilidade Integrada',
       codigoLigacao: 'MURADE-2026',
-      urlDp: 'https://dp.murade.com.br/api/sync',
-      urlFiscal: 'https://fiscal.murade.com.br/api/sync',
-      urlFiasco: 'https://fiasco.murade.com.br/api/sync',
-      statusDp: true,
-      statusFiscal: true,
-      statusFiasco: true,
-      syncEmpresas: true,
-      syncPessoas: true,
-      syncCertificado: true,
-      syncAgenda: true,
-      syncGuias: true,
+      urlDp: moduloDp,
+      urlFiscal: moduloFiscal,
+      urlFiasco: typeof window !== 'undefined' ? window.location.origin : '',
+      statusDp: false,
+      statusFiscal: false,
+      statusFiasco: false,
+      syncEmpresas: false,
+      syncPessoas: false,
+      syncCertificado: false,
+      syncAgenda: false,
+      syncGuias: false,
       frequenciaSync: '5min',
-      integracaoAtiva: true,
-      ultimaSincronizacao: new Date().toLocaleString('pt-BR')
+      integracaoAtiva: false
     };
     setConfig(padrao);
     localStorage.setItem('configIntegracaoMurade', JSON.stringify(padrao));
-    setMensagemSucesso('↩️ Padrões oficiais de fábrica restaurados com sucesso.');
+    setMensagemSucesso('Preferências locais restauradas. Nenhuma integração foi ativada.');
     setTimeout(() => setMensagemSucesso(null), 3000);
   };
 
@@ -312,7 +335,7 @@ export function ConfiguracaoIntegracaoScreen({
     setUsuariosPermissao(prev => [...prev, novoItem]);
     setNovoNome('');
     setMostrarModalNovoUsuario(false);
-    setMensagemSucesso('Usuário adicionado à matriz de permissões dos 3 sistemas!');
+    setMensagemSucesso('Usuário adicionado apenas à lista local desta tela. Isso não cria acesso nem altera permissões nos outros sistemas.');
     setTimeout(() => setMensagemSucesso(null), 3000);
   };
 
@@ -387,7 +410,7 @@ export function ConfiguracaoIntegracaoScreen({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-black text-white tracking-wide">
-                  🔒 MURADE — DESVINCULAR + OCULTAR INTEGRAÇÕES
+                  MURADE — STATUS DOS MÓDULOS
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
                   v{MURADE_CONFIG.versao}
@@ -397,7 +420,7 @@ export function ConfiguracaoIntegracaoScreen({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Mesmo código para Fisco IA, Fiscal e DP-Contábil: desconecta ligações e oculta elementos do cliente mantendo troca oculta e visão total para o Administrador.
+                Esta tela identifica o módulo selecionado. As integrações entre os sistemas ainda não estão implementadas e nenhum dado é trocado em segundo plano.
               </p>
             </div>
           </div>
@@ -409,7 +432,7 @@ export function ConfiguracaoIntegracaoScreen({
               className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reaplicar Ocultação</span>
+              <span>Atualizar status</span>
             </button>
           </div>
         </div>
@@ -435,13 +458,13 @@ export function ConfiguracaoIntegracaoScreen({
             </div>
             <ul className="text-[11px] space-y-1 text-slate-300">
               <li className="flex items-center gap-1 text-rose-300">
-                <span>❌</span> Conecta Fiscal, DP e Contábil: Desligado
+                <span>⚠️</span> Fiscal, DP e Contábil: integração não configurada
               </li>
               <li className="flex items-center gap-1 text-emerald-300">
-                <span>✅</span> Modo: INDEPENDENTE
+                <span>ℹ️</span> Funciona como módulo independente
               </li>
               <li className="flex items-center gap-1 text-blue-300">
-                <span>🏛️</span> Buscar apenas Governo (RFB/Serpro)
+                <span>⚠️</span> Acesso à RFB/SERPRO não validado
               </li>
             </ul>
           </div>
@@ -465,13 +488,13 @@ export function ConfiguracaoIntegracaoScreen({
             </div>
             <ul className="text-[11px] space-y-1 text-slate-300">
               <li className="flex items-center gap-1 text-rose-300">
-                <span>❌</span> Recebe/Envia Fisco IA: Desligado
+                <span>⚠️</span> Integração com Fisco IA: não configurada
               </li>
               <li className="flex items-center gap-1 text-amber-300">
-                <span>🔒</span> Conexões DP/Contábil: Ocultas do Cliente
+                <span>⚠️</span> DP/Contábil: não conectado
               </li>
               <li className="flex items-center gap-1 text-emerald-300">
-                <span>✅</span> Admin Vê Tudo: Ativo
+                <span>ℹ️</span> Esta tela não altera permissões
               </li>
             </ul>
           </div>
@@ -495,13 +518,13 @@ export function ConfiguracaoIntegracaoScreen({
             </div>
             <ul className="text-[11px] space-y-1 text-slate-300">
               <li className="flex items-center gap-1 text-amber-300">
-                <span>🔒</span> Conexão com Fiscal: Oculta do Cliente
+                <span>⚠️</span> Conexão com Fiscal: não configurada
               </li>
               <li className="flex items-center gap-1 text-emerald-300">
-                <span>✅</span> Continua Funcionando: Troca por Baixo
+                <span>⚠️</span> Troca de dados em segundo plano: indisponível
               </li>
               <li className="flex items-center gap-1 text-emerald-300">
-                <span>✅</span> Admin Vê Tudo: Ativo
+                <span>ℹ️</span> Esta tela não altera permissões
               </li>
             </ul>
           </div>
@@ -557,7 +580,7 @@ export function ConfiguracaoIntegracaoScreen({
                 ⚙️ Configuração de Integração
               </h1>
               <p className="text-blue-100 text-xs mt-1">
-                Conecte os sistemas MURADE — DP • Fiscal • Murade Fisco IA — tudo sincronizado automaticamente em tempo real
+                Esta tela verifica a disponibilidade das APIs configuradas. A sincronização de dados entre os sistemas ainda não está implementada.
               </p>
             </div>
 
@@ -565,7 +588,7 @@ export function ConfiguracaoIntegracaoScreen({
               <span className="text-[10px] text-blue-200 uppercase font-semibold block">Status da Rede</span>
               <span className="text-xs font-black text-emerald-300 flex items-center justify-end gap-1 mt-0.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                {config.integracaoAtiva ? 'Interligado & Ativo' : 'Pendente de Ativação'}
+                {config.integracaoAtiva ? 'Sincronização ativa' : 'Sincronização não implementada'}
               </span>
             </div>
           </div>
@@ -613,7 +636,7 @@ export function ConfiguracaoIntegracaoScreen({
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
                   <Key className="w-3.5 h-3.5 text-blue-700" />
-                  <span>🔑 Código de Ligação — COLOQUE O MESMO NOS 3 SISTEMAS</span>
+                  <span>🔑 Identificador local — não autentica nem conecta sistemas</span>
                 </label>
 
                 <button
@@ -631,14 +654,14 @@ export function ConfiguracaoIntegracaoScreen({
                   type="text"
                   value={config.codigoLigacao}
                   onChange={(e) => setConfig({ ...config, codigoLigacao: e.target.value.toUpperCase() })}
-                  placeholder="Ex: MURADE-2026-GO"
+                  placeholder="Identificador opcional"
                   className="flex-1 px-3.5 py-2.5 rounded-lg bg-white border border-blue-300 text-sm font-black tracking-wider text-blue-900 uppercase focus:ring-2 focus:ring-blue-500 outline-none font-mono shadow-xs"
                 />
               </div>
 
               <p className="text-[11px] text-amber-800 font-semibold flex items-center gap-1">
-                <span>⚠️</span>
-                <span>Esse código é a senha que conecta os 3 sistemas (DP, Fiscal e FIASCO) — use exatamente o mesmo em todos!</span>
+                <span>ℹ️</span>
+                <span>Este campo é apenas uma referência salva no navegador. Não é senha, token ou mecanismo de integração.</span>
               </p>
             </div>
           </section>
@@ -651,7 +674,7 @@ export function ConfiguracaoIntegracaoScreen({
                 <span>🔌 2. Conexão com Sistemas Parceiros</span>
               </div>
               <span className="text-[11px] text-slate-500">
-                Último handshake: {config.ultimaSincronizacao || 'Hoje'}
+                Última verificação real: {config.ultimaVerificacao || 'ainda não realizada'}
               </span>
             </div>
 
@@ -670,7 +693,7 @@ export function ConfiguracaoIntegracaoScreen({
                       )}
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono">
-                      {config.urlDp} • Envia pró-labore, funcionários e folha
+                      {config.urlDp || 'URL não configurada'} • disponibilidade da API; troca de dados não implementada
                     </div>
                   </div>
                 </div>
@@ -678,9 +701,9 @@ export function ConfiguracaoIntegracaoScreen({
                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
                   config.statusDp 
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : 'bg-slate-100 text-slate-700 border border-slate-200'
                 }`}>
-                  {config.statusDp ? '✅ Conectado' : '❌ Não conectado'}
+                  {config.statusDp ? '✅ API respondeu' : '⚪ Não confirmada'}
                 </span>
               </div>
 
@@ -698,7 +721,7 @@ export function ConfiguracaoIntegracaoScreen({
                       )}
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono">
-                      {config.urlFiscal} • Puxa dados do DP e apura guias
+                      {config.urlFiscal || 'URL não configurada'} • disponibilidade da API; troca de dados não implementada
                     </div>
                   </div>
                 </div>
@@ -706,9 +729,9 @@ export function ConfiguracaoIntegracaoScreen({
                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
                   config.statusFiscal 
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : 'bg-slate-100 text-slate-700 border border-slate-200'
                 }`}>
-                  {config.statusFiscal ? '✅ Conectado' : '❌ Não conectado'}
+                  {config.statusFiscal ? '✅ API respondeu' : '⚪ Não confirmada'}
                 </span>
               </div>
 
@@ -726,7 +749,7 @@ export function ConfiguracaoIntegracaoScreen({
                       )}
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono">
-                      {config.urlFiasco} • Gateway SERPRO, e-CAC, DCTFWeb e IA Murad
+                      {config.urlFiasco || 'URL não configurada'} • saúde do serviço Fisco IA; não confirma acesso a órgãos públicos
                     </div>
                   </div>
                 </div>
@@ -734,9 +757,9 @@ export function ConfiguracaoIntegracaoScreen({
                 <span className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
                   config.statusFiasco 
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    : 'bg-slate-100 text-slate-700 border border-slate-200'
                 }`}>
-                  {config.statusFiasco ? '✅ Conectado' : '❌ Não conectado'}
+                  {config.statusFiasco ? '✅ API respondeu' : '⚪ Não confirmada'}
                 </span>
               </div>
             </div>
@@ -748,7 +771,7 @@ export function ConfiguracaoIntegracaoScreen({
               className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl border border-slate-300 flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${testando ? 'animate-spin' : ''}`} />
-              <span>{testando ? 'Testando Handshake nos 3 Servidores...' : '🔍 Testar Todas as Conexões'}</span>
+              <span>{testando ? 'Consultando /api/health nos 3 serviços...' : '🔍 Verificar disponibilidade das APIs'}</span>
             </button>
           </section>
 
@@ -757,16 +780,20 @@ export function ConfiguracaoIntegracaoScreen({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-bold text-[#0F2B5B]">
                 <Users className="w-4 h-4 text-blue-600" />
-                <span>👤 3. Permissões de Usuários (Acesso Cruzado)</span>
+                <span>👤 3. Rascunho local de funções e acessos</span>
               </div>
               <button
                 type="button"
                 onClick={() => setMostrarModalNovoUsuario(true)}
                 className="text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 cursor-pointer"
               >
-                ➕ Adicionar Usuário
+                ➕ Adicionar referência
               </button>
             </div>
+
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-950">
+              Esta matriz é demonstrativa e salva somente nomes e funções nesta tela. Ela não cria contas, permissões ou acesso nos aplicativos Fiscal, DP ou Fisco IA.
+            </p>
 
             <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs">
               <table className="w-full text-left text-xs">
@@ -806,12 +833,15 @@ export function ConfiguracaoIntegracaoScreen({
             </div>
           </section>
 
-          {/* 🔄 SEÇÃO 4 — SINCRONIZAÇÃO AUTOMÁTICA */}
+          {/* Preferências locais; ainda não há rotina de sincronização */}
           <section className="space-y-3.5">
             <div className="flex items-center gap-2 text-sm font-bold text-[#0F2B5B]">
               <RefreshCw className="w-4 h-4 text-blue-600" />
-              <span>🔄 4. Sincronização Automática em Segundo Plano</span>
+              <span>🔄 4. Preferências de sincronização (inativas)</span>
             </div>
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-950">
+              Estas opções são apenas preferências locais. Não há serviço em segundo plano; elas não compartilham dados ou certificados entre os sistemas.
+            </p>
 
             <div className="space-y-2 text-xs divide-y divide-slate-100">
               <label className="flex items-center gap-2.5 pt-2 cursor-pointer hover:text-slate-950">
@@ -846,7 +876,7 @@ export function ConfiguracaoIntegracaoScreen({
                   className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 accent-blue-600"
                 />
                 <span className="font-semibold text-slate-800">
-                  Compartilhar Certificado Digital A1/A3 e Procurações Eletrônicas RFB
+                  Preferência futura: compartilhar certificado e procurações (não implementado)
                 </span>
               </label>
 
@@ -878,7 +908,7 @@ export function ConfiguracaoIntegracaoScreen({
             {/* Frequência */}
             <div className="pt-3 max-w-sm space-y-1">
               <label className="text-xs font-semibold text-slate-600 block">
-                Frequência de Atualização Automática
+                Frequência pretendida (nenhum agendador está configurado)
               </label>
               <select
                 value={config.frequenciaSync}
@@ -899,33 +929,23 @@ export function ConfiguracaoIntegracaoScreen({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-bold text-[#0F2B5B]">
                 <Volume2 className="w-4 h-4 text-purple-600" />
-                <span>🎤 5. IA Voz → Chave ElevenLabs (Voz Natural Humana)</span>
+                <span>🎤 5. Demonstração de voz</span>
               </div>
-              <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full">
-                Plano Atual: {configVoz.planoAtivo}
-              </span>
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              Integração oficial com ElevenLabs para fala humana realista brasileira em todos os módulos (Fiscal, Contábil, DP e Agente Murad). Sem voz robotizada!
+              Esta tela reproduz amostras de texto. A voz premium requer ELEVENLABS_API_KEY no servidor e não está automaticamente integrada aos outros módulos.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                   <Key className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Chave de API ElevenLabs (xi-api-key)</span>
+                  <span>Configuração segura da voz premium</span>
                 </label>
-                <input
-                  type="password"
-                  value={apiKeyVoz}
-                  onChange={(e) => setApiKeyVoz(e.target.value)}
-                  placeholder="Insira sua chave ElevenLabs..."
-                  className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-                <span className="text-[10px] text-slate-500 block">
-                  Caso deixe em branco, o sistema usará a síntese de voz nativa em português brasileiro (PT-BR).
-                </span>
+                <p className="p-2.5 rounded-xl border border-amber-200 bg-amber-50 text-[11px] text-amber-900">
+                  Não cole a chave aqui. Configure ELEVENLABS_API_KEY nas variáveis de ambiente do servidor Render. Sem ela, a amostra usa a voz local do navegador.
+                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -944,7 +964,7 @@ export function ConfiguracaoIntegracaoScreen({
                   ))}
                 </select>
                 <span className="text-[10px] text-slate-500 block">
-                  {configVoz.chaveAtiva ? '✅ Chave ElevenLabs configurada e ativa' : 'ℹ️ Operando no modo voz natural nativa PT-BR'}
+                  A configuração será verificada no servidor ao reproduzir a amostra.
                 </span>
               </div>
             </div>
@@ -978,7 +998,7 @@ export function ConfiguracaoIntegracaoScreen({
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 transition-all cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>Salvar Chave ElevenLabs</span>
+                <span>Salvar preferência de voz</span>
               </button>
             </div>
           </section>
@@ -1006,10 +1026,10 @@ export function ConfiguracaoIntegracaoScreen({
               <button
                 type="button"
                 onClick={ativarIntegracao}
-                className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              className="px-5 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>✅ Ativar Integração</span>
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>Ver por que não sincroniza</span>
               </button>
             </div>
           </div>
@@ -1021,35 +1041,35 @@ export function ConfiguracaoIntegracaoScreen({
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
           <HelpCircle className="w-4 h-4 text-indigo-700" />
           <h2 className="text-xs sm:text-sm font-bold text-slate-900">
-            📖 Como Funciona o Passo a Passo nos 3 Sistemas:
+            📖 O que falta para uma integração real:
           </h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
           <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 space-y-1.5">
             <span className="font-bold text-blue-900 block text-xs">
-              🔹 PASSO 1 — Nos 3 Sistemas
+              🔹 1 — APIs dos serviços
             </span>
             <p className="text-slate-600 text-[11px] leading-relaxed">
-              Abra o <strong>MURAD DP</strong>, o <strong>MURADE FISCAL</strong> e o <strong>MURADE FISCO IA</strong> na aba <strong>⚙️ Configuração</strong>.
+              DP e Fiscal precisam expor endpoints de integração documentados e acessíveis. A verificação de saúde não basta para trocar dados.
             </p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-amber-50/60 border border-amber-200 space-y-1.5">
             <span className="font-bold text-amber-900 block text-xs">
-              🔹 PASSO 2 — Código de Ligação
+              🔹 2 — Autenticação e empresas
             </span>
             <p className="text-slate-600 text-[11px] leading-relaxed">
-              Digite exatamente o mesmo código (ex: <code className="bg-white px-1 py-0.5 rounded font-mono font-bold">{config.codigoLigacao}</code>) nos 3 sistemas e salve.
+              Cada chamada deve autenticar o usuário e manter os dados separados por empresa/CNPJ. O identificador desta tela não concede acesso.
             </p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-1.5">
             <span className="font-bold text-emerald-900 block text-xs">
-              🔹 PASSO 3 — Testar & Ativar
+              🔹 3 — Contrato de sincronização
             </span>
             <p className="text-slate-600 text-[11px] leading-relaxed">
-              Clique em <strong>Testar Conexões</strong> e em seguida em <strong>Ativar Integração</strong>. Todos os dados passam a fluir automaticamente!
+              É necessário definir os dados enviados, respostas, erros, repetição segura e logs antes de habilitar a sincronização.
             </p>
           </div>
         </div>
@@ -1057,24 +1077,24 @@ export function ConfiguracaoIntegracaoScreen({
         {/* Resumo do que acontece após a ativação */}
         <div className="pt-2 border-t border-slate-100">
           <h3 className="text-xs font-bold text-slate-800 mb-2">
-            ✅ O que acontece automaticamente após a ativação:
+            ℹ️ O que esta tela faz hoje:
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-600">
             <div className="flex items-start gap-1.5">
               <span className="text-emerald-600 font-bold">✓</span>
-              <span><strong>Auxiliar DP</strong> cadastra funcionário → Fiscal já vê pró-labore e Fisco IA atualiza EFD-Reinf/eSocial.</span>
+              <span>Salva preferências locais no navegador.</span>
             </div>
             <div className="flex items-start gap-1.5">
               <span className="text-emerald-600 font-bold">✓</span>
-              <span><strong>Auxiliar Fiscal</strong> emite NFe → Fisco IA valida na SEFAZ e DP apura retenções de IRRF.</span>
+              <span>Consulta o endpoint <code>/api/health</code> de cada serviço quando você clica em verificar.</span>
             </div>
             <div className="flex items-start gap-1.5">
               <span className="text-emerald-600 font-bold">✓</span>
-              <span><strong>Fisco IA</strong> encontra vencimento de DARF/FGTS → Alerta aparece na agenda de todos simultaneamente.</span>
+              <span>Não transfere funcionários, notas, guias, certificados ou alertas.</span>
             </div>
             <div className="flex items-start gap-1.5">
               <span className="text-emerald-600 font-bold">✓</span>
-              <span><strong>Contador Admin</strong> acessa o sistema → Vê o resumo de todos os 3 sistemas numa tela só.</span>
+              <span>Não altera usuários ou permissões nos aplicativos DP e Fiscal.</span>
             </div>
           </div>
         </div>
@@ -1085,11 +1105,14 @@ export function ConfiguracaoIntegracaoScreen({
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full border border-slate-200 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h3 className="text-sm font-bold text-slate-900">Adicionar Usuário aos 3 Sistemas</h3>
+              <h3 className="text-sm font-bold text-slate-900">Adicionar referência local de usuário</h3>
               <button onClick={() => setMostrarModalNovoUsuario(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
 
             <form onSubmit={adicionarUsuario} className="space-y-3 text-xs">
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-950">
+                O registro aparecerá apenas nesta lista local; nenhum acesso será criado nos outros sistemas.
+              </p>
               <div className="space-y-1">
                 <label className="font-semibold text-slate-700">Nome do Usuário</label>
                 <input

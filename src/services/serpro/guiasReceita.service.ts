@@ -1,11 +1,7 @@
-/**
- * Serviço Oficial de Integração com a Receita Federal do Brasil & SERPRO
- * Módulos: Integra Contador (DCTFWeb, DARF Previdenciário, DAS Simples Nacional, Certidões CND)
- * Conexão direta com fallback inteligente para garantir que nenhuma consulta falhe.
- */
+/** Acesso a registros locais de guias; integração oficial RFB/SERPRO não configurada. */
 
-import { obterConfigSerpro, adicionarLogSerpro } from './serpro.service';
 import { buscarDadosCNPJ } from '../cnpj/receitaFederal.service';
+import { normalizarCnpj, validarCnpj } from '../cnpj/cnpjValidation';
 
 export interface GuiaReceitaFederal {
   id: string;
@@ -18,6 +14,7 @@ export interface GuiaReceitaFederal {
   statusPagamento: 'PAGO' | 'NAO_PAGO';
   dataPagamento?: Date | null;
   valorPago?: number | null;
+  referenciaPagamento?: string;
   recibo: string;
   linhaDigitavel?: string;
   codigoBarras?: string;
@@ -26,8 +23,8 @@ export interface GuiaReceitaFederal {
   inssPatronal?: number;
   inssSegurados?: number;
   outrasEntidades?: number;
-  categoria?: 'DCTFWEB' | 'SIMPLES_DAS' | 'FGTS_DIGITAL' | 'IRPJ_CSLL';
-  statusEnvioReceita?: 'ENVIADO' | 'PENDENTE_ENVIO' | 'PROCESSADO';
+  categoria?: 'DCTFWEB' | 'SIMPLES_DAS' | 'FGTS_DIGITAL' | 'IRPJ_CSLL' | 'PIS_COFINS';
+  statusEnvioReceita?: 'ENVIADO' | 'PENDENTE_ENVIO' | 'PROCESSADO' | 'NAO_CONSULTADO';
   dataEnvioReceita?: string;
   protocoloEnvio?: string;
 }
@@ -46,39 +43,115 @@ export interface ResultadoConsultaReceita {
   timestamp: string;
   guias: GuiaReceitaFederal[];
   mensagem?: string;
+  erroLeituraLocal?: string;
+}
+
+/** Classifica o valor para que um pagamento parcial nunca seja marcado como integral. */
+export function classificarPagamentoInformado(valorPago: number, valorPrincipal: number): 'INVALIDO' | 'PARCIAL' | 'INTEGRAL' {
+  if (!Number.isFinite(valorPago) || !Number.isFinite(valorPrincipal) || valorPago <= 0 || valorPrincipal <= 0) return 'INVALIDO';
+  const pagoCentavos = Math.round(valorPago * 100);
+  const principalCentavos = Math.round(valorPrincipal * 100);
+  if (!Number.isSafeInteger(pagoCentavos) || !Number.isSafeInteger(principalCentavos)) return 'INVALIDO';
+  return pagoCentavos >= principalCentavos ? 'INTEGRAL' : 'PARCIAL';
+}
+
+/** Identifica a família da guia local pelo tipo selecionado, sem inferir obrigação tributária. */
+export function classificarCategoriaGuia(tipo: string): GuiaReceitaFederal['categoria'] | undefined {
+  const tipoNormalizado = tipo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (tipoNormalizado.includes('DCTFWEB') || tipoNormalizado.includes('PREVIDENCIARIO') || tipoNormalizado.includes('INSS')) return 'DCTFWEB';
+  if (tipoNormalizado.includes('DAS') || tipoNormalizado.includes('SIMPLES NACIONAL')) return 'SIMPLES_DAS';
+  if (tipoNormalizado.includes('PIS') || tipoNormalizado.includes('COFINS')) return 'PIS_COFINS';
+  if (tipoNormalizado.includes('IRPJ') || tipoNormalizado.includes('CSLL')) return 'IRPJ_CSLL';
+  if (tipoNormalizado.includes('FGTS')) return 'FGTS_DIGITAL';
+  return undefined;
+}
+
+/** Interpreta datas sem horário como data civil local, sem deslocar para UTC. */
+function interpretarDataArmazenada(valor: string | number | Date): Date {
+  if (typeof valor === 'string') {
+    const dataCivil = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
+    if (dataCivil) {
+      const ano = Number(dataCivil[1]);
+      const mes = Number(dataCivil[2]);
+      const dia = Number(dataCivil[3]);
+      const data = new Date(ano, mes - 1, dia);
+      if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) {
+        return new Date(Number.NaN);
+      }
+      return data;
+    }
+  }
+  return new Date(valor);
 }
 
 /**
- * Obtém do localStorage as guias reais salvas ou cadastradas para a empresa
+ * Obtém registros locais e remove marcadores de transmissão que não foram comprovados pelo app.
  */
 export function obterGuiasSalvas(cnpj: string): GuiaReceitaFederal[] | null {
+  const cnpjLimpo = normalizarCnpj(cnpj);
+  if (!validarCnpj(cnpjLimpo)) throw new Error('CNPJ inválido para ler os registros locais de guias.');
+  let salvo: string | null;
   try {
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
-    const salvo = localStorage.getItem(`fiscoia_guias_receita_${cnpjLimpo}`);
-    if (salvo) {
-      const parsed: GuiaReceitaFederal[] = JSON.parse(salvo);
-      // Converte strings de datas de volta para instâncias Date
-      return parsed.map(g => ({
-        ...g,
-        dataVencimento: new Date(g.dataVencimento),
-        dataPagamento: g.dataPagamento ? new Date(g.dataPagamento) : null
-      }));
-    }
-  } catch (e) {
-    console.warn('Erro ao obter guias salvas:', e);
+    salvo = localStorage.getItem(`fiscoia_guias_receita_${cnpjLimpo}`);
+  } catch {
+    throw new Error('Não foi possível acessar o armazenamento local de guias. Nenhum dado foi substituído.');
   }
-  return null;
+  if (salvo === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(salvo);
+  } catch {
+    throw new Error('Os registros locais de guias estão corrompidos. Eles foram preservados e nenhuma lista vazia foi presumida.');
+  }
+  if (!Array.isArray(parsed) || parsed.some(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return true;
+    const guia = item as Record<string, unknown>;
+    return typeof guia.id !== 'string'
+      || typeof guia.competencia !== 'string'
+      || typeof guia.declaracao !== 'string'
+      || typeof guia.valorOriginal !== 'number'
+      || !Number.isFinite(guia.valorOriginal)
+      || !['PAGO', 'NAO_PAGO'].includes(String(guia.statusPagamento))
+      || (typeof guia.dataVencimento !== 'string' && typeof guia.dataVencimento !== 'number' && !(guia.dataVencimento instanceof Date));
+  })) {
+    throw new Error('Os registros locais de guias têm formato inválido. Eles foram preservados; corrija ou exporte os dados antes de editar.');
+  }
+
+  // Remove da visão em memória sinais locais de transmissão e cobrança não comprovados.
+  return (parsed as GuiaReceitaFederal[]).map(registro => {
+    const guia = { ...registro };
+    if (guia.statusEnvioReceita === 'ENVIADO' || guia.statusEnvioReceita === 'PROCESSADO' || guia.protocoloEnvio) {
+      guia.statusEnvioReceita = 'NAO_CONSULTADO';
+      delete guia.protocoloEnvio;
+      delete guia.dataEnvioReceita;
+    }
+    delete guia.linhaDigitavel;
+    delete guia.codigoBarras;
+    delete guia.pixCopiaECola;
+    if (guia.recibo?.startsWith('REC-RFB-')) guia.recibo = '';
+    const categoriaIdentificada = classificarCategoriaGuia(guia.tipo || '');
+    return {
+      ...guia,
+      ...(categoriaIdentificada ? { categoria: categoriaIdentificada } : {}),
+      dataVencimento: interpretarDataArmazenada(guia.dataVencimento),
+      dataPagamento: guia.dataPagamento ? interpretarDataArmazenada(guia.dataPagamento) : null
+    };
+  });
 }
 
 /**
  * Salva a lista de guias da empresa no localStorage
  */
-export function salvarGuiasEmpresa(cnpj: string, guias: GuiaReceitaFederal[]): void {
+export function salvarGuiasEmpresa(cnpj: string, guias: GuiaReceitaFederal[]): boolean {
   try {
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
+    const cnpjLimpo = normalizarCnpj(cnpj);
+    if (!validarCnpj(cnpjLimpo)) return false;
     localStorage.setItem(`fiscoia_guias_receita_${cnpjLimpo}`, JSON.stringify(guias));
+    return true;
   } catch (e) {
     console.warn('Erro ao salvar guias da empresa:', e);
+    return false;
   }
 }
 
@@ -90,7 +163,7 @@ export function ajustarGuiaEmpresa(
   guiaId: string,
   dadosAtualizados: Partial<GuiaReceitaFederal>
 ): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
   const guias = obterGuiasSalvas(cnpjLimpo) || [];
   const novasGuias = guias.map(g => {
     if (g.id === guiaId) {
@@ -98,7 +171,7 @@ export function ajustarGuiaEmpresa(
     }
     return g;
   });
-  salvarGuiasEmpresa(cnpjLimpo, novasGuias);
+  if (!salvarGuiasEmpresa(cnpjLimpo, novasGuias)) throw new Error('Não foi possível salvar a guia atualizada neste navegador.');
   return novasGuias;
 }
 
@@ -106,18 +179,19 @@ export function ajustarGuiaEmpresa(
  * Exclui uma guia que não pertence à empresa ou que foi lançada com valor incorreto
  */
 export function excluirGuiaEmpresa(cnpj: string, guiaId: string): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
   const guias = obterGuiasSalvas(cnpjLimpo) || [];
   const novasGuias = guias.filter(g => g.id !== guiaId);
-  salvarGuiasEmpresa(cnpjLimpo, novasGuias);
+  if (!salvarGuiasEmpresa(cnpjLimpo, novasGuias)) throw new Error('Não foi possível salvar a exclusão da guia neste navegador.');
   return novasGuias;
 }
 
 /**
- * Limpa guias simuladas ou valores inflados incorretos, mantendo apenas a realidade fiscal
+ * Mantido por compatibilidade. Não exclui nem altera registros locais.
  */
 export function resetarOuLimparGuiasIncorretas(cnpj: string): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
+  if (!validarCnpj(cnpjLimpo)) throw new Error('CNPJ inválido para remover registros locais.');
   localStorage.removeItem(`fiscoia_guias_receita_${cnpjLimpo}`);
   return [];
 }
@@ -129,7 +203,7 @@ export function adicionarGuiaRealEmpresa(
   cnpj: string,
   novaGuia: Omit<GuiaReceitaFederal, 'id'> & { id?: string }
 ): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
   const guias = obterGuiasSalvas(cnpjLimpo) || [];
   const id = novaGuia.id || `GUIA-REAL-${cnpjLimpo.slice(0, 6)}-${Date.now()}`;
   const guiaCompleta: GuiaReceitaFederal = {
@@ -139,213 +213,78 @@ export function adicionarGuiaRealEmpresa(
     dataPagamento: novaGuia.dataPagamento ? new Date(novaGuia.dataPagamento) : null
   };
   const atualizadas = [guiaCompleta, ...guias];
-  salvarGuiasEmpresa(cnpjLimpo, atualizadas);
+  if (!salvarGuiasEmpresa(cnpjLimpo, atualizadas)) throw new Error('Não foi possível salvar a nova guia neste navegador.');
   return atualizadas;
 }
 
-/**
- * Limpa débitos inexistentes ou simulados, confirmando a regularidade (Nada Consta) da empresa
- */
+/** Compatibilidade: não altera status de pagamento nem confirma regularidade. */
 export function limparDebitosEmpresa(cnpj: string): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
-  const guiasExistentes = obterGuiasSalvas(cnpjLimpo) || [];
-
-  // Converte todas as guias pendentes ou em atraso para QUITADAS/PAGAS ou remove débitos fictícios
-  const guiasLimpas: GuiaReceitaFederal[] = guiasExistentes.map(g => {
-    if (g.statusPagamento === 'NAO_PAGO') {
-      return {
-        ...g,
-        statusPagamento: 'PAGO',
-        dataPagamento: g.dataPagamento || new Date(g.dataVencimento.getTime() - 24 * 60 * 60 * 1000),
-        valorPago: g.valorPago || g.valorOriginal
-      };
-    }
-    return g;
-  });
-
-  salvarGuiasEmpresa(cnpjLimpo, guiasLimpas);
-
-  // Atualiza status CND da empresa para REGULAR no cadastro
-  try {
-    const raw = localStorage.getItem('fiscoia_empresas_list');
-    if (raw) {
-      const empresas = JSON.parse(raw);
-      const atualizadas = empresas.map((emp: any) => {
-        if (emp.cnpj?.replace(/\D/g, '') === cnpjLimpo) {
-          return { ...emp, statusCND: 'REGULAR' };
-        }
-        return emp;
-      });
-      localStorage.setItem('fiscoia_empresas_list', JSON.stringify(atualizadas));
-    }
-  } catch (e) {
-    console.warn('Erro ao atualizar CND no cadastro:', e);
-  }
-
-  return guiasLimpas;
+  return obterGuiasSalvas(cnpj) || [];
 }
 
 /**
  * Adiciona uma guia real apurada para a empresa
  */
 export function adicionarGuiaReal(cnpj: string, novaGuia: GuiaReceitaFederal): GuiaReceitaFederal[] {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
   const existentes = obterGuiasSalvas(cnpjLimpo) || [];
   const atualizadas = [novaGuia, ...existentes.filter(g => g.id !== novaGuia.id)];
-  salvarGuiasEmpresa(cnpjLimpo, atualizadas);
+  if (!salvarGuiasEmpresa(cnpjLimpo, atualizadas)) throw new Error('Não foi possível salvar a nova guia neste navegador.');
   return atualizadas;
 }
 
 /**
- * Calcula a data de vencimento da DCTFWeb (dia 20 do mês seguinte com antecipação se fim de semana/feriado)
- */
-export function calcularVencimentoReceita(mesCompetencia: number, anoCompetencia: number): Date {
-  // Mês seguinte
-  let mesVenc = mesCompetencia + 1;
-  let anoVenc = anoCompetencia;
-  if (mesVenc > 12) {
-    mesVenc = 1;
-    anoVenc += 1;
-  }
-
-  // Dia 20 (base 0 no Date do JS para mês)
-  const data = new Date(anoVenc, mesVenc - 1, 20);
-  const diaSemana = data.getDay(); // 0 = Domingo, 6 = Sábado
-
-  if (diaSemana === 0) {
-    // Domingo antecipa para sexta (dia 18)
-    data.setDate(18);
-  } else if (diaSemana === 6) {
-    // Sábado antecipa para sexta (dia 19)
-    data.setDate(19);
-  }
-
-  return data;
-}
-
-/**
- * Gera linha digitável e código de barras oficial padrão FEBRABAN para DARF Numerado com código de barras
+ * Não há emissão oficial de linha digitável neste app; retorna campos vazios.
  */
 export function gerarLinhaDigitavelDARF(codigoReceita: string, valor: number, vencimento: Date): {
   linhaDigitavel: string;
   codigoBarras: string;
   pixCopiaECola: string;
 } {
-  const v = Math.round((valor || 0) * 100).toString().padStart(11, '0');
-  const d = vencimento ? vencimento.toISOString().slice(0, 10).replace(/-/g, '') : '20260918';
-  const cod = (codigoReceita || '1410').padStart(4, '0');
-  
-  const campo1 = `85840000${v.slice(0, 3)}-8`;
-  const campo2 = `${v.slice(3, 7)}0385${d.slice(2, 6)}-1`;
-  const campo3 = `00000${cod}00-4`;
-  const campo4 = `${d.slice(0, 4)}1234567-9`;
-  const linhaDigitavel = `${campo1}  ${campo2}  ${campo3}  ${campo4}`;
-  const codigoBarras = `85840000${v}0385${d}00000${cod}00${d.slice(0, 4)}1234567`;
-  const pixCopiaECola = `00020126580014br.gov.bcb.pix2536receita.fazenda.gov.br/darf/dctfweb/${cod}52040000530398654${v}5802BR5925RECEITA FEDERAL DO BRASIL6009BRASILIA62070503***6304`;
-
-  return { linhaDigitavel, codigoBarras, pixCopiaECola };
+  void codigoReceita; void valor; void vencimento;
+  return { linhaDigitavel: '', codigoBarras: '', pixCopiaECola: '' };
 }
 
 /**
- * Consulta direta das guias fiscais e previdenciárias de uma empresa junto à Receita Federal
- * Conecta aos webservices oficiais (Integra Contador / SERPRO / e-CAC) com integração a dados cadastrais em tempo real
+ * Retorna registros locais e informa honestamente quando a consulta fiscal oficial não está conectada.
  */
 export async function consultarGuiasDiretoReceitaFederal(
   cnpj: string,
-  regimeTributario: string = 'SIMPLES'
+  _regimeTributario: string = 'SIMPLES'
 ): Promise<ResultadoConsultaReceita> {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
-  const config = obterConfigSerpro();
-
-  // 1. Busca confirmação cadastral imediata na Receita Federal via BrasilAPI/ReceitaWS
-  let razaoSocial = '';
-  let situacaoCadastral = 'ATIVA';
-
-  try {
-    const dadosCadastrais = await buscarDadosCNPJ(cnpjLimpo);
-    if (dadosCadastrais.sucesso && dadosCadastrais.dados) {
-      razaoSocial = dadosCadastrais.dados.razaoSocial;
-      situacaoCadastral = dadosCadastrais.dados.situacaoCadastral;
+  const cnpjLimpo = normalizarCnpj(cnpj);
+  const cnpjValido = validarCnpj(cnpjLimpo);
+  let guiasLocais: GuiaReceitaFederal[] = [];
+  let erroLeituraLocal: string | undefined;
+  if (cnpjValido) {
+    try {
+      guiasLocais = obterGuiasSalvas(cnpjLimpo) || [];
+    } catch (error) {
+      erroLeituraLocal = error instanceof Error ? error.message : 'Não foi possível ler os registros locais.';
     }
-  } catch (e) {
-    console.warn('Consulta cadastral prévia indisponível:', e);
   }
-
-  // 2. Registra requisição no log de auditoria SERPRO / RFB
-  const endpointConsultado = config.ambiente === 'producao'
-    ? 'https://gateway.apiserpro.serpro.gov.br/integra-contador/v1/Declaracao/DCTFWeb'
-    : 'https://gateway.hom.apiserpro.serpro.gov.br/integra-contador/v1/Declaracao/DCTFWeb';
-
-  adicionarLogSerpro({
-    timestamp: new Date().toLocaleString('pt-BR'),
-    endpoint: `/integra-contador/v1/Declaracao/DCTFWeb?cnpj=${cnpjLimpo}`,
-    metodo: 'GET',
-    statusHttp: 200,
-    tempoRespostaMs: 120,
-    mensagem: `Receita Federal / DCTFWeb: Busca homologada para CNPJ ${cnpjLimpo}. Status: ${situacaoCadastral}.`,
-    sucesso: true
-  });
-
-  // 3. Verifica se já existem guias cadastradas/salvas localmente para este CNPJ
-  let guiasSalvas = obterGuiasSalvas(cnpjLimpo);
-
-  // Se houver guias antigas com os valores fictícios inflados (ex: 4215.30 ou 3980), limpa para não prejudicar a contabilidade real do usuário
-  if (guiasSalvas && guiasSalvas.some(g => g.valorOriginal === 4215.30 || g.valorOriginal === 3980.00 || g.valorOriginal === 3850.50)) {
-    guiasSalvas = null;
-    localStorage.removeItem(`fiscoia_guias_receita_${cnpjLimpo}`);
+  let razaoSocial: string | undefined;
+  let situacaoCadastral: string | undefined;
+  if (cnpjValido) {
+    try {
+      const cadastro = await buscarDadosCNPJ(cnpjLimpo);
+      if (cadastro.sucesso && cadastro.dados) {
+        razaoSocial = cadastro.dados.razaoSocial;
+        situacaoCadastral = cadastro.dados.situacaoCadastral;
+      }
+    } catch { /* Cadastro público não informa débitos fiscais. */ }
   }
-
-  if (guiasSalvas) {
-    const naoPagas = guiasSalvas.filter(g => g.statusPagamento === 'NAO_PAGO');
-    const valorAberto = naoPagas.reduce((acc, g) => acc + (g.valorOriginal || 0), 0);
-    const nadaConsta = naoPagas.length === 0;
-
-    return {
-      sucesso: true,
-      cnpj: cnpjLimpo,
-      razaoSocial: razaoSocial || 'Empresa Cadastrada',
-      situacaoCadastral,
-      situacaoFiscal: nadaConsta ? 'REGULAR' : 'PENDENTE',
-      statusCND: nadaConsta ? 'REGULAR' : 'PENDENTE',
-      nadaConsta,
-      totalDebitosEmAberto: naoPagas.length,
-      valorTotalEmAberto: valorAberto,
-      fonteOrigem: 'SERPRO / Integra Contador — Receita Federal do Brasil (Sincronizado Oficial 2026)',
-      timestamp: new Date().toLocaleString('pt-BR'),
-      guias: guiasSalvas,
-      mensagem: nadaConsta 
-        ? 'Situação Fiscal 100% Regular perante a Receita Federal e PGFN (Nada Consta de Débitos).'
-        : `Constam ${naoPagas.length} conta(s)/guia(s) em aberto.`
-    };
-  }
-
-  // 4. Se não há guias salvas ainda, verifica a empresa no cadastro
-  let empresaNoCadastro: any = null;
-  try {
-    const raw = localStorage.getItem('fiscoia_empresas_list');
-    if (raw) {
-      const empresas = JSON.parse(raw);
-      empresaNoCadastro = empresas.find((e: any) => e.cnpj?.replace(/\D/g, '') === cnpjLimpo);
-    }
-  } catch {}
-
-  // 5. Histórico oficial da Receita Federal & SERPRO:
-  // Retorna estritamente os dados reais: se não há guias registradas ou débitos, a situação é 100% Regular (Nada Consta).
-  const guias: GuiaReceitaFederal[] = [];
-
   return {
-    sucesso: true,
+    sucesso: false,
     cnpj: cnpjLimpo,
-    razaoSocial: razaoSocial || (empresaNoCadastro ? empresaNoCadastro.razaoSocial : 'Empresa Cadastrada'),
+    razaoSocial,
     situacaoCadastral,
-    situacaoFiscal: 'REGULAR',
-    statusCND: 'REGULAR',
-    nadaConsta: true,
-    totalDebitosEmAberto: 0,
-    valorTotalEmAberto: 0,
-    fonteOrigem: 'SERPRO / Integra Contador — Receita Federal do Brasil (Oficial 2026)',
+    fonteOrigem: erroLeituraLocal
+      ? 'Consulta fiscal oficial indisponível; armazenamento local indisponível'
+      : 'Consulta fiscal oficial indisponível; registros locais não foram verificados',
     timestamp: new Date().toLocaleString('pt-BR'),
-    guias,
-    mensagem: 'Situação Fiscal 100% Regular perante a Receita Federal e PGFN (Nada Consta de Débitos).'
+    guias: guiasLocais,
+    erroLeituraLocal,
+    mensagem: erroLeituraLocal || ('A integração SERPRO/Receita para guias e débitos não está configurada. ' + guiasLocais.length + ' registro(s) local(is) carregado(s); eles não confirmam regularidade fiscal.')
   };
 }

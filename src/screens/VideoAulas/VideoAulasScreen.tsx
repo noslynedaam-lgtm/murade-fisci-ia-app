@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   PlayCircle, BookOpen, CheckCircle2, Clock, 
-  Search, Video, Award, ChevronRight, Download, 
-  FileSpreadsheet, Sparkles, Smartphone, Laptop,
+  Search, Video, Award, ChevronRight,
+  Sparkles, Smartphone, Laptop,
   Play, Pause, Volume2, Layers, Check, Info, MousePointerClick
 } from 'lucide-react';
 import { Aula, PedacinhoVideo } from './types';
@@ -357,28 +357,6 @@ export default function VideoAulasScreen() {
               </div>
             </div>
 
-            {/* MATERIAIS PARA DOWNLOAD */}
-            {aulaAtiva.materiais && aulaAtiva.materiais.length > 0 && (
-              <div className="p-4 sm:p-5 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-700 block mb-2 flex items-center gap-1.5">
-                  <Download className="w-3.5 h-3.5 text-indigo-600" />
-                  Arquivos e Modelos para Download
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {aulaAtiva.materiais.map((mat, i) => (
-                    <div
-                      key={i}
-                      className="px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 hover:border-indigo-300 text-xs text-slate-700 flex items-center gap-2 transition-colors cursor-pointer"
-                      onClick={() => alert(`Download iniciado do arquivo oficial: ${mat}`)}
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="font-medium">{mat}</span>
-                      <Download className="w-3 h-3 text-slate-400" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

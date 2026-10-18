@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
-import { 
-  X, KeyRound, ShieldCheck, CheckCircle2, AlertTriangle, 
-  UploadCloud, Eye, EyeOff, Lock, Sparkles, Loader2, Building2, ExternalLink 
-} from 'lucide-react';
+import { X, KeyRound, ShieldCheck, CheckCircle2, AlertTriangle, UploadCloud, Lock, Loader2, Building2, ExternalLink } from 'lucide-react';
 import { EmpresaDados } from '../../types';
+import { normalizarCnpj } from '../../services/cnpj/cnpjValidation';
 
 interface ModalCertificadoEmpresaProps {
   empresa: EmpresaDados;
@@ -22,20 +20,23 @@ export default function ModalCertificadoEmpresa({
 
   const [tipo, setTipo] = useState<'A1' | 'A3'>(certAtual?.tipo || 'A1');
   const [nomeArquivo, setNomeArquivo] = useState(certAtual?.nomeArquivo || '');
-  const [senha, setSenha] = useState(certAtual?.senha || '');
-  const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [validade, setValidade] = useState(certAtual?.validade || '2027-09-15');
-  const [emissor, setEmissor] = useState(certAtual?.emissor || 'Autoridade Certificadora SERPRO RFB v10 (ICP-Brasil)');
+  const [validade, setValidade] = useState(certAtual?.validade || '');
+  const [emissor, setEmissor] = useState(certAtual?.emissor || '');
 
   const [salvando, setSalvando] = useState(false);
-  const [testando, setTestando] = useState(false);
-  const [resultadoTeste, setResultadoTeste] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null);
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
 
   const calcularDiasVencimento = (dataStr: string) => {
     if (!dataStr) return null;
+    const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr);
+    if (!partes) return null;
+    const ano = Number(partes[1]);
+    const mes = Number(partes[2]);
+    const dia = Number(partes[3]);
+    const data = new Date(ano, mes - 1, dia);
+    if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return null;
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
-    const data = new Date(dataStr + 'T00:00:00');
     const diff = data.getTime() - hoje.getTime();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   };
@@ -45,63 +46,63 @@ export default function ModalCertificadoEmpresa({
   const handleArquivoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!/\.p(?:fx|12)$/i.test(file.name)) {
+        setErroSalvar('Selecione um arquivo com extensão .pfx ou .p12. O conteúdo do arquivo não será enviado nem validado.');
+        e.target.value = '';
+        return;
+      }
+      setErroSalvar(null);
       setNomeArquivo(file.name);
-      setResultadoTeste(null);
     }
-  };
-
-  const handleTestarConexao = () => {
-    setTestando(true);
-    setResultadoTeste(null);
-    setTimeout(() => {
-      setTestando(false);
-      setResultadoTeste({
-        tipo: 'sucesso',
-        mensagem: `Conexão mTLS ICP-Brasil com a Receita Federal / SERPRO testada e validada com sucesso para ${empresa.razaoSocial}! Status: OPERACIONAL.`
-      });
-    }, 1200);
   };
 
   const handleSalvar = (e: React.FormEvent) => {
     e.preventDefault();
+    if (salvando) return;
     setSalvando(true);
+    setErroSalvar(null);
+    if (validade && diasRestantes === null) {
+      setErroSalvar('A data de validade informada é inválida. Corrija ou deixe o campo vazio.');
+      setSalvando(false);
+      return;
+    }
+    let valoresAnteriores: { chaveCliente: string; certificadoCliente: string | null } | null = null;
 
     try {
       const certificadoAtualizado = {
         tipo,
-        nomeArquivo: nomeArquivo || (tipo === 'A1' ? 'certificado_eCNPJ_A1.pfx' : 'Token USB e-CNPJ A3'),
-        senha,
+        nomeArquivo,
         validade,
         emissor,
-        ativo: true,
+        ativo: false,
+        valido: false,
         dataCadastro: new Date().toLocaleDateString('pt-BR')
       };
 
-      const cnpjLimpo = empresa.cnpj.replace(/\D/g, '');
-      try {
-        localStorage.setItem('fiscoia_certificado_cliente_' + cnpjLimpo, JSON.stringify(certificadoAtualizado));
-        localStorage.setItem('fiscoia_certificado', JSON.stringify({
-          tipo,
-          arquivoNome: certificadoAtualizado.nomeArquivo,
-          validade,
-          cadastradoEm: certificadoAtualizado.dataCadastro,
-          cnpjVinculado: empresa.cnpj,
-          razaoVinculada: empresa.razaoSocial
-        }));
-      } catch {}
+      const cnpjLimpo = normalizarCnpj(empresa.cnpj);
+      const chaveCliente = 'fiscoia_certificado_cliente_' + cnpjLimpo;
+      valoresAnteriores = {
+        chaveCliente,
+        certificadoCliente: localStorage.getItem(chaveCliente)
+      };
+      localStorage.setItem(chaveCliente, JSON.stringify(certificadoAtualizado));
 
       const empresaAtualizada: EmpresaDados = {
         ...empresa,
         certificado: certificadoAtualizado,
-        statusCND: 'REGULAR',
-        procuracaoAtiva: true
+        statusCND: empresa.statusCND || 'NAO_CONSULTADA',
+        procuracaoAtiva: empresa.procuracaoAtiva ?? false
       };
 
-      setTimeout(() => {
-        setSalvando(false);
-        onSalvarCertificado(empresaAtualizada);
-      }, 400);
-    } catch {
+      onSalvarCertificado(empresaAtualizada);
+    } catch (error) {
+      try {
+        if (valoresAnteriores) {
+          if (valoresAnteriores.certificadoCliente) localStorage.setItem(valoresAnteriores.chaveCliente, valoresAnteriores.certificadoCliente);
+          else localStorage.removeItem(valoresAnteriores.chaveCliente);
+        }
+      } catch {}
+      setErroSalvar(error instanceof Error ? `Não foi possível salvar a referência local: ${error.message}` : 'Não foi possível salvar a referência local neste navegador.');
       setSalvando(false);
     }
   };
@@ -122,11 +123,11 @@ export default function ModalCertificadoEmpresa({
                   Certificado Digital do Cliente
                 </h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Legalização RFB
+                  Referência local
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Vincule o certificado digital para habilitar DCTFWeb, guias e importações fiscais
+                Registre dados de referência do certificado. Esta tela não faz a conexão oficial.
               </p>
             </div>
           </div>
@@ -146,7 +147,7 @@ export default function ModalCertificadoEmpresa({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 text-xs text-slate-500 font-bold uppercase tracking-wider">
               <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Empresa a Legalizar</span>
+              <span>Empresa selecionada</span>
             </div>
             <h4 className="text-sm font-extrabold text-slate-900 mt-0.5 truncate">
               {empresa.razaoSocial}
@@ -163,12 +164,12 @@ export default function ModalCertificadoEmpresa({
 
           <div className="shrink-0">
             {certAtual ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Certificado Vinculado
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-300">
+                <AlertTriangle className="w-3 h-3 text-amber-700" /> Referência local · não validada
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-300">
-                <AlertTriangle className="w-3 h-3 text-amber-600" /> Sem Certificado
+                <AlertTriangle className="w-3 h-3 text-amber-600" /> Sem referência local
               </span>
             )}
           </div>
@@ -241,7 +242,7 @@ export default function ModalCertificadoEmpresa({
                       📄 {nomeArquivo}
                     </p>
                     <p className="text-[10px] text-emerald-600 font-bold">
-                      Arquivo selecionado pronto para vinculação
+                      Somente o nome será registrado; o conteúdo não será enviado nem armazenado.
                     </p>
                   </div>
                 ) : (
@@ -250,7 +251,7 @@ export default function ModalCertificadoEmpresa({
                       Clique para selecionar ou arraste o arquivo do certificado (.pfx)
                     </p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Seus dados são protegidos com criptografia local segura
+                      O arquivo não sai do seu dispositivo nesta tela.
                     </p>
                   </div>
                 )}
@@ -271,30 +272,8 @@ export default function ModalCertificadoEmpresa({
             </div>
           )}
 
-          {/* Senha do Certificado & Validade */}
+          {/* Validade declarada manualmente */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Senha do Certificado
-              </label>
-              <div className="relative">
-                <input
-                  type={mostrarSenha ? 'text' : 'password'}
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  placeholder="Senha PIN / PFX"
-                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs font-mono text-slate-800"
-                />
-                <button
-                  type="button"
-                  onClick={() => setMostrarSenha(!mostrarSenha)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                >
-                  {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                 Data de Validade
@@ -308,23 +287,29 @@ export default function ModalCertificadoEmpresa({
             </div>
           </div>
 
-          {/* Alerta de Validade se houver */}
+          {validade && diasRestantes === null && (
+            <div role="alert" className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
+              A data de validade cadastrada está inválida e não pode ser considerada pelo sistema. Corrija o campo antes de salvar.
+            </div>
+          )}
+
+          {/* Alerta de validade informada; não comprova o certificado. */}
           {diasRestantes !== null && (
             <div className="text-xs">
               {diasRestantes < 0 ? (
                 <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span><strong>Atenção:</strong> Este certificado digital já está vencido! Informe a data correta.</span>
+                  <span><strong>Atenção:</strong> a data de validade informada está no passado. O certificado não foi verificado.</span>
                 </div>
               ) : diasRestantes <= 30 ? (
                 <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span><strong>Alerta de Vencimento:</strong> Este certificado vencerá em <strong>{diasRestantes} dias</strong>.</span>
+                  <span><strong>Alerta:</strong> a data de validade informada ocorre em <strong>{diasRestantes} dias</strong>. O certificado não foi verificado.</span>
                 </div>
               ) : (
-                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Certificado válido por mais <strong>{diasRestantes} dias</strong> (até {new Date(validade + 'T00:00:00').toLocaleDateString('pt-BR')}).</span>
+                <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-blue-700 shrink-0" />
+              <span>Data de validade informada: <strong>{new Date(validade + 'T00:00:00').toLocaleDateString('pt-BR')}</strong>. Não verificada pelo sistema.</span>
                 </div>
               )}
             </div>
@@ -340,6 +325,7 @@ export default function ModalCertificadoEmpresa({
               onChange={(e) => setEmissor(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs text-slate-800 bg-white"
             >
+              <option value="">Selecione se souber</option>
               <option value="Autoridade Certificadora SERPRO RFB v10 (ICP-Brasil)">Autoridade Certificadora SERPRO RFB v10 (ICP-Brasil)</option>
               <option value="AC Certisign Multipla G7 (ICP-Brasil)">AC Certisign Multipla G7 (ICP-Brasil)</option>
               <option value="AC Soluti Multipla v5 (ICP-Brasil)">AC Soluti Multipla v5 (ICP-Brasil)</option>
@@ -350,34 +336,11 @@ export default function ModalCertificadoEmpresa({
             </select>
           </div>
 
-          {/* Teste de Conexão com a Receita Federal */}
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={handleTestarConexao}
-              disabled={testando}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer border border-slate-300 disabled:opacity-60"
-            >
-              {testando ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-                  <span>Testando Handshake mTLS com SERPRO/Receita Federal...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <span>⚡ Testar Conexão Oficial RFB/SERPRO</span>
-                </>
-              )}
-            </button>
-
-            {resultadoTeste && (
-              <div className="mt-2.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2 animate-in fade-in">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                <span>{resultadoTeste.mensagem}</span>
-              </div>
-            )}
+          <div role="note" className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <span>A conexão com RFB/SERPRO não está implementada. Este formulário salva somente uma referência local; não testa nem envia o certificado.</span>
           </div>
+          {erroSalvar && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs">{erroSalvar}</div>}
 
           {/* Botões de Ação */}
           <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-3">
@@ -389,12 +352,12 @@ export default function ModalCertificadoEmpresa({
               {salvando ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Legalizando Empresa...</span>
+                  <span>Salvando referência...</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>✅ Salvar Certificado e Legalizar Empresa</span>
+                  <span>Salvar dados de referência</span>
                 </>
               )}
             </button>
@@ -428,7 +391,7 @@ export default function ModalCertificadoEmpresa({
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-2 text-[11px] text-slate-500">
           <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span>
-            <strong>Segurança FiscoIA:</strong> O certificado digital é armazenado com proteção local para consulta de DCTFWeb e guias federais.
+            <strong>Referência local:</strong> o arquivo não é enviado nem guardado pelo sistema, e o nome/data informados não validam o certificado. Não informe a senha aqui. A integração oficial ainda não está conectada.
           </span>
         </div>
 

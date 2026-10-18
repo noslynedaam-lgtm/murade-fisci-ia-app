@@ -1,15 +1,17 @@
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Calendar, Building2, AlertCircle, Clock } from 'lucide-react';
+import { Calendar, Building2, Clock, Check, Trash2 } from 'lucide-react';
 import { ItemAgendaFiscal } from '../../types';
 
 interface CardLembreteProps {
   item: ItemAgendaFiscal;
   onPress?: (item: ItemAgendaFiscal) => void;
+  onConcluir?: () => void;
+  onExcluir?: () => void;
   key?: string | number;
 }
 
-export default function CardLembrete({ item, onPress }: CardLembreteProps) {
+export default function CardLembrete({ item, onPress, onConcluir, onExcluir }: CardLembreteProps) {
   const getBorderColor = () => {
     switch (item.status.texto) {
       case 'VENCIDO':
@@ -20,6 +22,8 @@ export default function CardLembrete({ item, onPress }: CardLembreteProps) {
         return 'border-l-amber-500';
       case 'ATENÇÃO':
         return 'border-l-amber-400';
+      case 'CONCLUÍDO':
+        return 'border-l-slate-400';
       default:
         return 'border-l-emerald-600';
     }
@@ -35,6 +39,8 @@ export default function CardLembrete({ item, onPress }: CardLembreteProps) {
         return 'bg-amber-100 text-amber-800 border-amber-300';
       case 'ATENÇÃO':
         return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'CONCLUÍDO':
+        return 'bg-slate-100 text-slate-700 border-slate-300';
       default:
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     }
@@ -70,7 +76,7 @@ export default function CardLembrete({ item, onPress }: CardLembreteProps) {
 
           <p className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5 font-medium">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            <span>Vencimento: <strong>{format(new Date(item.dataVencimento), "dd/MM/yyyy (EEEE)", { locale: ptBR })}</strong></span>
+            <span>Data informada: <strong>{format(new Date(item.dataVencimento), "dd/MM/yyyy (EEEE)", { locale: ptBR })}</strong></span>
           </p>
         </div>
       </div>
@@ -86,7 +92,9 @@ export default function CardLembrete({ item, onPress }: CardLembreteProps) {
         <div className="text-xs font-medium text-slate-600 flex items-center gap-1">
           <Clock className="w-3 h-3 text-slate-400" />
           <span>
-            {item.diasParaVencer === 0 ? (
+            {item.status.texto === 'CONCLUÍDO' ? (
+              'Concluído manualmente'
+            ) : item.diasParaVencer === 0 ? (
               <strong className="text-rose-600 font-bold">VENCE HOJE!</strong>
             ) : item.diasParaVencer < 0 ? (
               <span className="text-rose-600 font-semibold">{Math.abs(item.diasParaVencer)} dias atrasado</span>
@@ -94,6 +102,14 @@ export default function CardLembrete({ item, onPress }: CardLembreteProps) {
               <span>Faltam <strong>{item.diasParaVencer}</strong> dias</span>
             )}
           </span>
+        </div>
+        <div className="flex gap-1">
+          <button type="button" onClick={event => { event.stopPropagation(); onConcluir?.(); }} className="text-[10px] px-2 py-1 rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1">
+            <Check className="w-3 h-3" /> {item.status.texto === 'CONCLUÍDO' ? 'Reabrir' : 'Concluir'}
+          </button>
+          <button type="button" onClick={event => { event.stopPropagation(); onExcluir?.(); }} aria-label="Apagar lembrete" title="Apagar lembrete" className="p-1 rounded border border-rose-200 text-rose-700 hover:bg-rose-50">
+            <Trash2 className="w-3 h-3" />
+          </button>
         </div>
       </div>
     </div>

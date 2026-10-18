@@ -1,6 +1,5 @@
 // ==================================================
-// 🔒 MURADE — DESVINCULAR + OCULTAR INTEGRAÇÕES
-// ✅ MESMO CÓDIGO PRA FISCO IA / FISCAL / DP-CONTÁBIL
+// Módulos independentes. Integrações entre sistemas ainda não estão implementadas.
 // ==================================================
 
 export type SistemaMurade = 'FISCO_IA' | 'FISCAL' | 'DP_CONTABIL' | 'DESCONHECIDO';
@@ -40,7 +39,7 @@ export interface MuradeConfigType {
     };
     DP_CONTABIL: {
       mostraIntegracoesCliente: boolean; // 🔒 OCULTA CONEXÃO COM FISCAL
-      continuaFuncionando: boolean;   // ✅ CONTINUA TROCANDO DADOS POR BAIXO
+      continuaFuncionando: boolean;
       adminVisaTudo: boolean;
     };
   };
@@ -60,9 +59,9 @@ declare global {
 function detectarSistema(): SistemaMurade {
   if (typeof window === 'undefined') return 'DESCONHECIDO';
 
-  // Permite override salvo no localStorage para testes entre os 3 sistemas
+  // O seletor identifica a tela configurada; não inicia integrações entre sistemas.
   try {
-    const salvo = localStorage.getItem('murade_sistema_ativo') || localStorage.getItem('murade_sistema_simulado');
+    const salvo = localStorage.getItem('murade_sistema_ativo');
     if (salvo === 'FISCO_IA' || salvo === 'FISCAL' || salvo === 'DP_CONTABIL') {
       return salvo as SistemaMurade;
     }
@@ -90,7 +89,7 @@ function detectarSistema(): SistemaMurade {
 
 export const MURADE_CONFIG: MuradeConfigType = {
   versao: '1.0.0',
-  acao: 'DESVINCULAR_OCULTAR',
+  acao: 'MÓDULOS INDEPENDENTES — INTEGRAÇÕES NÃO CONFIGURADAS',
 
   // DETECTA QUAL SISTEMA ESTÁ RODANDO
   sistemaAtual: detectarSistema(),
@@ -116,7 +115,7 @@ export const MURADE_CONFIG: MuradeConfigType = {
     },
     DP_CONTABIL: {
       mostraIntegracoesCliente: false, // 🔒 OCULTA CONEXÃO COM FISCAL
-      continuaFuncionando: true,   // ✅ CONTINUA TROCANDO DADOS POR BAIXO
+      continuaFuncionando: false,
       adminVisaTudo: true
     }
   },
@@ -126,96 +125,21 @@ export const MURADE_CONFIG: MuradeConfigType = {
     this.sistemaAtual = novo;
     try {
       localStorage.setItem('murade_sistema_ativo', novo);
-      localStorage.setItem('murade_sistema_simulado', novo);
     } catch (e) {
       // fallback
     }
     this.aplicar();
   },
 
-  // Helper para componentes verificarem se devem ocultar integrações
-  deveOcultarIntegracoes(ehAdmin?: boolean) {
-    // Se o usuário é Admin e a configuração ativa o adminVisaTudo, ele vê tudo
-    const sistema = this.sistemaAtual === 'DESCONHECIDO' ? 'FISCO_IA' : this.sistemaAtual;
-    const cfg = this.config[sistema];
-
-    if (ehAdmin && cfg.adminVisaTudo) {
-      return false; // Não oculta do admin
-    }
-
-    // Para clientes comuns, oculta se configurado mostraIntegracoesCliente: false
-    return !cfg.mostraIntegracoesCliente;
-  },
+  // Os módulos não devem ocultar menus nem executar integrações por baixo.
+  deveOcultarIntegracoes(_ehAdmin?: boolean) { return false; },
 
   // ==============================================
   // 🚀 APLICA AUTOMATICAMENTE
   // ==============================================
-  aplicar(ehAdminParam?: boolean) {
+  aplicar(_ehAdminParam?: boolean) {
     const sistema = this.sistemaAtual === 'DESCONHECIDO' ? 'FISCO_IA' : this.sistemaAtual;
     const cfg = this.config[sistema];
-
-    console.log('='.repeat(50));
-    console.log(`🔒 APLICANDO CONFIG — ${sistema}`);
-    console.log('='.repeat(50));
-
-    if (sistema === 'FISCO_IA') {
-      console.log('❌ FISCO IA → DESCONECTADO DO FISCAL');
-      console.log('✅ FISCO IA → INDEPENDENTE — BUSCA SÓ NO GOVERNO');
-    }
-    if (sistema === 'FISCAL') {
-      console.log('❌ FISCAL → DESCONECTADO DO FISCO IA');
-      console.log('🔒 FISCAL → CONEXÕES DP/CONTÁBIL OCULTAS DO CLIENTE');
-    }
-    if (sistema === 'DP_CONTABIL') {
-      console.log('🔒 DP/CONTÁBIL → CONEXÕES OCULTAS DO CLIENTE');
-      console.log('✅ INTEGRAÇÃO CONTINUA FUNCIONANDO — SÓ ADMIN VÊ');
-    }
-
-    // Identifica se é admin via sessão ou parâmetro
-    let usuarioAdmin = ehAdminParam;
-    if (usuarioAdmin === undefined && typeof window !== 'undefined') {
-      try {
-        const sessao = localStorage.getItem('fiscoia_sessao_usuario');
-        if (sessao) {
-          const u = JSON.parse(sessao);
-          usuarioAdmin = Boolean(u.ehAdmin || u.tipo === 'ADMIN');
-        }
-      } catch (e) {
-        // fallback
-      }
-    }
-
-    // OCULTA ELEMENTOS DE INTEGRAÇÃO DA TELA DO CLIENTE
-    if (typeof document !== 'undefined') {
-      setTimeout(() => {
-        const elementosOcultar = [
-          '.integracao', '.conexao', '.sincronizacao',
-          '.fiscoia-link', '.dp-link', '.contabil-link',
-          '[data-integracao]', '#aba-integracoes'
-        ];
-
-        // Se for admin e adminVisaTudo for verdadeiro, mantém visível
-        const ocultar = !usuarioAdmin && !cfg.mostraIntegracoesCliente;
-
-        elementosOcultar.forEach(seletor => {
-          document.querySelectorAll(seletor).forEach(el => {
-            (el as HTMLElement).style.display = ocultar ? 'none' : '';
-          });
-        });
-
-        if (ocultar) {
-          console.log('✅ Elementos de integração ocultos da tela do cliente!');
-        } else {
-          console.log('👁️ Modo Administrador — Exibindo todas as conexões (adminVisaTudo: true)');
-        }
-
-        // Notifica componentes React que a configuração de ocultação foi aplicada
-        window.dispatchEvent(new CustomEvent('murade_config_atualizado', {
-          detail: { sistema, cfg, ocultar, usuarioAdmin }
-        }));
-      }, 300);
-    }
-
     return { sistema, cfg, aplicado: true };
   }
 };
@@ -224,22 +148,6 @@ export const MURADE_CONFIG: MuradeConfigType = {
 if (typeof window !== 'undefined') {
   window.MURADE_CONFIG = MURADE_CONFIG;
 
-  // 🚀 EXECUTA AUTOMATICAMENTE AO CARREGAR
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      MURADE_CONFIG.aplicar();
-    });
-  } else {
-    MURADE_CONFIG.aplicar();
-  }
-
-  // Monitora alterações de histórico e login
-  window.addEventListener('popstate', () => MURADE_CONFIG.aplicar());
-  window.addEventListener('storage', (e) => {
-    if (e.key === 'fiscoia_sessao_usuario' || e.key === 'murade_sistema_simulado') {
-      MURADE_CONFIG.aplicar();
-    }
-  });
 }
 
 export default MURADE_CONFIG;
