@@ -97,6 +97,37 @@ const numero = (value: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+function centavos(raw: string): bigint | null {
+  if (!/^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(raw.trim())) return null;
+  const [inteiro, fracao = ''] = raw.trim().split('.');
+  return BigInt(inteiro) * 100n + BigInt(fracao.padEnd(2, '0'));
+}
+
+function formatarCentavos(valor: bigint): string {
+  const sinal = valor < 0n ? '-' : '';
+  const absoluto = valor < 0n ? -valor : valor;
+  return `${sinal}${absoluto / 100n},${String(absoluto % 100n).padStart(2, '0')}`;
+}
+
+/** Compares invoice product item amounts with the declared product total, using integer cents. */
+export function conferirSomaProdutos(vProdTotal: string, valoresItens: string[]): OcorrenciaRadar[] {
+  const total = centavos(vProdTotal);
+  if (total === null || !valoresItens.length) {
+    return [{ severidade: 'ATENCAO', codigo: 'SOMA_ITENS_INDISPONIVEL', mensagem: 'O XML não trouxe itens e total de produtos suficientes para comparar a soma.' }];
+  }
+  const itens = valoresItens.map(centavos);
+  if (itens.some(valor => valor === null)) {
+    return [{ severidade: 'ATENCAO', codigo: 'SOMA_ITENS_INDISPONIVEL', mensagem: 'Não foi possível ler o vProd de todos os itens para comparar com o total de produtos.' }];
+  }
+  const soma = itens.reduce<bigint>((acumulado, valor) => acumulado + valor!, 0n);
+  if (soma === total) return [];
+  const diferenca = soma - total;
+  return [{
+    severidade: 'ERRO', codigo: 'SOMA_ITENS_DIVERGENTE',
+    mensagem: `A soma de vProd dos ${itens.length} itens diverge do total de produtos do XML: itens R$ ${formatarCentavos(soma)}; total R$ ${formatarCentavos(total)}; diferença R$ ${formatarCentavos(diferenca)}.`
+  }];
+}
+
 function dataIsoValida(valor: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
   if (!match) return false;
@@ -229,6 +260,7 @@ export function importarXmlNfe(xml: string, nomeArquivo: string, cnpjEmpresa: st
   if (situacaoProtocolo === 'SEM_PROTOCOLO') ocorrencias.push({ severidade: 'ATENCAO', codigo: 'PROTOCOLO_AUSENTE', mensagem: 'XML sem protocolo de autorização; mantido no Radar para revisão e não encaminhado ao livro fiscal.' });
   if (situacaoProtocolo === 'PROTOCOLO_DECLARADO_NO_XML') ocorrencias.push({ severidade: 'ATENCAO', codigo: 'PROTOCOLO_NAO_VERIFICADO', mensagem: `O arquivo declara cStat ${codigoProtocolo} e nProt, mas assinatura e autenticidade não foram verificadas; não encaminhado ao livro fiscal.` });
   if (situacaoProtocolo === 'RESPOSTA_NAO_AUTORIZADA_NO_XML') ocorrencias.push({ severidade: 'ERRO', codigo: 'AUTORIZACAO_NAO_CONFIRMADA_NO_XML', mensagem: `A resposta presente no arquivo não indica autorização (cStat ${codigoProtocolo || 'ausente'}); não encaminhado ao livro fiscal.` });
+  ocorrencias.push(...conferirSomaProdutos(vProdRaw, detalhes.map(det => texto(det, 'vProd'))));
   if (numero(vProdRaw) === null) ocorrencias.push({ severidade: 'ERRO', codigo: 'VPROD_INVALIDO', mensagem: 'Total de produtos ausente ou em formato numérico inválido.' });
   if (numero(vNfRaw) === null) ocorrencias.push({ severidade: 'ERRO', codigo: 'VNF_INVALIDO', mensagem: 'Valor total da NF-e ausente ou em formato numérico inválido.' });
   if (valorProdutos < 0 || valorTotal < 0 || [icms, pis, cofins].some(valor => valor !== null && valor < 0)) ocorrencias.push({ severidade: 'ERRO', codigo: 'VALOR_NEGATIVO', mensagem: 'O XML contém total ou imposto negativo.' });
