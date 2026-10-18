@@ -71,7 +71,7 @@ function textoXml(xml: string, tag: string): string | null {
   return decoded || null;
 }
 
-function metadadosEvento(xml: string) {
+export function metadadosEvento(xml: string) {
   // procEventoNFe contém um infEvento no pedido e outro em retEvento.
   // Separar os blocos evita confundir dados informados no evento com o retorno SEFAZ.
   const evento = extrairTag(xml, 'evento');
@@ -80,7 +80,7 @@ function metadadosEvento(xml: string) {
   const infoRetorno = extrairTag(retornoEvento, 'infEvento');
   const detalhe = extrairTag(infoPedido, 'detEvento');
   const chave = textoXml(infoPedido, 'chNFe') || textoXml(xml, 'chNFe');
-  const chaveValida = chave && /^[0-9]{44}$/.test(chave) ? chave : null;
+  const chaveValida = chave && chaveNfeTemDigitoValido(chave) ? chave : null;
   const codigo = textoXml(infoPedido, 'tpEvento');
   const dataHora = textoXml(infoPedido, 'dhEvento');
   const seq = textoXml(infoPedido, 'nSeqEvento');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
 import test from 'node:test';
-import { lerRespostaSefaz, validarSequenciaDistribuicao } from './sefazDistribution.routes';
+import { lerRespostaSefaz, metadadosEvento, validarSequenciaDistribuicao } from './sefazDistribution.routes';
 
 function montarSoap(cStat: number, ultNSU: string, maxNSU: string, docZips = '') {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -20,6 +20,14 @@ function docZip(nsu: string, xml: string, schema = 'procNFe_v4.00.xsd') {
 }
 
 const xmlNfe = '<procNFe><NFe><infNFe Id="NFe35261012345678000195550010000000011000000010"><ide><mod>55</mod></ide></infNFe></NFe></procNFe>';
+
+test('extracts event key only when its check digit is valid', () => {
+  const key = '52261011497078000180550010000027651750396125';
+  const event = (chave: string) => `<procEventoNFe><evento><infEvento><chNFe>${chave}</chNFe><tpEvento>110111</tpEvento><dhEvento>2026-10-15T12:00:00-03:00</dhEvento><nSeqEvento>1</nSeqEvento><detEvento><descEvento>Cancelamento</descEvento></detEvento></infEvento></evento><retEvento><infEvento><cStat>135</cStat><xMotivo>Evento registrado e vinculado</xMotivo><nProt>152260000000001</nProt></infEvento></retEvento></procEventoNFe>`;
+  assert.equal(metadadosEvento(event(key)).chave, key);
+  const invalidKey = `${key.slice(0, 43)}${key[43] === '0' ? '1' : '0'}`;
+  assert.equal(metadadosEvento(event(invalidKey)).chave, null);
+});
 
 test('interpreta cStat 138 e descompacta docZip sem alterar seu conteúdo', () => {
   const parsed = lerRespostaSefaz(montarSoap(138, '000000000000003', '000000000000004', docZip('000000000000002', xmlNfe)));
