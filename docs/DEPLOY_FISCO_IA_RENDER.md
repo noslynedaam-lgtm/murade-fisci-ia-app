@@ -2,7 +2,7 @@
 
 ## Situação verificada
 
-O workspace Render consultado ainda não mostra um serviço ligado ao repositório `noslynedamurad-maker/murade-fisco-ia`. Os serviços vistos pertencem ao Murade Fiscal, Murade Contábil e DP. Não reutilize o banco `murade-banco` do projeto Fiscal para o Fisco IA.
+O workspace Render consultado ainda não mostra um serviço ligado ao repositório `noslynedamurad-maker/murade-fisco-ia`. Os serviços vistos pertencem ao Murade Fiscal, Murade Contábil e DP. Por decisão do usuário, a implantação inicial deverá usar temporariamente o PostgreSQL já existente do Murade Fiscal, com acesso restrito ao schema `fiscoia`; depois será migrada para um PostgreSQL dedicado.
 
 ## Serviço esperado
 
@@ -11,7 +11,7 @@ O workspace Render consultado ainda não mostra um serviço ligado ao repositór
 - Start command: `npm start`
 - Health check path: `/api/health`
 - Readiness path: `/api/ready`
-- PostgreSQL: o destino comercial preferido continua sendo um serviço próprio do Fisco IA. Se houver uso compartilhado do mesmo PostgreSQL do Fiscal, use exclusivamente um schema e credencial limitados conforme abaixo; não reutilize a `DATABASE_URL` administrativa no serviço web.
+- PostgreSQL: usar temporariamente o serviço existente do Murade Fiscal com schema e papel de runtime limitados conforme abaixo. Não reutilizar a `DATABASE_URL` administrativa no serviço web. Migrar para serviço PostgreSQL próprio quando o plano dedicado estiver disponível.
 
 ## Variáveis privadas
 
@@ -32,7 +32,7 @@ Nunca coloque credenciais em `VITE_*`, no código, no Git ou no navegador.
 
 ## Migração do banco
 
-### PostgreSQL compartilhado com schema restrito
+### PostgreSQL compartilhado com schema restrito (configuração inicial autorizada)
 
 O serviço web não deve receber a URL administrativa do Murade Fiscal. Para o compartilhamento temporário de infraestrutura, execute `npm run db:provision-shared-role` em um job privado com `DATABASE_URL` administrativa e `FISCOIA_PGPASSWORD` forte (32 caracteres ou mais). O provisionador só prossegue se `fiscoia`, `fiscoia_runtime` e `fiscoia_schema_owner` ainda não existirem; ele cria um proprietário sem login, uma credencial de runtime separada e um schema `fiscoia` vazio. Não reutiliza nem altera tabelas de outro schema.
 
@@ -40,7 +40,7 @@ Configure o serviço web apenas com `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA
 
 Execute migração e bootstrap em jobs privados separados com `FISCOIA_MIGRATION_DATABASE_URL` administrativa. O runner assume `fiscoia_schema_owner`, aplica as migrações `001` a `006`, confere checksums, concede ao runtime somente DML/uso de sequência dentro de `fiscoia` e mantém o log de migração somente para leitura. O runtime não é dono das tabelas, não tem privilégios de DDL, e as políticas RLS continuam ativas. Execute `npm run db:bootstrap-admin` no mesmo tipo de job privado; remova a URL administrativa e as variáveis de bootstrap ao terminar.
 
-Não coloque URLs administrativas, senhas de banco, chave de criptografia ou credenciais SERPRO em variáveis `VITE_*`. Não copie a senha para logs nem para o Git. Um PostgreSQL compartilhado mantém backups e restaurações no nível do serviço inteiro; para operação comercial isolada, provisionar o serviço PostgreSQL próprio do Fisco IA continua sendo o destino recomendado.
+Não coloque URLs administrativas, senhas de banco, chave de criptografia ou credenciais SERPRO em variáveis `VITE_*`. Não copie a senha para logs nem para o Git. O PostgreSQL compartilhado mantém backups, restaurações, capacidade e disponibilidade no nível do serviço inteiro; durante essa fase o Fisco IA continua dependente operacionalmente do banco do Fiscal. Após contratar o plano dedicado, provisionar o PostgreSQL próprio do Fisco IA e migrar os dados.
 
 A migração `004_reforma_company_scenarios.sql` cria o armazenamento de cenários da Reforma Tributária, isolado por escritório/empresa e com política RLS. A migração `005_reforma_rules_version_day.sql` permite versionar a base legal por data e mantém válidos cenários salvos na versão antiga. A migração `006_tenant_provisioning.sql` mantém a criação de escritórios restrita ao administrador central. `/api/ready` deve retornar HTTP 200 e informar schema migrado antes de considerar a persistência ativa.
 
@@ -52,4 +52,4 @@ O cadastro inicial do administrador deve ser feito somente depois das migraçõe
 
 ## Estado de validação
 
-Build e TypeScript passaram no checkout local. O deploy e a conexão com PostgreSQL ainda não foram validados em produção; não há confirmação de serviço Render do Fisco IA neste workspace.
+Build e TypeScript passaram no checkout local. O deploy e a conexão com PostgreSQL ainda não foram validados em produção; não há serviço Render do Fisco IA neste workspace. A configuração inicial autorizada ainda requer execução privada do provisionador com a credencial administrativa do PostgreSQL e criação/configuração do serviço Render.
