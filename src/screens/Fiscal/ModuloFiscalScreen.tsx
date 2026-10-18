@@ -35,6 +35,7 @@ import {
   registrarPagamentoInformado
 } from '../../services/fiscal/fiscoiaFiscal.service';
 import { ModalCalculadoraFiscal } from '../../components/ModalCalculadoraFiscal';
+import { ConsultaSefazDfePanel } from '../../components/ConsultaSefazDfePanel';
 import { useEmpresa } from '../../context/EmpresaContext';
 import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
 import {
@@ -1018,8 +1019,8 @@ export function ModuloFiscalScreen({
             <div>
               <h2 className="text-base font-black text-[#0F2B5B]">Radar fiscal — conferência de documentos</h2>
               <p className="text-xs text-slate-600 mt-1 max-w-3xl">O Radar interpreta XML de NF-e modelo 55 e NFC-e modelo 65. Outros arquivos selecionados ficam guardados nesta fila local, separados por empresa, até existir um leitor compatível.</p>
-              <p className="text-[11px] text-amber-800 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">A conferência deste módulo analisa os arquivos importados. Ela não consulta a SEFAZ, não prova autorização e não substitui manifestação, escrituração ou revisão do contador.</p>
-              <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2"><strong>Automação de busca ainda não conectada:</strong> a Distribuição DF-e pode disponibilizar documentos de interesse do CNPJ após integração oficial com certificado e autorização; o conteúdo disponível depende do papel do CNPJ e das regras de manifestação. Ela não entrega a NF-e ao próprio emitente nesse fluxo. Para notas de saída, será necessária integração com o emissor/ERP da empresa ou outra fonte autorizada. Este Radar não baixa notas automaticamente. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Ver regras oficiais de distribuição</a>.</p>
+              <p className="text-[11px] text-amber-800 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">A conferência do Radar local analisa os arquivos importados. A consulta oficial, quando configurada, aparece no painel azul abaixo e precisa de confirmação explícita. Uma resposta da distribuição não substitui manifestação, escrituração ou revisão do contador.</p>
+              <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2">A Distribuição DF-e pode fornecer documentos e eventos de interesse do CNPJ. O XML completo depende das regras de distribuição e manifestação. Este serviço não entrega, por si só, as notas emitidas pela própria empresa; notas de saída precisam vir do emissor/ERP ou de outra fonte autorizada. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Regras oficiais</a>.</p>
             </div>
             <div className="flex gap-2 shrink-0">
               <button type="button" onClick={executarConferenciaRadar} className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">Conferir agora</button>
@@ -1031,6 +1032,7 @@ export function ModuloFiscalScreen({
               }} disabled={!listaRadarFiltrada.length} className="px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-xs font-bold disabled:opacity-50"><Download className="w-3.5 h-3.5 inline mr-1"/>Exportar CSV</button>
             </div>
           </div>
+          <ConsultaSefazDfePanel companyId={empresaAtiva?.idCentral} tenantId={empresaAtiva?.tenantIdCentral} cnpj={empresaAtiva?.cnpj} />
           {!radarPronto && empresaAtiva?.id && <div role="status" className="text-xs bg-slate-50 text-slate-700 border border-slate-200 p-3 rounded-lg">Carregando o Radar da empresa selecionada. As listas de outras empresas ficam ocultas até a leitura terminar.</div>}
           {radarPronto && erroLeituraRadar && <div role="alert" className="text-xs bg-rose-50 text-rose-900 border border-rose-200 p-3 rounded-lg"><strong>Radar local indisponível:</strong> {erroLeituraRadar}. Os registros não foram substituídos. Importe novamente somente depois de corrigir ou limpar explicitamente esta lista.</div>}
           {radarPronto && estadoSincronizacaoCentral && <div role="status" className={`text-xs border p-3 rounded-lg ${estadoSincronizacaoCentral.startsWith('Não foi possível') ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-sky-50 text-sky-950 border-sky-200'}`}>{estadoSincronizacaoCentral}</div>}
@@ -1042,7 +1044,7 @@ export function ModuloFiscalScreen({
           </section>}
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 border rounded-lg p-3">
             <div><strong className="text-slate-800">Monitor automático da carteira</strong><span className="text-slate-500"> · a verificação automática e as notificações são centralizadas no aviso fixo inferior; rodam a cada 5 minutos enquanto o Murade estiver aberto e analisam somente dados locais</span><div className="text-slate-500 mt-0.5">Última conferência manual desta empresa: {ultimaConferenciaRadar ?? 'ainda não executada com sucesso'}</div></div>
-            <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial não conectada</span>
+            <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial sob demanda</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="p-3 rounded-xl bg-slate-50 border"><div className="text-[11px] text-slate-500">XML importados</div><strong className="text-xl">{radarResumoDisponivel ? notasRadarVisiveis.length : '—'}</strong></div>

@@ -12,6 +12,7 @@ import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import serproRoutes from "./src/server/serpro.routes";
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
+import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
 import reformaRoutes from "./src/server/reforma.routes";
 
 dotenv.config();
@@ -27,7 +28,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
     return res.status(400).json({ erro: 'Corpo JSON inválido.' });
   }
   if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large') {
-    return res.status(413).json({ erro: 'O arquivo excede o limite de 25 MB; nenhum documento foi salvo.' });
+    return res.status(413).json({ erro: 'O corpo da solicitação excede o limite de 7 MB; nenhum dado foi salvo.' });
   }
   return next(error);
 });
@@ -36,6 +37,7 @@ app.use('/api', tenantRoutes);
 app.use('/api', fiscalDocumentRoutes);
 app.use('/api/serpro', serproRoutes);
 app.use('/api', companyCertificateRoutes);
+app.use('/api', sefazDistributionRoutes);
 app.use('/api', reformaRoutes);
 
 // Lazy-initialized Gemini client with required User-Agent
@@ -109,7 +111,7 @@ app.get('/api/ready', async (_req, res) => {
     chaveCriptografiaDados,
     mensagem: pronto
       ? 'PostgreSQL respondeu, as migrações obrigatórias estão aplicadas e a chave de criptografia é válida.'
-      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 006 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
+      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 008 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
   });
 });
 

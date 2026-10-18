@@ -2,13 +2,51 @@ import { createHash } from 'node:crypto';
 import { createSecureContext } from 'node:tls';
 import { Router } from 'express';
 import { obterUsuarioDaSessao } from './auth.routes';
-import { criptografarSegredoEmpresa } from './encryption';
+import { descriptografarSegredoEmpresa, criptografarSegredoEmpresa } from './encryption';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 
 const router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_PFX_BYTES = 5 * 1024 * 1024;
 const ROLES_CAN_MANAGE_CERTIFICATE = ['OWNER', 'ADMIN'];
+
+/** Descriptografa A1 apenas no servidor e dentro da autorização tenant/empresa. */
+export async function obterCertificadoFiscalDaEmpresa(userId: string, tenantId: string, companyId: string) {
+  const pool = obterPoolBanco();
+  if (!pool) throw new Error('Banco permanente não configurado.');
+  const scoped = await comContextoTenant(userId, tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT c.pfx_ciphertext, c.pfx_nonce, c.pfx_auth_tag, c.encryption_key_version,
+              co.cnpj, co.state
+         FROM fiscoia.company_fiscal_certificates c
+         JOIN fiscoia.companies co ON co.id = c.company_id AND co.tenant_id = c.tenant_id
+        WHERE c.tenant_id = $1 AND c.company_id = $2 AND co.archived_at IS NULL LIMIT 1`,
+      [tenantId, companyId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const segredo = descriptografarSegredoEmpresa(tenantId, companyId, {
+      ciphertext: row.pfx_ciphertext, nonce: row.pfx_nonce,
+      authTag: row.pfx_auth_tag, keyVersion: String(row.encryption_key_version),
+    });
+    try {
+      const decoded = JSON.parse(segredo.toString('utf8')) as { pfxBase64?: unknown; passphrase?: unknown };
+      if (typeof decoded.pfxBase64 !== 'string' || typeof decoded.passphrase !== 'string') {
+        throw new Error('Formato interno do certificado inválido.');
+      }
+      return {
+        pfx: Buffer.from(decoded.pfxBase64, 'base64'),
+        passphrase: decoded.passphrase,
+        cnpj: String(row.cnpj),
+        uf: typeof row.state === 'string' ? row.state.trim().toUpperCase() : '',
+      };
+    } finally {
+      segredo.fill(0);
+    }
+  });
+  if (!scoped.autorizado) throw new Error('Este escritório não pertence à sua sessão.');
+  return scoped.resultado ?? null;
+}
 
 router.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
