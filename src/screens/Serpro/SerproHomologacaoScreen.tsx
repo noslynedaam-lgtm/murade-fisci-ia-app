@@ -1373,7 +1373,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 Registro de chamadas SERPRO
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                As chamadas oficiais ainda não estão implementadas. Esta tela não mostra latência, códigos HTTP ou respostas do SERPRO.
+                O teste OAuth confirma somente a autenticação do gateway. Chamadas a APIs fiscais específicas e seu histórico ainda não estão implementados.
               </p>
             </div>
             <button
@@ -1382,7 +1382,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               disabled
               className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-500" /> Sem chamadas para atualizar
+              <RefreshCw className="w-3.5 h-3.5 text-slate-500" /> Histórico de APIs fiscais indisponível
             </button>
           </div>
 
@@ -1419,7 +1419,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
             ))}
             {!logs.length && (
               <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                Nenhuma chamada oficial registrada. As credenciais e o certificado não foram enviados ao SERPRO.
+                Nenhuma chamada a API fiscal registrada. O teste OAuth do gateway não consulta dados de empresas nem envia certificado; token temporário e segredo não são exibidos ou armazenados.
               </div>
             )}
           </div>

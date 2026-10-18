@@ -182,7 +182,7 @@ export function obterLogsSerpro(): LogConexaoSerpro[] {
 }
 
 export function adicionarLogSerpro(log: Omit<LogConexaoSerpro, 'id'>): void {
-  // Nenhuma chamada autenticada ocorre nesta aplicação; não registrar sucessos/logs simulados.
+  // O teste OAuth do gateway não é uma chamada de API fiscal; não registrar sucessos/logs simulados.
   void log;
 }
 
