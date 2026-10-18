@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 
 export type EstadoChaveDados = 'nao_configurada' | 'invalida' | 'valida';
 
@@ -16,6 +16,39 @@ function obterChave(): Buffer {
     throw new Error('A chave de criptografia de dados do Fisco IA precisa ser uma chave base64 canônica de 32 bytes.');
   }
   return key;
+}
+
+function obterChaveSegredosEmpresa(): Buffer {
+  // Chave derivada separada para que certificados e XMLs não reutilizem a mesma chave AES.
+  return Buffer.from(hkdfSync('sha256', obterChave(), Buffer.from('fiscoia-v1'), Buffer.from('company-portal-secret'), 32));
+}
+
+export function criptografarSegredoEmpresa(tenantId: string, companyId: string, valor: Buffer) {
+  validarVinculo(tenantId, companyId);
+  if (!Buffer.isBuffer(valor) || valor.length === 0) throw new Error('O segredo da empresa está vazio.');
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', obterChaveSegredosEmpresa(), nonce);
+  cipher.setAAD(Buffer.from(`fiscoia:company-secret:v1:${tenantId}:${companyId}`, 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(valor), cipher.final()]);
+  const version = process.env[ENV_KEY_VERSION]?.trim() || 'v1';
+  if (!/^[a-zA-Z0-9._-]{1,32}$/.test(version)) throw new Error('A versão da chave de criptografia tem formato inválido.');
+  return { ciphertext, nonce, authTag: cipher.getAuthTag(), keyVersion: version };
+}
+
+export function descriptografarSegredoEmpresa(
+  tenantId: string,
+  companyId: string,
+  encrypted: { ciphertext: Buffer; nonce: Buffer; authTag: Buffer; keyVersion: string },
+): Buffer {
+  validarVinculo(tenantId, companyId);
+  if (encrypted.keyVersion !== (process.env[ENV_KEY_VERSION]?.trim() || 'v1')) {
+    throw new Error('O segredo usa outra versão de chave; configure a chave correspondente antes de usá-lo.');
+  }
+  if (encrypted.nonce.length !== 12 || encrypted.authTag.length !== 16) throw new Error('Os metadados criptográficos do segredo estão inválidos.');
+  const decipher = createDecipheriv('aes-256-gcm', obterChaveSegredosEmpresa(), encrypted.nonce);
+  decipher.setAAD(Buffer.from(`fiscoia:company-secret:v1:${tenantId}:${companyId}`, 'utf8'));
+  decipher.setAuthTag(encrypted.authTag);
+  return Buffer.concat([decipher.update(encrypted.ciphertext), decipher.final()]);
 }
 
 function validarVinculo(tenantId: string, companyId: string) {

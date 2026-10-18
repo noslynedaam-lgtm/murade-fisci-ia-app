@@ -11,6 +11,7 @@ import authRoutes from "./src/server/auth.routes";
 import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import serproRoutes from "./src/server/serpro.routes";
+import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import reformaRoutes from "./src/server/reforma.routes";
 
 dotenv.config();
@@ -18,7 +19,9 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-app.use(express.json());
+// O limite cobre um A1 PKCS#12 de até 5 MB codificado em Base64 e seu formulário,
+// sem ampliar para uploads arbitrariamente grandes.
+app.use(express.json({ limit: '7mb' }));
 app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.parse.failed') {
     return res.status(400).json({ erro: 'Corpo JSON inválido.' });
@@ -32,6 +35,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', tenantRoutes);
 app.use('/api', fiscalDocumentRoutes);
 app.use('/api/serpro', serproRoutes);
+app.use('/api', companyCertificateRoutes);
 app.use('/api', reformaRoutes);
 
 // Lazy-initialized Gemini client with required User-Agent
