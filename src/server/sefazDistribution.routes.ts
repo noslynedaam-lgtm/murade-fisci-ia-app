@@ -284,7 +284,7 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
       const [company, certificate, cursor, count] = await Promise.all([
         client.query('SELECT id FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]),
         client.query('SELECT uploaded_at, pfx_sha256 FROM fiscoia.company_fiscal_certificates WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
-        client.query('SELECT last_nsu, max_nsu, last_status, last_message, last_response_at, blocked_until, validated_certificate_sha256, certificate_validated_at FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
+        client.query('SELECT last_nsu, max_nsu, last_status, last_message, last_request_at, last_response_at, blocked_until, validated_certificate_sha256, certificate_validated_at FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
         client.query('SELECT count(*)::text AS total FROM fiscoia.fiscal_dfe_items WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
       ]);
       if (!company.rows[0]) return null;
@@ -300,6 +300,7 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
         maiorNsu: row ? String(row.max_nsu) : '0',
         ultimoStatusSefaz: row?.last_status ?? null,
         mensagemSefaz: row?.last_message ?? null,
+        ultimaTentativaEm: row?.last_request_at ?? null,
         consultadoEm: row?.last_response_at ?? null,
         bloqueadoAte: row?.blocked_until ?? null,
         documentosPersistidos: String(count.rows[0]?.total || '0'),

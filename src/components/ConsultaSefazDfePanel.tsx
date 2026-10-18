@@ -10,6 +10,7 @@ type DfeStatus = {
   maiorNsu: string;
   ultimoStatusSefaz: number | null;
   mensagemSefaz: string | null;
+  ultimaTentativaEm: string | null;
   consultadoEm: string | null;
   bloqueadoAte: string | null;
   documentosPersistidos: string;
@@ -137,7 +138,7 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
     {status && <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Certificado no servidor</span><div className="font-bold">{!status.certificadoCadastrado ? 'Falta cadastrar' : status.certificadoValidadoPelaSefaz ? 'Validado em consulta SEFAZ' : 'Cadastrado; ainda não validado'}</div><div className="text-[10px] text-slate-500">{status.certificadoValidadoEm ? `Resposta válida em ${new Date(status.certificadoValidadoEm).toLocaleString('pt-BR')}.` : 'Cadastro não significa validação SEFAZ.'}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Posição de distribuição</span><div className="font-bold">NSU {status.ultimoNsu} / {status.maiorNsu}</div></div>
-      <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Última resposta oficial</span><div className="font-bold">{status.ultimoStatusSefaz ? `cStat ${status.ultimoStatusSefaz}` : 'Ainda não consultada'}</div><div className="text-[10px] text-slate-500">{status.consultadoEm ? new Date(status.consultadoEm).toLocaleString('pt-BR') : 'Sem resposta registrada'}</div></div>
+      <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Última resposta oficial</span><div className="font-bold">{status.ultimoStatusSefaz ? `cStat ${status.ultimoStatusSefaz}` : 'Ainda não consultada'}</div><div className="text-[10px] text-slate-500">{status.consultadoEm ? new Date(status.consultadoEm).toLocaleString('pt-BR') : 'Sem resposta registrada'}</div><div className="mt-1 text-[10px] text-slate-500">Última tentativa: {status.ultimaTentativaEm ? new Date(status.ultimaTentativaEm).toLocaleString('pt-BR') : 'nenhuma registrada'}{status.ultimaTentativaEm && !status.consultadoEm ? ' (ainda sem resposta oficial)' : ''}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Arquivados neste sistema</span><div className="font-bold">{status.documentosPersistidos} DF-e / eventos</div><div className="text-[10px] text-slate-500">Ambiente: {status.ambienteConfigurado}</div></div>
     </div>}
     {status?.bloqueadoAte && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4"/>A SEFAZ exige aguardar até {new Date(status.bloqueadoAte).toLocaleString('pt-BR')} antes de consultar novamente.</p>}
