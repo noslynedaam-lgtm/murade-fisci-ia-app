@@ -3,18 +3,25 @@ import { promisify } from 'node:util';
 import { pbkdf2 as pbkdf2Callback } from 'node:crypto';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { getFiscoIaMigrationDatabaseUrl } from './postgres-config.mjs';
 
 dotenv.config();
 const pbkdf2 = promisify(pbkdf2Callback);
 const { Pool } = pg;
 
-const connectionString = process.env.DATABASE_URL?.trim();
 const email = process.env.FISCOIA_BOOTSTRAP_EMAIL?.trim().toLowerCase();
 const name = process.env.FISCOIA_BOOTSTRAP_NAME?.trim();
 const password = process.env.FISCOIA_BOOTSTRAP_PASSWORD;
 
-if (!connectionString || !email || !name || !password) {
-  console.error('Bootstrap cancelado: configure DATABASE_URL e as três variáveis FISCOIA_BOOTSTRAP_* no ambiente seguro do serviço.');
+let migrationDatabaseUrl;
+try {
+  migrationDatabaseUrl = getFiscoIaMigrationDatabaseUrl();
+} catch (error) {
+  console.error(`Bootstrap cancelado: ${error instanceof Error ? error.message : 'credencial restrita não configurada.'}`);
+  process.exit(1);
+}
+if (!email || !name || !password) {
+  console.error('Bootstrap cancelado: configure as três variáveis FISCOIA_BOOTSTRAP_* no ambiente seguro do serviço.');
   process.exit(1);
 }
 if (password.length < 16 || password.length > 1024) {
@@ -26,11 +33,12 @@ if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || name.leng
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
+const pool = new Pool({ connectionString: migrationDatabaseUrl, max: 1, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
 try {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE fiscoia_schema_owner');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('murade-fisco-ia-bootstrap-admin'))");
     const count = await client.query('SELECT count(*)::int AS total FROM fiscoia.users');
     if (Number(count.rows[0]?.total) !== 0) {

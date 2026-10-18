@@ -74,6 +74,7 @@ router.post('/tenants', async (req, res) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [user.id]);
       const tenant = await client.query('INSERT INTO fiscoia.tenants (name) VALUES ($1) RETURNING id, name', [nome]);
       await client.query(
         "INSERT INTO fiscoia.tenant_memberships (tenant_id, user_id, role) VALUES ($1, $2, 'OWNER')",

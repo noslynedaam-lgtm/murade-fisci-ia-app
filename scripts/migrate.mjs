@@ -3,13 +3,16 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import pg from 'pg';
+import { getFiscoIaMigrationDatabaseUrl } from './postgres-config.mjs';
 
 dotenv.config();
 
 const { Pool } = pg;
-const connectionString = process.env.DATABASE_URL?.trim();
-if (!connectionString) {
-  console.error('Migração cancelada: DATABASE_URL não está configurada no ambiente do servidor.');
+let migrationDatabaseUrl;
+try {
+  migrationDatabaseUrl = getFiscoIaMigrationDatabaseUrl();
+} catch (error) {
+  console.error(`Migração cancelada: ${error instanceof Error ? error.message : 'credencial restrita não configurada.'}`);
   process.exit(1);
 }
 
@@ -22,7 +25,7 @@ if (migrationFiles.length === 0) {
   process.exit(1);
 }
 const pool = new Pool({
-  connectionString,
+  connectionString: migrationDatabaseUrl,
   max: 1,
   connectionTimeoutMillis: 5_000,
   statement_timeout: 30_000,
@@ -32,6 +35,7 @@ try {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE fiscoia_schema_owner');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('murade-fisco-ia-migrations'))");
     await client.query('CREATE SCHEMA IF NOT EXISTS fiscoia');
     await client.query(`
@@ -66,6 +70,14 @@ try {
       );
       console.log(`Migração ${migrationVersion} aplicada com sucesso.`);
     }
+    await client.query('GRANT USAGE ON SCHEMA fiscoia TO fiscoia_runtime');
+    await client.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fiscoia TO fiscoia_runtime');
+    await client.query('REVOKE INSERT, UPDATE, DELETE ON fiscoia.schema_migrations FROM fiscoia_runtime');
+    await client.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA fiscoia TO fiscoia_runtime');
+    await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE fiscoia_schema_owner IN SCHEMA fiscoia
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fiscoia_runtime`);
+    await client.query(`ALTER DEFAULT PRIVILEGES FOR ROLE fiscoia_schema_owner IN SCHEMA fiscoia
+      GRANT USAGE, SELECT ON SEQUENCES TO fiscoia_runtime`);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);

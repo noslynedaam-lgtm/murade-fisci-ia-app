@@ -11,14 +11,41 @@ const MIGRACOES_ESPERADAS = [
   '003_archive_companies',
   '004_reforma_company_scenarios',
   '005_reforma_rules_version_day',
+  '006_tenant_provisioning',
 ];
 
-const connectionString = process.env.DATABASE_URL?.trim();
+const hasScopedDatabaseConfig = Boolean(
+  process.env.FISCOIA_PGHOST || process.env.FISCOIA_PGDATABASE
+    || process.env.FISCOIA_PGUSER || process.env.FISCOIA_PGPASSWORD,
+);
+const scopedDatabaseComplete = Boolean(
+  process.env.FISCOIA_PGHOST?.trim() && process.env.FISCOIA_PGDATABASE?.trim()
+    && process.env.FISCOIA_PGUSER?.trim() && process.env.FISCOIA_PGPASSWORD,
+);
+const scopedDatabaseConfig = scopedDatabaseComplete
+  ? {
+      host: process.env.FISCOIA_PGHOST!.trim(),
+      port: Number(process.env.FISCOIA_PGPORT || 5432),
+      database: process.env.FISCOIA_PGDATABASE?.trim(),
+      user: process.env.FISCOIA_PGUSER?.trim(),
+      password: process.env.FISCOIA_PGPASSWORD!,
+      ...(process.env.FISCOIA_PGSSL === 'true'
+        ? { ssl: { rejectUnauthorized: true } }
+        : {}),
+      options: '-c search_path=fiscoia,pg_catalog',
+    }
+  : null;
+// Em produção, DATABASE_URL nunca deve ser usado como credencial da aplicação:
+// no PostgreSQL compartilhado ele normalmente é o proprietário com acesso a todos os schemas.
+const localDevelopmentConnection = process.env.NODE_ENV !== 'production'
+  && !hasScopedDatabaseConfig
+  ? process.env.DATABASE_URL?.trim()
+  : undefined;
 let pool: Pool | null = null;
 
-if (connectionString) {
+if ((hasScopedDatabaseConfig && scopedDatabaseComplete) || localDevelopmentConnection) {
   pool = new Pool({
-    connectionString,
+    ...(scopedDatabaseConfig || { connectionString: localDevelopmentConnection }),
     max: 5,
     connectionTimeoutMillis: 3_000,
     idleTimeoutMillis: 30_000,

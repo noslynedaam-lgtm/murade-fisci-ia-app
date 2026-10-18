@@ -105,7 +105,7 @@ app.get('/api/ready', async (_req, res) => {
     chaveCriptografiaDados,
     mensagem: pronto
       ? 'PostgreSQL respondeu, as migrações obrigatórias estão aplicadas e a chave de criptografia é válida.'
-      : 'Persistência segura indisponível; confira DATABASE_URL, migrações 001 a 005 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
+      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 006 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
   });
 });
 
