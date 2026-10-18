@@ -37,7 +37,7 @@ import {
 import { ModalCalculadoraFiscal } from '../../components/ModalCalculadoraFiscal';
 import { ConsultaSefazDfePanel } from '../../components/ConsultaSefazDfePanel';
 import { useEmpresa } from '../../context/EmpresaContext';
-import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
+import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, mesclarRevisaoEstrutural, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
 import {
   apagarArquivoFiscalPendenteLocal,
   apagarXmlFiscalLocal,
@@ -412,10 +412,22 @@ export function ModuloFiscalScreen({
         const porChave = new Map(leitura.notas.map(nota => [nota.chave, nota]));
         let recuperadas = 0;
         let semLeitor = 0;
-        for (const documento of resultado.documentos as Array<{ id: string; chave: string; tipo: string; direcao: string | null; xmlDisponivel: boolean }>) {
+        let revisoesMescladas = 0;
+        for (const documento of resultado.documentos as Array<{
+          id: string; chave: string; tipo: string; direcao: string | null; xmlDisponivel: boolean;
+          revisaoEstrutural?: { findings?: Array<{ code?: unknown; severity?: unknown; message?: unknown }> } | null;
+        }>) {
           if (!atual()) return;
           if (!documento.xmlDisponivel) continue;
           if (documento.tipo !== 'NFE' && documento.tipo !== 'NFCE') { semLeitor += 1; continue; }
+          const notaExistente = porChave.get(documento.chave);
+          if (notaExistente && documento.revisaoEstrutural) {
+            const notaAtualizada = mesclarRevisaoEstrutural(notaExistente, documento.revisaoEstrutural);
+            if (notaAtualizada !== notaExistente) {
+              porChave.set(documento.chave, notaAtualizada);
+              revisoesMescladas += 1;
+            }
+          }
           const xmlLocalExistente = await obterXmlFiscalPorChaveEmpresa(empresa.id, documento.chave);
           if (xmlLocalExistente) continue;
           const url = `/api/companies/${encodeURIComponent(empresa.idCentral!)}/fiscal-documents/${encodeURIComponent(documento.id)}/xml?tenantId=${encodeURIComponent(empresa.tenantIdCentral!)}`;
@@ -429,20 +441,22 @@ export function ModuloFiscalScreen({
           const xmlLocalId = await salvarXmlFiscalLocal({ empresaId: empresa.id, chave: nota.chave, nomeArquivo: `${nota.chave}.xml`, conteudo: xml });
           const existente = porChave.get(nota.chave);
           if (existente) {
-            porChave.set(nota.chave, { ...existente, xmlLocalId });
+            const preservada = mesclarRevisaoEstrutural({ ...existente, xmlLocalId }, documento.revisaoEstrutural);
+            porChave.set(nota.chave, preservada);
+            if (preservada !== existente) revisoesMescladas += 1;
           } else {
             nota.xmlLocalId = xmlLocalId;
-            porChave.set(nota.chave, nota);
+            porChave.set(nota.chave, mesclarRevisaoEstrutural(nota, documento.revisaoEstrutural));
           }
           recuperadas += 1;
         }
         if (!atual()) return;
-        if (recuperadas) {
+        if (recuperadas || revisoesMescladas) {
           const merge = validarListaNotasRadar([...porChave.values()]);
           if (!salvarNotasRadar(merge)) throw new Error('o Radar não pôde salvar as cópias recuperadas neste navegador');
         }
         const quantidade = (resultado.documentos as unknown[]).length;
-        setEstadoSincronizacaoCentral(`Armazenamento central consultado: ${quantidade} documento(s), ${recuperadas} XML(s) recuperado(s) para este navegador${semLeitor ? `; ${semLeitor} documento(s) sem leitor neste Radar` : ''}. Todos continuam pendentes de revisão; consulta/autorização SEFAZ não foi realizada.`);
+        setEstadoSincronizacaoCentral(`Armazenamento central consultado: ${quantidade} documento(s), ${recuperadas} XML(s) recuperado(s), ${revisoesMescladas} revisão(ões) estrutural(is) atualizada(s) neste Radar${semLeitor ? `; ${semLeitor} documento(s) sem leitor neste Radar` : ''}. Todos continuam pendentes de revisão; consulta/autorização SEFAZ não foi realizada.`);
       } catch (error) {
         if (atual()) setEstadoSincronizacaoCentral(`Não foi possível concluir a leitura do armazenamento central. Os dados locais foram preservados. ${error instanceof Error ? error.message : ''}`.trim());
       }

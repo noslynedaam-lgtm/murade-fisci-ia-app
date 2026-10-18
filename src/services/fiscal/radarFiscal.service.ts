@@ -22,6 +22,34 @@ export interface NotaRadar extends NotaFiscalItem {
   ocorrencias: OcorrenciaRadar[];
 }
 
+const CODIGOS_CONFERENCIA_ESTRUTURAL = new Set([
+  'SOMA_ITENS_DIVERGENTE', 'SOMA_ITENS_INDISPONIVEL', 'TOTAL_ITENS_INCOMPLETO', 'COMPARACAO_ITENS_INDISPONIVEL'
+]);
+
+/** Merges only server structural findings; preserves all locally entered/classified note fields. */
+export function mesclarRevisaoEstrutural(
+  nota: NotaRadar,
+  revisao: { findings?: Array<{ code?: unknown; severity?: unknown; message?: unknown }> } | null | undefined
+): NotaRadar {
+  if (!revisao || !Array.isArray(revisao.findings)) return nota;
+  const remotos: OcorrenciaRadar[] = revisao.findings.flatMap(item => {
+    if (!item || typeof item.code !== 'string' || typeof item.message !== 'string'
+      || (item.severity !== 'ERRO' && item.severity !== 'ATENCAO')
+      || !CODIGOS_CONFERENCIA_ESTRUTURAL.has(item.code)) return [];
+    const codigo = item.code === 'TOTAL_ITENS_INCOMPLETO' || item.code === 'COMPARACAO_ITENS_INDISPONIVEL'
+      ? 'SOMA_ITENS_INDISPONIVEL' : item.code;
+    return [{ codigo, severidade: item.severity, mensagem: item.message }];
+  });
+  const mescladas = new Map<string, OcorrenciaRadar>();
+  // Preserve older/local findings; this synchronization only adds corroborating server evidence.
+  for (const ocorrencia of [...(nota.ocorrencias ?? []), ...remotos]) {
+    mescladas.set(`${ocorrencia.codigo}:${ocorrencia.mensagem}`, ocorrencia);
+  }
+  const ocorrencias = [...mescladas.values()];
+  if (JSON.stringify(ocorrencias) === JSON.stringify(nota.ocorrencias ?? [])) return nota;
+  return { ...nota, ocorrencias };
+}
+
 /** Valida o mínimo estrutural antes de exibir, auditar ou substituir o Radar local. */
 export function validarListaNotasRadar(dados: unknown): NotaRadar[] {
   if (!Array.isArray(dados)) throw new Error('a lista do Radar não é um vetor');
