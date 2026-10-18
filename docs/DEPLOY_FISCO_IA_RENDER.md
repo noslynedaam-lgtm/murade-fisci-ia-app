@@ -2,7 +2,7 @@
 
 ## Situação verificada
 
-O workspace Render consultado ainda não mostra um serviço ligado ao repositório `noslynedamurad-maker/murade-fisco-ia`. Os serviços vistos pertencem ao Murade Fiscal, Murade Contábil e DP. Por decisão do usuário, a implantação inicial deverá usar temporariamente o PostgreSQL já existente do Murade Fiscal, com acesso restrito ao schema `fiscoia`; depois será migrada para um PostgreSQL dedicado.
+O serviço `murade-fisco-ia` está publicado no Render. A implantação inicial usa temporariamente o PostgreSQL existente do Murade Fiscal, com credencial de runtime restrita ao schema `fiscoia`; depois deverá ser migrada para um PostgreSQL dedicado.
 
 ## Serviço esperado
 
@@ -34,11 +34,11 @@ Nunca coloque credenciais em `VITE_*`, no código, no Git ou no navegador.
 
 ### PostgreSQL compartilhado com schema restrito (configuração inicial autorizada)
 
-O serviço web não deve receber a URL administrativa do Murade Fiscal. Para o compartilhamento temporário de infraestrutura, execute `npm run db:provision-shared-role` em um job privado com `DATABASE_URL` administrativa e `FISCOIA_PGPASSWORD` forte (32 caracteres ou mais). O provisionador só prossegue se `fiscoia`, `fiscoia_runtime` e `fiscoia_schema_owner` ainda não existirem; ele cria um proprietário sem login, uma credencial de runtime separada e um schema `fiscoia` vazio. Não reutiliza nem altera tabelas de outro schema.
+O serviço web não deve receber a URL administrativa do Murade Fiscal. O schema `fiscoia` foi provisionado com o papel administrativo do banco como proprietário e uma credencial de runtime separada para `fiscoia_runtime`. Não reutiliza nem altera tabelas de outro schema.
 
 Configure o serviço web apenas com `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA_PGDATABASE`, `FISCOIA_PGUSER=fiscoia_runtime` e a mesma senha secreta `FISCOIA_PGPASSWORD`. Para esse serviço, não configure `DATABASE_URL` nem `FISCOIA_MIGRATION_DATABASE_URL`.
 
-Execute migração e bootstrap em jobs privados separados com `FISCOIA_MIGRATION_DATABASE_URL` administrativa. O runner assume `fiscoia_schema_owner`, aplica as migrações `001` a `006`, confere checksums, concede ao runtime somente DML/uso de sequência dentro de `fiscoia` e mantém o log de migração somente para leitura. O runtime não é dono das tabelas, não tem privilégios de DDL, e as políticas RLS continuam ativas. Execute `npm run db:bootstrap-admin` no mesmo tipo de job privado; remova a URL administrativa e as variáveis de bootstrap ao terminar.
+Execute migração e bootstrap em jobs privados separados com `FISCOIA_MIGRATION_DATABASE_URL` administrativa. O runner aplica as migrações, confere checksums, concede ao runtime somente DML/uso de sequência dentro de `fiscoia` e mantém o log de migração somente para leitura. O runtime não é dono das tabelas, não tem privilégios de DDL, e as políticas RLS continuam ativas. O bootstrap usa a conexão administrativa temporária para inserir a primeira conta; nunca use a credencial de runtime para essa tarefa.
 
 Não coloque URLs administrativas, senhas de banco, chave de criptografia ou credenciais SERPRO em variáveis `VITE_*`. Não copie a senha para logs nem para o Git. O PostgreSQL compartilhado mantém backups, restaurações, capacidade e disponibilidade no nível do serviço inteiro; durante essa fase o Fisco IA continua dependente operacionalmente do banco do Fiscal. Após contratar o plano dedicado, provisionar o PostgreSQL próprio do Fisco IA e migrar os dados.
 
@@ -48,8 +48,8 @@ A migração `004_reforma_company_scenarios.sql` cria o armazenamento de cenári
 
 Os resumos e links oficiais ficam em `src/data/reformaTributariaRegras.ts`. Uma atualização exige revisar as fontes oficiais, corrigir os resumos, incrementar `VERSAO_REGRAS` e atualizar `REGRAS_REVISADAS_EM`. A interface identifica cenários gravados com uma versão anterior e avisa que as confirmações antigas não foram revalidadas. Salvar ou exportar não troca silenciosamente a versão registrada; a versão atual só é gravada depois de marcar todos os itens como conferidos e confirmar explicitamente. O registro atual não mantém versões históricas completas do cenário: salvar substitui os dados da versão corrente. Não há atualização automática nem importação de texto legal sem revisão.
 
-O cadastro inicial do administrador deve ser feito somente depois das migrações, com `FISCOIA_BOOTSTRAP_EMAIL`, `FISCOIA_BOOTSTRAP_NAME` e `FISCOIA_BOOTSTRAP_PASSWORD` temporários em um job privado, executando `npm run db:bootstrap-admin` uma vez. Remova essas três variáveis após a criação da conta.
+O cadastro inicial do administrador deve ser feito somente depois das migrações, com `FISCOIA_BOOTSTRAP_EMAIL`, `FISCOIA_BOOTSTRAP_NAME` e `FISCOIA_BOOTSTRAP_PASSWORD` temporários em um job privado, executando `npm run db:bootstrap-admin` uma vez. A senha deve ter pelo menos 16 caracteres; a conta exige troca de senha no primeiro login. O script aborta sem alterações se já houver qualquer conta. Remova a URL administrativa e as três variáveis de bootstrap ao terminar.
 
 ## Estado de validação
 
-Build e TypeScript passaram no checkout local. O deploy e a conexão com PostgreSQL ainda não foram validados em produção; não há serviço Render do Fisco IA neste workspace. A configuração inicial autorizada ainda requer execução privada do provisionador com a credencial administrativa do PostgreSQL e criação/configuração do serviço Render.
+O deploy e a conexão com PostgreSQL foram validados em produção por `/api/ready`: banco conectado, seis de seis migrações aplicadas e chave de criptografia válida. A conta inicial de administrador ainda precisa ser criada pelo bootstrap único; a tela pública de login não oferece cadastro aberto.

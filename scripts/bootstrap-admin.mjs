@@ -38,7 +38,6 @@ try {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SET LOCAL ROLE fiscoia_schema_owner');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('murade-fisco-ia-bootstrap-admin'))");
     const count = await client.query('SELECT count(*)::int AS total FROM fiscoia.users');
     if (Number(count.rows[0]?.total) !== 0) {
