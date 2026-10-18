@@ -3,34 +3,33 @@ import { Aula } from './types';
 export const AULAS_CATALOGO: Aula[] = [
   {
     id: 'aula-geral-1',
-    titulo: 'DCTFWeb & Emissão de DARF Dia 20 (Celular & PC)',
-    descricao: 'Como fechar o eSocial, apurar a DCTFWeb, transmitir para a Receita Federal e emitir a guia DARF numerada com QR Code Pix.',
+    titulo: 'DCTFWeb — demonstração e conferência no portal oficial',
+    descricao: 'Demonstração visual de uma rotina de conferência. Este Murade não fecha eSocial, transmite DCTFWeb nem emite guias oficiais.',
     duracao: '14 min',
     categoria: 'DCTFWEB',
     dispositivoPrincipal: 'AMBOS',
     modulo: 'Módulo 1: DCTFWeb & Fechamento Fiscal',
     nivel: 'Iniciante',
     concluida: true,
-    materiais: ['Manual_DCTFWeb_Receita_Federal.pdf', 'Checklist_Fechamento_Dia20.pdf'],
     pedacinhos: [
       {
         id: 'p-1-1',
         tempoInicio: '00:00',
         tempoSegundos: 0,
         duracao: '02:30',
-        titulo: '1. Acessando a DCTFWeb no Menu Principal',
-        descricao: 'Localize no menu lateral o módulo de DCTFWeb para carregar as empresas apuradas no período.',
+        titulo: '1. Acesse o serviço oficial da DCTFWeb',
+        descricao: 'O menu mostrado é fictício. Para consultar uma declaração, entre no portal oficial com a autorização exigida.',
         telaSimulada: 'DCTFWEB',
-        dicaPratica: 'O menu lateral mostra as pendências da competência atual com badges coloridos.',
-        narracaoVoz: 'Olá! Observe a seta amarela indicando na tela exatamente onde você deve clicar. Acesse o menu DCTFWeb para carregar as apurações da competência atual. Clique na opção indicada.',
+        dicaPratica: 'Esta demonstração não carrega declarações nem pendências de clientes.',
+        narracaoVoz: 'Este é um exemplo visual, não um portal conectado. Para ver a DCTFWeb real, acesse o serviço oficial da Receita Federal com a conta e os poderes adequados.',
         alvoClique: {
           id: 'alvo-1-1',
           passoNumero: 1,
-          textoAcao: 'Clique no Menu DCTFWeb',
+          textoAcao: 'Veja o menu demonstrativo',
           elementoAlvo: 'MENU_SIDEBAR',
           posicaoMobile: { top: '32%', left: '48%', direcaoSeta: 'cima' },
           posicaoPC: { top: '28%', left: '16%', direcaoSeta: 'esquerda' },
-          explicacaoClique: 'Clique neste botão para listar as declarações previdenciárias e fiscais do mês.'
+          explicacaoClique: 'O clique só avança a aula; não consulta declarações.'
         }
       },
       {
@@ -38,19 +37,19 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '02:30',
         tempoSegundos: 150,
         duracao: '03:45',
-        titulo: '2. Transmitindo a Declaração para a Receita',
-        descricao: 'Clique no botão verde "Transmitir DCTFWeb" para enviar a apuração diretamente ao e-CAC.',
+        titulo: '2. Conferindo a transmissão no portal oficial',
+        descricao: 'A transmissão da DCTFWeb não está integrada ao Murade. Confira os dados e conclua o envio somente no portal oficial, se estiver autorizado.',
         telaSimulada: 'DCTFWEB',
-        dicaPratica: 'Antes de transmitir, confirme se as deduções de salário-família e maternidade foram abatidas.',
-        narracaoVoz: 'Agora veja a seta apontando para o botão Transmitir DCTFWeb. Dê um clique neste botão para homologar a transmissão oficial dos tributos previdenciários junto ao SERPRO e Receita Federal.',
+        dicaPratica: 'O Murade não assina nem transmite a declaração. Confirme competência, valores e autorização no ambiente oficial antes de enviar.',
+        narracaoVoz: 'Este quadro é apenas uma demonstração. O Murade não transmite DCTFWeb. Acesse o portal oficial da Receita Federal com a autorização adequada, revise os dados da competência e acompanhe o recibo gerado pelo próprio portal.',
         alvoClique: {
           id: 'alvo-1-2',
           passoNumero: 2,
-          textoAcao: 'Clique em Transmitir DCTFWeb',
+          textoAcao: 'Veja o exemplo de conferência',
           elementoAlvo: 'DCTFWEB_TRANSMITIR',
           posicaoMobile: { top: '46%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '42%', left: '76%', direcaoSeta: 'direita' },
-          explicacaoClique: 'O sistema assina digitalmente a apuração e gera o número do recibo na Receita Federal.'
+          explicacaoClique: 'O clique só avança a demonstração; não envia dados nem gera recibo.'
         }
       },
       {
@@ -58,19 +57,19 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '06:15',
         tempoSegundos: 375,
         duracao: '03:10',
-        titulo: '3. Copiando o Código Pix da Guia DARF',
-        descricao: 'Clique no botão "Copiar Pix Copia e Cola" para pagar instantaneamente pelo aplicativo do banco.',
+        titulo: '3. Conferindo uma guia no portal oficial',
+        descricao: 'As guias exibidas no simulador são fictícias. Emita e confira a guia no portal oficial antes de pagar.',
         telaSimulada: 'GUIAS',
-        dicaPratica: 'Pagamentos por Pix são baixados na Receita Federal em até 10 minutos.',
-        narracaoVoz: 'Veja onde a seta está indicando. Clique no botão Copiar Pix Copia e Cola para copiar a chave da guia gerada. Você pode colar no app do seu banco ou enviar diretamente para o cliente.',
+        dicaPratica: 'Este sistema não consulta pagamentos nem confirma baixa. Use os dados e comprovantes do portal e do banco responsáveis.',
+        narracaoVoz: 'Os dados desta tela são de demonstração. Não copie nem pague por um código exibido aqui. Gere a guia no portal oficial, confira CNPJ, competência e valor, e confirme a situação com o comprovante bancário e no serviço responsável.',
         alvoClique: {
           id: 'alvo-1-3',
           passoNumero: 3,
-          textoAcao: 'Clique para Copiar Pix Copia e Cola',
+          textoAcao: 'Veja o exemplo de guia',
           elementoAlvo: 'PIX_COPIA',
           posicaoMobile: { top: '68%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '64%', left: '60%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Copia o código Pix no formato oficial do Banco Central e Receita Federal.'
+          explicacaoClique: 'O clique apenas avança a aula; não copia nem gera um código de pagamento.'
         }
       },
       {
@@ -78,34 +77,33 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '09:25',
         tempoSegundos: 565,
         duracao: '04:35',
-        titulo: '4. Disparando a Guia no WhatsApp do Cliente',
-        descricao: 'Envie a guia em PDF e o código de barras com apenas um clique para o WhatsApp do cliente.',
+        titulo: '4. Compartilhando documentos com segurança',
+        descricao: 'O Murade não envia guias por WhatsApp. Compartilhe somente documentos oficiais depois de conferi-los.',
         telaSimulada: 'GUIAS',
-        dicaPratica: 'O envio automático já inclui a mensagem personalizada com o vencimento do dia 20.',
-        narracaoVoz: 'Para finalizar, clique no botão verde Enviar por WhatsApp indicado pela seta. O FiscoIA anexa o PDF do DARF com código de barras e manda na hora para o telefone cadastrado.',
+        dicaPratica: 'Não há envio automático por WhatsApp neste ambiente. Confirme o destinatário e envie pelo canal autorizado do escritório.',
+        narracaoVoz: 'O botão visto nesta aula é fictício e não envia mensagens nem arquivos. Quando tiver emitido e conferido a guia no portal oficial, compartilhe o documento pelo canal seguro usado pelo seu escritório.',
         alvoClique: {
           id: 'alvo-1-4',
           passoNumero: 4,
-          textoAcao: 'Clique em Enviar via WhatsApp',
+          textoAcao: 'Veja o exemplo de compartilhamento',
           elementoAlvo: 'WHATSAPP_BTN',
           posicaoMobile: { top: '78%', left: '72%', direcaoSeta: 'cima' },
           posicaoPC: { top: '64%', left: '78%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Abre o WhatsApp Web no PC ou o WhatsApp nativo no celular já pronto para enviar.'
+          explicacaoClique: 'O clique só avança a demonstração e não abre nem envia mensagens.'
         }
       }
     ]
   },
   {
     id: 'aula-pc-1',
-    titulo: '💻 FiscoIA no Computador (PC): Produtividade & Painel Desktop',
-    descricao: 'Aprenda a operar o sistema no navegador do PC: telas divididas, atalhos de teclado, exportação para Excel e gestão em lote de dezenas de CNPJs.',
+    titulo: '💻 Navegação demonstrativa no computador',
+    descricao: 'Explore o layout demonstrativo no navegador. Os dados e ações mostrados não representam consultas, exportações ou transmissões reais.',
     duracao: '12 min',
     categoria: 'PC',
     dispositivoPrincipal: 'PC',
     modulo: 'Módulo 2: Operação no Computador / Desktop',
     nivel: 'Iniciante',
     concluida: true,
-    materiais: ['Atalhos_Teclado_FiscoIA_PC.pdf', 'Planilha_Exportacao_Lote.xlsx'],
     pedacinhos: [
       {
         id: 'p-pc-1',
@@ -113,10 +111,10 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoSegundos: 0,
         duracao: '03:10',
         titulo: '1. Login e Seleção de Escritório no PC',
-        descricao: 'Acesse o portal web seguro no computador e selecione a carteira de clientes.',
+        descricao: 'A tela de login mostrada é apenas um exemplo; não autentica nem abre uma carteira de clientes.',
         telaSimulada: 'LOGIN',
-        dicaPratica: 'No PC, você pode manter a sessão salva com o Certificado Digital A1 ou e-CPF.',
-        narracaoVoz: 'Bem-vindo ao FiscoIA no computador! Veja a seta apontando para o botão Entrar no Sistema. Clique nele para autenticar com certificado e carregar todas as empresas gerenciadas.',
+        dicaPratica: 'Este simulador não recebe certificados nem autentica usuários.',
+        narracaoVoz: 'Esta tela é ilustrativa. O botão apenas avança a aula; ele não autentica, acessa certificado ou carrega empresas.',
         alvoClique: {
           id: 'alvo-pc-1',
           passoNumero: 1,
@@ -124,7 +122,7 @@ export const AULAS_CATALOGO: Aula[] = [
           elementoAlvo: 'LOGIN_BTN',
           posicaoMobile: { top: '70%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '62%', left: '60%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Inicia a sessão segura criptografada de alta performance para desktop.'
+          explicacaoClique: 'O clique apenas avança o simulador e não inicia uma sessão.'
         }
       },
       {
@@ -133,10 +131,10 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoSegundos: 190,
         duracao: '04:20',
         titulo: '2. Visão Panorâmica de Vencimentos no Monitor',
-        descricao: 'Como usar a tela ampla do computador para auditar 100% dos prazos fiscais da semana.',
+        descricao: 'Exemplo de painel. O Murade não audita todos os prazos fiscais nem confirma obrigações externas.',
         telaSimulada: 'INICIO',
-        dicaPratica: 'Use as teclas de atalho Ctrl+F para localizar qualquer CNPJ ou Razão Social imediatamente.',
-        narracaoVoz: 'Observe na tela do computador o painel de obrigações. Veja a seta amarela indicando os alertas de vencimento do dia 20. Clique no card de resumo para filtrar as empresas pendentes.',
+        dicaPratica: 'Os nomes, valores, prazos e status neste quadro são fictícios.',
+        narracaoVoz: 'O painel ilustrativo não consulta obrigações nem calendário oficial. Use fontes oficiais para confirmar vencimentos e consulte os dados reais da empresa antes de agir.',
         alvoClique: {
           id: 'alvo-pc-2',
           passoNumero: 2,
@@ -144,7 +142,7 @@ export const AULAS_CATALOGO: Aula[] = [
           elementoAlvo: 'FILTRO_MES',
           posicaoMobile: { top: '42%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '35%', left: '50%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Filtra as guias por status: transmitidas, em edição e vencendo nesta semana.'
+          explicacaoClique: 'O clique avança o simulador; não filtra guias de clientes.'
         }
       },
       {
@@ -153,10 +151,10 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoSegundos: 450,
         duracao: '04:30',
         titulo: '3. Conferência de Guias em Tela Dupla no PC',
-        descricao: 'Comparação simultânea dos valores do eSocial com o DARF apurado sem trocar de janela.',
+        descricao: 'Exemplo de conferência visual. Não há integração com eSocial nem apuração de DARF nesta tela.',
         telaSimulada: 'GUIAS',
-        dicaPratica: 'Você pode exportar a grade inteira para o Excel com o botão superior direito.',
-        narracaoVoz: 'Aqui na conferência de guias no PC, a seta está indicando onde você confere o código de barras e o espelho da guia. Clique para expandir os detalhes e verificar as alíquotas RAT e FAP.',
+        dicaPratica: 'Os valores e códigos do exemplo não podem ser utilizados para pagamento.',
+        narracaoVoz: 'Este quadro não compara dados do eSocial nem gera guia. Para apurar, emitir ou conferir valores, use os sistemas oficiais e os dados validados pelo contador.',
         alvoClique: {
           id: 'alvo-pc-3',
           passoNumero: 3,
@@ -164,22 +162,21 @@ export const AULAS_CATALOGO: Aula[] = [
           elementoAlvo: 'PIX_COPIA',
           posicaoMobile: { top: '68%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '56%', left: '65%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Exibe a guia formatada no padrão oficial da Receita Federal do Brasil.'
+          explicacaoClique: 'O clique só avança o simulador; não gera nem consulta guia oficial.'
         }
       }
     ]
   },
   {
     id: 'aula-celular-1',
-    titulo: '📱 FiscoIA no Celular (Android): Operação Completa Touch',
-    descricao: 'Como instalar o atalho na tela inicial do celular, navegar com gestos de toque, consultar guias e compartilhar DARF com clientes via WhatsApp.',
+    titulo: '📱 Navegação demonstrativa no celular',
+    descricao: 'Explore o layout demonstrativo em uma tela pequena. Este simulador não acessa guias nem compartilha documentos.',
     duracao: '11 min',
     categoria: 'CELULAR',
     dispositivoPrincipal: 'CELULAR',
     modulo: 'Módulo 3: Aplicativo Mobile & Celular',
     nivel: 'Iniciante',
     concluida: true,
-    materiais: ['Guia_Instalacao_Android_Mobile.pdf'],
     pedacinhos: [
       {
         id: 'p-mob-1',
@@ -206,19 +203,19 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '02:40',
         tempoSegundos: 160,
         duracao: '03:50',
-        titulo: '2. Consultando DCTFWeb na Tela Vertical do Celular',
-        descricao: 'Visualização fluida e legível adaptada à tela do celular para checar pendências.',
+        titulo: '2. Visualização de exemplo da DCTFWeb',
+        descricao: 'Esta tela não acessa declarações nem atualiza pendências em tempo real.',
         telaSimulada: 'DCTFWEB',
-        dicaPratica: 'Deslize a tela para baixo para atualizar as apurações em tempo real.',
-        narracaoVoz: 'Veja a seta indicando a primeira empresa da lista no celular. Toque nela para ver os valores de DARF calculados e o status de transmissão na Receita.',
+        dicaPratica: 'Não há sincronização com o portal oficial neste simulador.',
+        narracaoVoz: 'Os dados de empresa e os valores apresentados são fictícios. O Murade não calcula DARF nem confirma o status de transmissão da Receita.',
         alvoClique: {
           id: 'alvo-mob-2',
           passoNumero: 2,
-          textoAcao: 'Toque na Empresa para Transmitir',
+          textoAcao: 'Veja o exemplo de declaração',
           elementoAlvo: 'DCTFWEB_TRANSMITIR',
           posicaoMobile: { top: '48%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '42%', left: '76%', direcaoSeta: 'direita' },
-          explicacaoClique: 'Toque para abrir a declaração e acionar o comando de transmissão.'
+          explicacaoClique: 'O toque apenas avança a aula; não abre nem transmite declaração.'
         }
       },
       {
@@ -226,53 +223,52 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '06:30',
         tempoSegundos: 390,
         duracao: '04:30',
-        titulo: '3. Envio Direto para o WhatsApp do Empresário',
-        descricao: 'Dispare o DARF com QR Code Pix diretamente pelo WhatsApp do seu smartphone.',
+        titulo: '3. Compartilhamento manual e seguro',
+        descricao: 'O Murade não envia DARF ou QR Code Pix por WhatsApp. Use somente documentos oficiais conferidos.',
         telaSimulada: 'GUIAS',
-        dicaPratica: 'O WhatsApp abre automaticamente com a mensagem e o link do documento pronto.',
-        narracaoVoz: 'Agora veja a seta apontando para o botão verde WhatsApp. Dê um toque nele. O FiscoIA abre o WhatsApp no seu smartphone com a guia pronta para o cliente pagar.',
+        dicaPratica: 'O botão do simulador não abre o WhatsApp e não envia arquivos.',
+        narracaoVoz: 'Este botão só avança a aula. Depois de emitir e conferir o documento no portal oficial, compartilhe-o pelo canal autorizado do escritório.',
         alvoClique: {
           id: 'alvo-mob-3',
           passoNumero: 3,
-          textoAcao: 'Toque no Botão WhatsApp',
+          textoAcao: 'Veja a ação demonstrativa',
           elementoAlvo: 'WHATSAPP_BTN',
           posicaoMobile: { top: '78%', left: '72%', direcaoSeta: 'cima' },
           posicaoPC: { top: '64%', left: '78%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Abre a conversa do WhatsApp do cliente com a guia e o Pix prontos.'
+          explicacaoClique: 'Não abre conversa nem envia mensagem.'
         }
       }
     ]
   },
   {
     id: 'aula-serpro-1',
-    titulo: '🔌 Homologação SERPRO & Teste de Gateway Oficial (PC & Celular)',
-    descricao: 'Como configurar as credenciais do SERPRO, testar os 5 serviços governamentais e monitorar a latência da Receita Federal.',
+    titulo: '🔌 Requisitos para integrar serviços do SERPRO',
+    descricao: 'Entenda que credenciais, contratação, documentação e homologação precisam ser obtidas antes de qualquer integração oficial.',
     duracao: '10 min',
     categoria: 'FISCAL',
     dispositivoPrincipal: 'AMBOS',
     modulo: 'Módulo 4: Integração Governamental SERPRO',
     nivel: 'Intermediário',
     concluida: false,
-    materiais: ['Checklist_Homologacao_SERPRO.pdf'],
     pedacinhos: [
       {
         id: 'p-serp-1',
         tempoInicio: '00:00',
         tempoSegundos: 0,
         duracao: '04:20',
-        titulo: '1. Testando a Conexão Oficial com a Receita Federal',
-        descricao: 'Acione o botão de teste para validar a resposta dos 5 microsserviços do SERPRO.',
+        titulo: '1. Confira os requisitos da integração',
+        descricao: 'O Murade não possui um teste de conexão SERPRO funcional nesta versão. Consulte a documentação e contratação do serviço desejado.',
         telaSimulada: 'SERPRO',
-        dicaPratica: 'Latências abaixo de 200 milissegundos garantem respostas instantâneas na apuração.',
-        narracaoVoz: 'Atenção: observe onde a seta amarela está indicando. Clique no botão azul Testar Conexão Agora. O FiscoIA fará um ping em tempo real nos servidores da Receita Federal.',
+        dicaPratica: 'Um botão de teste visual não comprova autenticação, disponibilidade ou autorização de API.',
+        narracaoVoz: 'Esta tela é ilustrativa e não faz ping nem chamada ao SERPRO. Para integração real, o escritório precisa ter o serviço contratado e as credenciais e certificados exigidos configurados com segurança no servidor.',
         alvoClique: {
           id: 'alvo-serp-1',
           passoNumero: 1,
-          textoAcao: 'Clique em Testar Conexão Agora',
+          textoAcao: 'Veja a demonstração visual',
           elementoAlvo: 'SERPRO_TESTAR',
           posicaoMobile: { top: '35%', left: '50%', direcaoSeta: 'baixo' },
           posicaoPC: { top: '30%', left: '80%', direcaoSeta: 'direita' },
-          explicacaoClique: 'Testa Integra Contador, DCTFWeb, CNPJ, Situação Fiscal e Dívida Ativa.'
+          explicacaoClique: 'O clique apenas avança a aula; nenhum serviço SERPRO é chamado.'
         }
       },
       {
@@ -280,34 +276,33 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoInicio: '04:20',
         tempoSegundos: 260,
         duracao: '05:40',
-        titulo: '2. Auditando os 5 Serviços Governamentais Ativos',
-        descricao: 'Verifique se todos os microsserviços (DCTFWeb, CNPJ, CND, PGFN) estão com sinal verde.',
+        titulo: '2. Como reconhecer uma resposta oficial',
+        descricao: 'Uma integração só deve ser considerada ativa quando houver chamada autenticada, resposta do serviço e registro verificável.',
         telaSimulada: 'SERPRO',
-        dicaPratica: 'Caso algum serviço apresente instabilidade no SERPRO, o FiscoIA faz retentativa automática.',
-        narracaoVoz: 'Veja a seta indicando a lista dos serviços oficiais do SERPRO. Verifique se o status está verde em cada um deles. Estando todos verdes, o sistema está 100% pronto para transmitir.',
+        dicaPratica: 'Este aplicativo ainda não registra respostas SERPRO nem retentativas de serviço.',
+        narracaoVoz: 'Indicadores verdes nesta demonstração não são status reais. Nesta versão não há integração SERPRO ativa, monitoramento de latência ou transmissão. Confirme o serviço no portal e na documentação oficial do provedor.',
         alvoClique: {
           id: 'alvo-serp-2',
           passoNumero: 2,
-          textoAcao: 'Verifique os Serviços Ativos',
+          textoAcao: 'Veja os indicadores demonstrativos',
           elementoAlvo: 'SERPRO_TESTAR',
           posicaoMobile: { top: '56%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '55%', left: '50%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Mostra os serviços oficiais homologados para emissão e consulta tributária.'
+          explicacaoClique: 'Os indicadores são exemplos estáticos, sem chamada oficial.'
         }
       }
     ]
   },
   {
     id: 'aula-procuracao-1',
-    titulo: '📜 Procurações Eletrônicas RFB e-CAC Sem Certificado do Cliente',
-    descricao: 'Como emitir e aprovar a procuração RFB padrão código de segurança da Receita Federal para atender até centenas de CNPJs no e-CAC.',
+    titulo: '📜 Conferência de procurações no e-CAC',
+    descricao: 'Como revisar uma procuração diretamente no portal oficial, respeitando os poderes concedidos e o método de acesso exigido.',
     duracao: '11 min',
     categoria: 'PROCURACAO',
     dispositivoPrincipal: 'AMBOS',
     modulo: 'Módulo 5: Procurações Eletrônicas RFB',
     nivel: 'Iniciante',
     concluida: false,
-    materiais: ['Modelo_Procuracao_RFB_2026.pdf'],
     pedacinhos: [
       {
         id: 'p-proc-1',
@@ -315,33 +310,32 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoSegundos: 0,
         duracao: '04:30',
         titulo: '1. Verificando Validade das Procurações e-CAC',
-        descricao: 'Como auditar os poderes concedidos (DCTFWeb, CND, parcelamentos) e os prazos de validade.',
+        descricao: 'O Murade não consulta procurações no e-CAC. Confira poderes e validade diretamente no portal oficial.',
         telaSimulada: 'PROCURACAO',
-        dicaPratica: 'O FiscoIA alerta procurações com vencimento nos próximos 30 dias.',
-        narracaoVoz: 'Veja onde a seta está indicando. Clique no card da procuração para verificar os poderes concedidos pela empresa e o prazo de validade no portal e-CAC.',
+        dicaPratica: 'Os cartões desta aula são exemplos e não correspondem a procurações reais de clientes.',
+        narracaoVoz: 'A tela é demonstrativa e não acessa o e-CAC. Entre no portal oficial com a identidade e autorização adequadas, localize a procuração e confira poderes e validade na fonte.',
         alvoClique: {
           id: 'alvo-proc-1',
           passoNumero: 1,
-          textoAcao: 'Clique para Validar Procuração',
+          textoAcao: 'Veja a demonstração de procuração',
           elementoAlvo: 'PROCURACAO_VALIDAR',
           posicaoMobile: { top: '48%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '45%', left: '75%', direcaoSeta: 'direita' },
-          explicacaoClique: 'Verifica poderes de transmissão de DCTFWeb e emissão de guias no e-CAC.'
+          explicacaoClique: 'O clique só avança a aula e não verifica procuração no e-CAC.'
         }
       }
     ]
   },
   {
     id: 'aula-ia-1',
-    titulo: '🤖 Auditoria Fiscal & Dúvidas Tributárias com IA no FiscoIA',
-    descricao: 'Como utilizar o assistente de inteligência fiscal para analisar riscos, tirar dúvidas de retenção e redigir pareceres aos clientes.',
+    titulo: '🤖 Como consultar o assistente fiscal',
+    descricao: 'Aprenda a formular uma pergunta. Respostas dependem da disponibilidade do serviço de IA e devem ser conferidas nas fontes oficiais citadas.',
     duracao: '15 min',
     categoria: 'IA_COMPLIANCE',
     dispositivoPrincipal: 'AMBOS',
     modulo: 'Módulo 6: Inteligência Fiscal & Compliance',
     nivel: 'Avançado',
     concluida: false,
-    materiais: ['Guia_Prompts_Fiscais_Contador.pdf'],
     pedacinhos: [
       {
         id: 'p-ia-1',
@@ -349,18 +343,18 @@ export const AULAS_CATALOGO: Aula[] = [
         tempoSegundos: 0,
         duracao: '06:00',
         titulo: '1. Enviando Pergunta Tributária para a IA',
-        descricao: 'Como formular dúvidas sobre retenções de INSS, ISS, Simples Nacional ou regras de DCTFWeb.',
+        descricao: 'Formule uma dúvida objetiva. A conversa simulada nesta aula não executa uma consulta nem confirma regras atuais.',
         telaSimulada: 'IA_CHAT',
-        dicaPratica: 'Você pode digitar ou falar usando o microfone do celular ou computador.',
-        narracaoVoz: 'Veja a seta amarela indicando a caixa de perguntas da IA. Clique no botão Enviar Consulta para que a inteligência tributária do FiscoIA cruze a legislação e responda em segundos.',
+        dicaPratica: 'Se a pergunta depender de regra atual, confira a data e as fontes oficiais retornadas pela resposta.',
+        narracaoVoz: 'Esta conversa é apenas uma demonstração. No assistente real, envie uma pergunta e confira se houve resposta e se as fontes citadas são oficiais. Sem fonte atual, não considere a resposta confirmada.',
         alvoClique: {
           id: 'alvo-ia-1',
           passoNumero: 1,
-          textoAcao: 'Clique em Enviar Consulta Fiscal',
+          textoAcao: 'Veja a conversa demonstrativa',
           elementoAlvo: 'IA_ENVIAR',
           posicaoMobile: { top: '55%', left: '50%', direcaoSeta: 'cima' },
           posicaoPC: { top: '50%', left: '60%', direcaoSeta: 'cima' },
-          explicacaoClique: 'Aciona o motor de inteligência artificial fiscal para análise de conformidade.'
+          explicacaoClique: 'O clique apenas avança a aula e não chama o serviço de IA.'
         }
       }
     ]

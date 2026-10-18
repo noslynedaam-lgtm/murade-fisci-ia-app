@@ -43,22 +43,25 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
   const [msgErroAdmin, setMsgErroAdmin] = useState<string | null>(null);
 
   const [emailLoginSelecionado, setEmailLoginSelecionado] = useState('noslyneda.murad@gmail.com');
-  const [novaSenhaLogin, setNovaSenhaLogin] = useState('');
-  const [confirmaNovaSenhaLogin, setConfirmaNovaSenhaLogin] = useState('');
-  const [mostrarSenhaLogin, setMostrarSenhaLogin] = useState(false);
   const [msgSucessoLogin, setMsgSucessoLogin] = useState<string | null>(null);
   const [msgErroLogin, setMsgErroLogin] = useState<string | null>(null);
 
   useEffect(() => {
+    let ativo = true;
     try {
-      const contas = listarContasParaAdmin();
-      setListaContasAdmin(contas);
-      if (contas.length > 0 && !contas.some(c => c.email.toLowerCase() === emailLoginSelecionado.toLowerCase())) {
-        setEmailLoginSelecionado(contas[0].email);
-      }
-    } catch {
-      // fallback
+      void listarContasParaAdmin().then((contas) => {
+        if (!ativo) return;
+        setListaContasAdmin(contas);
+        if (contas.length > 0 && !contas.some(c => c.email.toLowerCase() === emailLoginSelecionado.toLowerCase())) {
+          setEmailLoginSelecionado(contas[0].email);
+        }
+      }).catch((error: unknown) => {
+        if (ativo) setMsgErroAdmin(error instanceof Error ? error.message : 'Não foi possível ler as contas do servidor.');
+      });
+    } catch (error) {
+      setMsgErroAdmin(error instanceof Error ? error.message : 'Não foi possível ler as contas do servidor.');
     }
+    return () => { ativo = false; };
   }, []);
 
   const handleSalvarSenhaAdmin = (e: FormEvent) => {
@@ -89,7 +92,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
     setMsgSucessoAdmin('✅ Senha de Administrador Master alterada com sucesso! Guarde-a com segurança.');
   };
 
-  const handleSalvarSenhaLogin = (e: FormEvent) => {
+  const handleSalvarSenhaLogin = async (e: FormEvent) => {
     e.preventDefault();
     setMsgSucessoLogin(null);
     setMsgErroLogin(null);
@@ -99,21 +102,9 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
       return;
     }
 
-    if (novaSenhaLogin.length < 6) {
-      setMsgErroLogin('⚠️ A nova senha deve ter no mínimo 6 caracteres.');
-      return;
-    }
-
-    if (novaSenhaLogin !== confirmaNovaSenhaLogin) {
-      setMsgErroLogin('⚠️ A confirmação da nova senha de login não confere.');
-      return;
-    }
-
-    const res = alterarSenhaDireta(emailLoginSelecionado, novaSenhaLogin);
+    const res = await alterarSenhaDireta(emailLoginSelecionado, '');
     if (res.sucesso) {
-      setNovaSenhaLogin('');
-      setConfirmaNovaSenhaLogin('');
-      setMsgSucessoLogin(`✅ ${res.mensagem}`);
+      setMsgSucessoLogin(`✅ ${res.mensagem}${res.senhaTemporaria ? ` Senha temporária (exibida uma vez): ${res.senhaTemporaria}` : ''}`);
     } else {
       setMsgErroLogin(`⚠️ ${res.mensagem}`);
     }
@@ -128,37 +119,32 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
   }, [filtroInicial]);
   const [comunicadoEnviado, setComunicadoEnviado] = useState(false);
   const [textoComunicado, setTextoComunicado] = useState('');
+  const [rascunhosComunicados, setRascunhosComunicados] = useState<Array<{ texto: string; criadoEm: string }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('fiscoia_admin_comunicados_rascunho') || '[]');
+    } catch {
+      return [];
+    }
+  });
+  const [mensagemPlanos, setMensagemPlanos] = useState<string | null>(null);
 
   // Valores de planos editáveis pelo admin
-  const [valoresPlanos, setValoresPlanos] = useState({
-    basico: PLANOS.BASICO.valorMensal,
-    profissional: PLANOS.PROFISSIONAL.valorMensal,
-    empresarial: PLANOS.EMPRESARIAL.valorMensal
+  const [valoresPlanos, setValoresPlanos] = useState(() => {
+    const padrao = {
+      basico: PLANOS.BASICO.valorMensal,
+      profissional: PLANOS.PROFISSIONAL.valorMensal,
+      empresarial: PLANOS.EMPRESARIAL.valorMensal
+    };
+    try {
+      const salvo = typeof window !== 'undefined' ? localStorage.getItem('fiscoia_admin_precos_planos_local') : null;
+      return salvo ? { ...padrao, ...JSON.parse(salvo) } : padrao;
+    } catch {
+      return padrao;
+    }
   });
 
   // Operadores e Contadores Oficiais
-  const [usuarios, setUsuarios] = useState<ContadorUsuario[]>([
-    {
-      id: 'usr-1',
-      nome: 'Diretoria Murad Master',
-      email: 'noslyneda.murad@gmail.com',
-      crc: '',
-      plano: 'empresarial',
-      cnpjsCadastrados: 0,
-      maxCnpjs: 500,
-      status: 'ATIVO',
-      diasAtraso: 0,
-      valorMensalidade: 0
-    }
-  ]);
-
-  const estatisticas = {
-    totalUsuarios: 1,
-    planosAtivos: 1,
-    inadimplentes: 0,
-    faturamentoMes: 0,
-    crescimento: 0
-  };
+  const [usuarios, setUsuarios] = useState<ContadorUsuario[]>([]);
 
   const toggleBloqueio = (userId: string) => {
     setUsuarios(usuarios.map(u => {
@@ -175,12 +161,26 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
 
   const handleEnviarComunicado = (e: FormEvent) => {
     e.preventDefault();
-    if (!textoComunicado) return;
-    setComunicadoEnviado(true);
-    setTimeout(() => {
+    const texto = textoComunicado.trim();
+    if (!texto) return;
+    try {
+      const atualizados = [{ texto, criadoEm: new Date().toISOString() }, ...rascunhosComunicados];
+      localStorage.setItem('fiscoia_admin_comunicados_rascunho', JSON.stringify(atualizados));
+      setRascunhosComunicados(atualizados);
+      setComunicadoEnviado(true);
       setTextoComunicado('');
+    } catch {
       setComunicadoEnviado(false);
-    }, 2500);
+    }
+  };
+
+  const handleSalvarValoresPlanos = () => {
+    try {
+      localStorage.setItem('fiscoia_admin_precos_planos_local', JSON.stringify(valoresPlanos));
+      setMensagemPlanos('Valores salvos neste navegador para referência. Não alteram assinaturas nem cobranças.');
+    } catch {
+      setMensagemPlanos('Não foi possível salvar os valores neste navegador. Nenhuma cobrança foi alterada.');
+    }
   };
 
   const usuariosFiltrados = usuarios.filter(u => {
@@ -208,17 +208,17 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
             Painel de Gestão e Controle FISCOIA
           </h1>
           <p className="text-indigo-200 text-xs sm:text-sm max-w-xl">
-            Monitoramento de escritórios de contabilidade, controle de inadimplência, faturamento recorrente e bloqueio automático de CNPJs.
+            Gestão local de contas e configurações. Cobranças, assinaturas, notificações externas e bloqueios automáticos não estão conectados.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="px-4 py-3 bg-white/10 backdrop-blur-xs rounded-xl border border-white/10 text-right">
             <span className="text-[10px] text-indigo-300 uppercase tracking-wider block font-semibold">
-              Regra de Bloqueio Automático
+              Bloqueio automático
             </span>
             <span className="text-sm font-bold text-amber-300">
-              5 dias após vencimento
+              Não configurado
             </span>
           </div>
         </div>
@@ -228,16 +228,16 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Contadores Ativos</span>
+            <span className="text-xs font-semibold text-slate-500">Contas de contador cadastradas localmente</span>
             <span className="p-2 rounded-lg bg-indigo-50 text-indigo-700">
               <Users className="w-4 h-4" />
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-indigo-950">
-            {estatisticas.totalUsuarios}
+            {listaContasAdmin.filter(conta => !conta.ehAdmin).length}
           </div>
           <p className="text-[11px] text-slate-500">
-            {estatisticas.planosAtivos} com assinaturas em dia
+            Não indica assinatura ou acesso ativo em serviço externo
           </p>
         </div>
 
@@ -249,11 +249,11 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-emerald-700 font-mono">
-            R$ {estatisticas.faturamentoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            Não conectado
           </div>
           <p className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
             <TrendingUp className="w-3 h-3" />
-            +{estatisticas.crescimento}% em relação ao mês anterior
+            Gateway de cobrança e dados financeiros não configurados
           </p>
         </div>
 
@@ -265,10 +265,10 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-rose-600">
-            {estatisticas.inadimplentes}
+            Não disponível
           </div>
           <p className="text-[11px] text-rose-600 font-medium">
-            Bloqueio automático ativado em 5
+            Sem integração de pagamento ou bloqueio automático
           </p>
         </div>
 
@@ -280,10 +280,10 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-            100 CNPJs
+            Não configurado
           </div>
           <p className="text-[11px] text-slate-500">
-            Limite máximo por escritório
+            Limites por plano não são aplicados por serviço central
           </p>
         </div>
       </div>
@@ -397,7 +397,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                   </div>
                   <h4 className="font-bold text-sm text-slate-900">💰 Financeiro e Pagamentos</h4>
                   <p className="text-xs text-slate-500">
-                    Controle de mensalidades, faturas em aberto e avisos de vencimento (7 dias).
+                    Integração de cobrança não configurada; esta área não envia avisos.
                   </p>
                 </div>
 
@@ -410,7 +410,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                   </div>
                   <h4 className="font-bold text-sm text-slate-900">⚙️ Configurar Planos e Valores</h4>
                   <p className="text-xs text-slate-500">
-                    Ajuste os valores dos planos Básico, Profissional e Empresarial (até 100 CNPJs).
+                    Edite valores de referência salvos apenas neste navegador; não há cobrança conectada.
                   </p>
                 </div>
 
@@ -433,38 +433,12 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                     <ShieldAlert className="w-4 h-4 text-rose-600" />
-                    <span>Avisos Urgentes de Compliance & Inadimplência</span>
+                    <span>Avisos de cobrança e compliance</span>
                   </h4>
-                  <span className="text-[11px] text-slate-500">Regra: Bloqueio automático após 5 dias</span>
                 </div>
-
-                <div className="space-y-2">
-                  <div className="p-3 bg-white border border-rose-200 rounded-lg flex items-center justify-between text-xs">
-                    <div>
-                      <strong className="text-slate-900">Vanguarda Assessoria Fiscal (CRC-MG 098412/O)</strong>
-                      <span className="text-rose-600 font-semibold block text-[11px]">8 dias de atraso • Acesso bloqueado automaticamente</span>
-                    </div>
-                    <button
-                      onClick={() => toggleBloqueio('usr-3')}
-                      className="px-3 py-1 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded text-xs font-semibold cursor-pointer border border-rose-200"
-                    >
-                      Desbloquear Provisoriamente
-                    </button>
-                  </div>
-
-                  <div className="p-3 bg-white border border-amber-200 rounded-lg flex items-center justify-between text-xs">
-                    <div>
-                      <strong className="text-slate-900">Soluções Tributárias Santa Catarina (CRC-SC 145920/O)</strong>
-                      <span className="text-amber-700 font-semibold block text-[11px]">6 dias de atraso • Notificação de cobrança enviada</span>
-                    </div>
-                    <button
-                      onClick={() => toggleBloqueio('usr-5')}
-                      className="px-3 py-1 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded text-xs font-semibold cursor-pointer border border-amber-200"
-                    >
-                      Gerenciar Status
-                    </button>
-                  </div>
-                </div>
+                <p className="p-3 bg-white border border-amber-200 rounded-lg text-xs text-amber-900">
+                  Não há fonte de cobrança, envio de notificações ou bloqueio automático conectada. Nenhum escritório foi marcado como inadimplente nesta tela.
+                </p>
               </div>
             </div>
           )}
@@ -520,6 +494,13 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
+                    {usuariosFiltrados.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-xs text-slate-600">
+                          Nenhum cadastro de escritório com plano, CRC e cobrança está conectado. As contas de login locais não comprovam assinatura nem pagamentos.
+                        </td>
+                      </tr>
+                    )}
                     {usuariosFiltrados.map((u) => (
                       <tr key={u.id} className="hover:bg-slate-50/80">
                         <td className="p-3">
@@ -588,39 +569,10 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
 
           {/* Aba: Financeiro & Pagamentos */}
           {abaAtiva === 'financeiro' && (
-            <div className="space-y-5">
-              <div className="p-4 bg-indigo-50/50 border border-indigo-200 rounded-xl flex items-center justify-between text-xs">
-                <div>
-                  <h4 className="font-bold text-indigo-950">Faturamento Recorrente Mensal</h4>
-                  <p className="text-indigo-800 mt-0.5">
-                    Previsão para este mês: <strong>R$ 48.450,00</strong> • Recebido: <strong>R$ 45.680,90</strong>
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="px-3.5 py-1.5 bg-indigo-600 text-white font-bold rounded-lg text-xs cursor-pointer hover:bg-indigo-700"
-                >
-                  Exportar Relatório Financeiro
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                <div className="p-4 border border-slate-200 rounded-xl space-y-1">
-                  <span className="text-slate-500">Avisos de Vencimento Enviados</span>
-                  <div className="text-xl font-bold text-slate-900">42 notificações</div>
-                  <p className="text-[11px] text-slate-400">Disparo automático 7 dias antes</p>
-                </div>
-                <div className="p-4 border border-slate-200 rounded-xl space-y-1">
-                  <span className="text-slate-500">Pix Instantâneo Recebidos</span>
-                  <div className="text-xl font-bold text-emerald-700">R$ 38.210,00</div>
-                  <p className="text-[11px] text-emerald-600">84% dos pagamentos via Pix</p>
-                </div>
-                <div className="p-4 border border-slate-200 rounded-xl space-y-1">
-                  <span className="text-slate-500">Contas a Receber</span>
-                  <div className="text-xl font-bold text-rose-600">R$ 2.769,10</div>
-                  <p className="text-[11px] text-rose-600">14 faturas em atraso</p>
-                </div>
-              </div>
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 space-y-2">
+              <h3 className="font-bold text-amber-950">Financeiro sem integração</h3>
+              <p className="text-xs text-amber-900">Este sistema não está conectado a gateway de pagamento, banco, serviço de cobrança nem envio de e-mail/WhatsApp. Não há valores de faturamento, Pix, contas em atraso ou notificações enviadas disponíveis para exibir.</p>
+              <p className="text-xs text-amber-900">Para ativar essas funções será necessário configurar um provedor de pagamentos, armazenamento central e serviço de notificações no servidor.</p>
             </div>
           )}
 
@@ -628,15 +580,15 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
           {abaAtiva === 'planos' && (
             <div className="space-y-6 max-w-2xl">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Preços Oficiais das Assinaturas FISCOIA</h3>
-                <p className="text-xs text-slate-500">Defina os valores mensais de cada plano que refletem diretamente na tela de assinatura.</p>
+                <h3 className="text-sm font-bold text-slate-900">Valores de referência dos planos</h3>
+                <p className="text-xs text-amber-800">Salvos neste navegador. Não há gateway de pagamento conectado e estes valores não alteram assinaturas nem cobranças.</p>
               </div>
 
               <div className="space-y-4">
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
                   <div>
                     <strong className="text-sm text-slate-900 block">Plano Básico (até 50 CNPJs)</strong>
-                    <span className="text-xs text-slate-500">Simples Nacional, DAS e CND</span>
+                    <span className="text-xs text-slate-500">Recursos disponíveis dependem de integrações ainda não configuradas.</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 font-semibold">R$</span>
@@ -653,7 +605,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
                   <div>
                     <strong className="text-sm text-slate-900 block">Plano Profissional (até 100 CNPJs)</strong>
-                    <span className="text-xs text-slate-500">DCTFWeb, Procuração RFB e IA Fiscal</span>
+                    <span className="text-xs text-slate-500">Recursos oficiais não estão conectados nesta versão.</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 font-semibold">R$</span>
@@ -670,7 +622,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                 <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-200 flex items-center justify-between">
                   <div>
                     <strong className="text-sm text-indigo-950 block">Plano Empresarial (até 500 CNPJs)</strong>
-                    <span className="text-xs text-indigo-700">DCTFWeb Completo, Apuração Automática e Requerimentos</span>
+                    <span className="text-xs text-indigo-700">Transmissão e apuração oficiais não estão conectadas nesta versão.</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-indigo-700 font-semibold">R$</span>
@@ -687,11 +639,12 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
 
               <button
                 type="button"
-                onClick={() => alert('Valores de planos atualizados no sistema!')}
+                onClick={handleSalvarValoresPlanos}
                 className="px-5 py-2.5 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
               >
-                Salvar Configurações de Preços
+                Salvar valores locais
               </button>
+              {mensagemPlanos && <p role="status" className="text-xs text-amber-900">{mensagemPlanos}</p>}
             </div>
           )}
 
@@ -699,8 +652,8 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
           {abaAtiva === 'comunicados' && (
             <div className="space-y-4 max-w-2xl">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Transmitir Alerta para Todos os Escritórios</h3>
-                <p className="text-xs text-slate-500">Envie avisos operacionais, prazos de entrega da DCTFWeb ou comunicados da Receita Federal.</p>
+                <h3 className="text-sm font-bold text-slate-900">Rascunho de comunicado</h3>
+                <p className="text-xs text-slate-500">O texto pode ser guardado neste navegador para revisão. Não há envio a escritórios, e-mail ou WhatsApp configurado.</p>
               </div>
 
               <form onSubmit={handleEnviarComunicado} className="space-y-3">
@@ -708,13 +661,13 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                   rows={4}
                   value={textoComunicado}
                   onChange={(e) => setTextoComunicado(e.target.value)}
-                  placeholder="Ex: Atenção Contadores: O prazo de pagamento da DCTFWeb/DARF da competência 09/2026 encerra no dia 20. Assegurem a emissão e recolhimento das guias com antecedência..."
+                  placeholder="Escreva o comunicado para revisão local..."
                   className="w-full p-3.5 border border-slate-300 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600"
                 />
 
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-slate-400">
-                    O comunicado aparecerá no topo do dashboard de todos os 156 escritórios.
+                    O rascunho ficará salvo somente neste navegador.
                   </span>
                   <button
                     type="submit"
@@ -722,7 +675,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                     className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Disparar Comunicado</span>
+                    <span>Salvar rascunho local</span>
                   </button>
                 </div>
               </form>
@@ -730,7 +683,18 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
               {comunicadoEnviado && (
                 <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  <span>Comunicado transmitido com sucesso para toda a rede de contadores MURADE!</span>
+                  <span>Rascunho salvo neste navegador. Nenhum escritório recebeu a mensagem.</span>
+                </div>
+              )}
+              {rascunhosComunicados.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-700">Rascunhos locais recentes</h4>
+                  {rascunhosComunicados.slice(0, 5).map((rascunho, indice) => (
+                    <article key={`${rascunho.criadoEm}-${indice}`} className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                      <time className="block text-[10px] text-slate-500">{new Date(rascunho.criadoEm).toLocaleString('pt-BR')}</time>
+                      <p className="mt-1 whitespace-pre-wrap text-slate-800">{rascunho.texto}</p>
+                    </article>
+                  ))}
                 </div>
               )}
             </div>
@@ -901,51 +865,18 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                     </div>
 
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">
-                        Nova Senha de Login no Sistema: *
-                      </label>
-                      <input
-                        type={mostrarSenhaLogin ? 'text' : 'password'}
-                        value={novaSenhaLogin}
-                        onChange={(e) => setNovaSenhaLogin(e.target.value)}
-                        placeholder="Nova senha de login (mínimo 6 caracteres)..."
-                        className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                        required
-                        minLength={6}
-                      />
+                      <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-950">
+                        O servidor gera uma senha temporária aleatória, encerra as sessões existentes e exige que a pessoa escolha uma nova senha no próximo acesso. A senha aparece uma única vez nesta confirmação; entregue-a por canal seguro.
+                      </p>
                     </div>
 
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">
-                        Confirmar Nova Senha de Login: *
-                      </label>
-                      <input
-                        type={mostrarSenhaLogin ? 'text' : 'password'}
-                        value={confirmaNovaSenhaLogin}
-                        onChange={(e) => setConfirmaNovaSenhaLogin(e.target.value)}
-                        placeholder="Repita a nova senha de login..."
-                        className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                        required
-                        minLength={6}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={() => setMostrarSenhaLogin(!mostrarSenhaLogin)}
-                        className="text-slate-500 hover:text-slate-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        {mostrarSenhaLogin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        <span>{mostrarSenhaLogin ? 'Ocultar caracteres' : 'Exibir caracteres'}</span>
-                      </button>
-
+                    <div className="flex justify-end pt-1">
                       <button
                         type="submit"
                         className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-all"
                       >
                         <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                        <span>Atualizar Senha de Login</span>
+                        <span>Gerar senha temporária</span>
                       </button>
                     </div>
                   </form>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Loader2, MapPin, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { buscarCep } from '../services/viaCep';
 import { DadosViaCep } from '../types';
@@ -14,6 +14,7 @@ export default function CepInput({ value, onChange, onDadosCarregados, disabled 
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState(false);
+  const consultaId = useRef(0);
 
   // Formata 00000-000
   const formatarCep = (v: string) => {
@@ -25,6 +26,7 @@ export default function CepInput({ value, onChange, onDadosCarregados, disabled 
   };
 
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const idAtual = ++consultaId.current;
     const rawVal = e.target.value;
     const formatado = formatarCep(rawVal);
     onChange(formatado);
@@ -36,18 +38,26 @@ export default function CepInput({ value, onChange, onDadosCarregados, disabled 
       setErro(null);
       setSucesso(false);
       
-      const resposta = await buscarCep(cepLimpo);
-      
-      if (resposta.erro) {
-        setErro(resposta.mensagem || 'CEP inválido');
-        setSucesso(false);
-      } else if (resposta.dados) {
-        setSucesso(true);
-        onDadosCarregados?.(resposta.dados);
+      try {
+        const resposta = await buscarCep(cepLimpo);
+        if (idAtual !== consultaId.current) return;
+        if (resposta.erro) {
+          setErro(resposta.mensagem || 'CEP inválido');
+          setSucesso(false);
+        } else if (resposta.dados) {
+          setSucesso(true);
+          onDadosCarregados?.(resposta.dados);
+        }
+      } catch (e) {
+        if (idAtual === consultaId.current) {
+          setErro(e instanceof Error ? e.message : 'Falha na consulta ao ViaCEP. Preencha o endereço manualmente.');
+          setSucesso(false);
+        }
+      } finally {
+        if (idAtual === consultaId.current) setCarregando(false);
       }
-      
-      setCarregando(false);
     } else {
+      setCarregando(false);
       setErro(null);
       setSucesso(false);
     }

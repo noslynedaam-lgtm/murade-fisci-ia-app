@@ -21,6 +21,10 @@ export interface FuncionarioFolha {
 
 export interface EmpresaDados {
   id?: string;
+  /** Identificador persistido no PostgreSQL central, quando já sincronizado. */
+  idCentral?: string;
+  /** Escritório proprietário no PostgreSQL central. */
+  tenantIdCentral?: string;
   cnpj: string;
   razaoSocial: string;
   nomeFantasia?: string;
@@ -46,7 +50,7 @@ export interface EmpresaDados {
   cpfContador?: string;
   telefoneContador?: string;
   emailContador?: string;
-  statusCND?: 'REGULAR' | 'PENDENCIA' | 'VENCIDA';
+  statusCND?: 'REGULAR' | 'PENDENCIA' | 'VENCIDA' | 'NAO_CONSULTADA';
   envioDadosMes?: 'ENVIADO' | 'NAO_ENVIADO';
   dataEnvioDados?: string;
   envioDCTFWeb?: 'ENVIADO' | 'NAO_ENVIADO';
@@ -61,6 +65,7 @@ export interface EmpresaDados {
     validade?: string;
     emissor?: string;
     ativo?: boolean;
+    valido?: boolean;
     dataCadastro?: string;
   };
 }
@@ -190,7 +195,7 @@ export interface DadosViaCep {
 }
 
 export interface StatusVencimento {
-  texto: 'VENCIDO' | 'HOJE' | 'URGENTE' | 'ATENÇÃO' | 'NO PRAZO';
+  texto: 'VENCIDO' | 'HOJE' | 'URGENTE' | 'ATENÇÃO' | 'NO PRAZO' | 'CONCLUÍDO';
   cor: string;
   icone: string;
 }
@@ -204,13 +209,6 @@ export interface ItemAgendaFiscal {
   diasParaVencer: number;
   status: StatusVencimento;
   alertas: number[];
-}
-
-export interface ConfigLembretes {
-  notificacaoApp: boolean;
-  email: boolean;
-  whatsapp: boolean;
-  horaLembrete: string;
 }
 
 export interface UsuarioAuth {

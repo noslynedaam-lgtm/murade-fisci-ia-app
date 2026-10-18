@@ -41,13 +41,16 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
               </div>
               <span className="font-extrabold text-xs tracking-tight">FISCOIA Mobile</span>
             </div>
-            <span className="text-[9px] bg-yellow-400 text-slate-950 px-1.5 py-0.5 rounded font-black">
-              CELULAR
+            <span className="text-[9px] bg-amber-300 text-slate-950 px-1.5 py-0.5 rounded font-black">
+              SIMULAÇÃO
             </span>
           </div>
 
           {/* ÁREA DE CONTEÚDO DA TELA SIMULADA */}
           <div className="flex-1 p-3 overflow-y-auto space-y-2.5 text-xs bg-slate-50 relative">
+            <div role="note" className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[9px] font-bold leading-snug text-amber-950">
+              SIMULAÇÃO: dados e status fictícios. Nada é consultado, transmitido, pago ou enviado.
+            </div>
             {/* SETA ANIMADA INDICANDO ONDE CLICAR NO CELULAR */}
             {alvoClique && (
               <IndicadorSetaClique 
@@ -90,17 +93,17 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-3 rounded-xl shadow-xs space-y-1">
                   <span className="text-[10px] text-indigo-200 uppercase font-bold">Resumo Fiscal 2026</span>
                   <div className="text-sm font-black">Murade Assessoria</div>
-                  <div className="text-[10px] text-emerald-300 font-semibold">● 14 empresas regulares</div>
+                  <div className="text-[10px] text-amber-200 font-semibold">Exemplo fictício · sem consulta externa</div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-center">
                   <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 block">DCTFWeb</span>
-                    <strong className="text-xs text-indigo-950">R$ 14.850,20</strong>
+                    <strong className="text-xs text-indigo-950">Valor fictício</strong>
                   </div>
                   <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-2xs">
                     <span className="text-[10px] text-slate-400 block">DARF Dia 20</span>
-                    <strong className="text-xs text-emerald-700">Emitido ✓</strong>
+                    <strong className="text-xs text-amber-700">Exemplo</strong>
                   </div>
                 </div>
 
@@ -108,7 +111,7 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                   <strong className="text-[11px] text-slate-800 block">Vencimento Próximo</strong>
                   <div className="flex items-center justify-between text-[10px] text-slate-600">
                     <span>INSS Folha Mensal</span>
-                    <span className="text-rose-600 font-bold">20/09/2026</span>
+                    <span className="text-amber-700 font-bold">Data ilustrativa</span>
                   </div>
                 </div>
               </div>
@@ -124,17 +127,17 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 <div className="bg-white p-2.5 rounded-xl border-2 border-amber-400 space-y-1.5 shadow-2xs">
                   <div className="flex items-center justify-between text-[11px]">
                     <strong className="text-slate-900">Empresa Exemplo (Demonstração)</strong>
-                    <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[9px]">
-                      Transmitida
+                    <span className="text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded text-[9px]">
+                      Exemplo fictício
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">DARF: R$ 4.250,00</div>
+                  <div className="text-[10px] text-slate-500 font-mono">Valor de DARF: fictício</div>
                   <button 
                     type="button"
                     onClick={onAvancar}
                     className="w-full py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer"
                   >
-                    Transmitir DCTFWeb
+                    Ação demonstrativa
                   </button>
                 </div>
               </div>
@@ -146,10 +149,10 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-2xs">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-slate-900">DARF Previdenciário</span>
-                    <span className="font-bold text-indigo-700">R$ 2.450,80</span>
+                    <span className="font-bold text-indigo-700">Valor fictício</span>
                   </div>
                   <div className="text-[9px] text-slate-500 font-mono">
-                    85800000002-4 45080182202-6...
+                    Código ilustrativo — não utilizar
                   </div>
                   <div className="space-y-1.5">
                     <button 
@@ -157,14 +160,14 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                       onClick={onAvancar}
                       className="w-full py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg ring-2 ring-amber-400 cursor-pointer"
                     >
-                      Copiar Pix Copia e Cola
+                      Exemplo de Pix (não copiar)
                     </button>
                     <button 
                       type="button"
                       onClick={onAvancar}
                       className="w-full py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1 ring-2 ring-amber-400 cursor-pointer"
                     >
-                      <Share2 className="w-2.5 h-2.5" /> Enviar por WhatsApp
+                      <Share2 className="w-2.5 h-2.5" /> Ação demonstrativa
                     </button>
                   </div>
                 </div>
@@ -176,10 +179,10 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 <div className="bg-indigo-950 text-white p-2.5 rounded-xl space-y-1">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="text-yellow-400 font-bold uppercase">SERPRO Integra</span>
-                    <span className="text-emerald-400 font-semibold">● Online</span>
+                    <span className="text-amber-300 font-semibold">● Demonstração</span>
                   </div>
-                  <strong className="text-xs block">Gateway Oficial 2026</strong>
-                  <div className="text-[9px] text-indigo-200 font-mono">Latência: 125ms</div>
+                  <strong className="text-xs block">Sem conexão oficial</strong>
+                  <div className="text-[9px] text-indigo-200">Latência não medida</div>
                 </div>
 
                 <button
@@ -191,14 +194,14 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 </button>
 
                 <div className="bg-white p-2.5 rounded-xl border border-slate-200 space-y-1 text-[10px] shadow-2xs">
-                  <span className="font-bold text-slate-800 block">Serviços Ativos:</span>
+                  <span className="font-bold text-slate-800 block">Exemplos de serviços (não conectados):</span>
                   <div className="flex justify-between text-slate-600">
                     <span>Integra Contador (DCTFWeb)</span>
-                    <span className="text-emerald-700 font-bold">OK</span>
+                    <span className="text-amber-700 font-bold">Não conectado</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
                     <span>Consulta CNPJ Receita</span>
-                    <span className="text-emerald-700 font-bold">OK</span>
+                    <span className="text-amber-700 font-bold">Não conectado</span>
                   </div>
                 </div>
               </div>
@@ -210,9 +213,9 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                 <div className="bg-white p-2.5 rounded-xl border-2 border-amber-400 space-y-1.5 shadow-2xs">
                   <div className="flex items-center justify-between text-[11px]">
                     <strong className="text-slate-900">Empresa Exemplo (Demonstração)</strong>
-                    <span className="text-emerald-700 bg-emerald-50 px-1 rounded text-[9px] font-bold">Válida</span>
+                    <span className="text-amber-800 bg-amber-50 px-1 rounded text-[9px] font-bold">Exemplo</span>
                   </div>
-                  <div className="text-[10px] text-slate-500">Poderes: DCTFWeb, e-CAC, CND</div>
+                  <div className="text-[10px] text-slate-500">Poderes ilustrativos; não consultados no e-CAC.</div>
                   <button
                     type="button"
                     onClick={onAvancar}
@@ -231,11 +234,11 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                   <p className="mt-0.5">&quot;Qual o prazo de entrega da DCTFWeb de Setembro?&quot;</p>
                 </div>
                 <div className="bg-white p-2 rounded-xl border border-slate-200 text-[11px] text-slate-800 space-y-1 shadow-2xs">
-                  <span className="font-bold text-indigo-700 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" /> Resposta IA Fiscal:
+                  <span className="font-bold text-amber-800 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" /> Resposta fictícia — não usar como orientação:
                   </span>
                   <p className="text-[10px] text-slate-600 leading-relaxed">
-                    Vencimento no dia 20. Se for domingo ou feriado, antecipa-se para o dia útil anterior.
+                    Resposta estática removida. Consulte o assistente real e valide o prazo em fonte oficial para a competência e obrigação corretas.
                   </p>
                 </div>
                 <button
@@ -243,7 +246,7 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
                   onClick={onAvancar}
                   className="w-full py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold ring-2 ring-amber-400 cursor-pointer"
                 >
-                  Enviar Consulta Fiscal
+                  Ação demonstrativa
                 </button>
               </div>
             )}

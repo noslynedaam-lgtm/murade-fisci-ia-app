@@ -3,13 +3,7 @@
 // ==========================================================
 
 export interface ConfigVozMurad {
-  apiKeyElevenLabs: string;
   voiceId: string;
-  velocidade: number;
-  planoAtivo: 'GRATIS' | 'BASICO' | 'PROFISSIONAL' | 'EMPRESA';
-  caracteresUsadosMes: number;
-  limiteCaracteres: number;
-  chaveAtiva: boolean;
 }
 
 const STORAGE_KEY = 'murade_ia_voz_config_v1';
@@ -25,22 +19,21 @@ export function obterConfigVoz(): ConfigVozMurad {
   try {
     const salvo = localStorage.getItem(STORAGE_KEY);
     if (salvo) {
-      return JSON.parse(salvo);
+      const config = JSON.parse(salvo) as Partial<ConfigVozMurad> & { apiKeyElevenLabs?: string };
+      // Chaves guardadas por versões antigas ficam descartadas; credenciais pertencem ao servidor.
+      if (config.apiKeyElevenLabs) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(CONFIG_VOZ_PADRAO));
+      }
+      return { ...CONFIG_VOZ_PADRAO, voiceId: config.voiceId || CONFIG_VOZ_PADRAO.voiceId };
     }
   } catch (e) {
     console.error('Erro ao ler config de voz:', e);
   }
 
-  return {
-    apiKeyElevenLabs: '',
-    voiceId: '21m00Tcm4TlvDq8ikWAM',
-    velocidade: 1.0,
-    planoAtivo: 'GRATIS',
-    caracteresUsadosMes: 0,
-    limiteCaracteres: 5000,
-    chaveAtiva: false
-  };
+  return CONFIG_VOZ_PADRAO;
 }
+
+const CONFIG_VOZ_PADRAO: ConfigVozMurad = { voiceId: '21m00Tcm4TlvDq8ikWAM' };
 
 export function salvarConfigVoz(config: Partial<ConfigVozMurad>): ConfigVozMurad {
   const atual = obterConfigVoz();
@@ -55,8 +48,7 @@ export function salvarConfigVoz(config: Partial<ConfigVozMurad>): ConfigVozMurad
 
 /**
  * Reproduz áudio com fala humana brasileira.
- * Se houver chave ElevenLabs, tenta consumir a API de alta fidelidade.
- * Se não houver ou falhar, utiliza Web Speech API com voz PT-BR nativa de alta clareza.
+ * Usa a chave do servidor para solicitar áudio premium; sem configuração, usa a voz nativa do navegador.
  */
 export async function falarTextoNatural(
   texto: string,
@@ -66,44 +58,34 @@ export async function falarTextoNatural(
 ): Promise<void> {
   const config = obterConfigVoz();
 
-  // Se tiver chave ElevenLabs configurada
-  if (config.apiKeyElevenLabs && config.apiKeyElevenLabs.trim().length > 10 && config.voiceId !== 'native_pt_br') {
+  if (config.voiceId !== 'native_pt_br') {
     try {
-      onInicio?.();
-      const resposta = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voiceId}`, {
+      const resposta = await fetch('/api/voz/sintetizar', {
         method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': config.apiKeyElevenLabs.trim()
-        },
-        body: JSON.stringify({
-          text: texto,
-          model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.8
-          }
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto, vozId: config.voiceId })
       });
 
       if (!resposta.ok) {
-        throw new Error(`Erro ElevenLabs (${resposta.status}): ${await resposta.text()}`);
+        const erro = await resposta.json().catch(() => ({}));
+        throw new Error(erro.erro || `Síntese indisponível (${resposta.status}).`);
       }
 
       const audioBlob = await resposta.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
+      audioAtual = audio;
+      onInicio?.();
 
       audio.onended = () => {
-        // Atualiza consumo de caracteres
-        salvarConfigVoz({
-          caracteresUsadosMes: config.caracteresUsadosMes + texto.length
-        });
+        URL.revokeObjectURL(audioUrl);
+        audioAtual = null;
         onFim?.();
       };
 
       audio.onerror = (e) => {
+        URL.revokeObjectURL(audioUrl);
+        audioAtual = null;
         console.warn('Erro ao tocar áudio ElevenLabs, usando fallback nativo:', e);
         fallbackNativo(texto, onInicio, onFim, onError);
       };
@@ -112,7 +94,7 @@ export async function falarTextoNatural(
       return;
     } catch (erro) {
       console.warn('Falha no ElevenLabs, utilizando síntese vocal nativa brasileira:', erro);
-      // Fallback gracioso para a voz nativa do navegador
+      onError?.(erro);
     }
   }
 
@@ -120,7 +102,8 @@ export async function falarTextoNatural(
   fallbackNativo(texto, onInicio, onFim, onError);
 }
 
-let timerFalaNativa: any = null;
+let timerFalaNativa: ReturnType<typeof setTimeout> | null = null;
+let audioAtual: HTMLAudioElement | null = null;
 
 function fallbackNativo(
   texto: string,
@@ -211,6 +194,11 @@ function fallbackNativo(
 }
 
 export function pararVoz() {
+  if (audioAtual) {
+    audioAtual.pause();
+    audioAtual.src = '';
+    audioAtual = null;
+  }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     if (timerFalaNativa) {
       clearTimeout(timerFalaNativa);

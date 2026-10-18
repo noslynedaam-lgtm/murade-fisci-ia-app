@@ -9,7 +9,8 @@ export interface OrgaoPublicoItem {
   urlEmissaoCnd?: string;
   urlPortalPrincipal: string;
   servicosPrincipais: string[];
-  status: 'operacional' | 'manutencao' | 'alerta';
+  /** Catálogo estático; não representa disponibilidade nem conexão ao órgão. */
+  status: 'portal_listado' | 'manutencao' | 'alerta';
   icone: string;
 }
 
@@ -23,10 +24,10 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     sigla: 'RFB / e-CAC',
     esfera: 'federal',
     descricao: 'Centro Virtual de Atendimento da Receita Federal. Apuração de DCTFWeb, DARF, parcelamentos, procurações e compliance.',
-    urlEmissaoCnd: 'https://solucoes.receita.fazenda.gov.br/Servicos/certidaointernet/PJ/Emitir',
+    urlEmissaoCnd: 'https://servicos.receitafederal.gov.br/servico/certidoes',
     urlPortalPrincipal: 'https://cav.receita.fazenda.gov.br/ecac/',
     servicosPrincipais: ['DCTFWeb', 'DARF Numerado', 'Procuração Eletrônica', 'DIPJ/DIRF/SPED', 'Caixa Postal Fiscal'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '🏛️'
   },
   {
@@ -35,10 +36,10 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     sigla: 'CND Federal Conjunta',
     esfera: 'federal',
     descricao: 'Emissão oficial de certidão de débitos relativos a tributos federais e à dívida ativa da União (inclui INSS/Previdência).',
-    urlEmissaoCnd: 'https://solucoes.receita.fazenda.gov.br/Servicos/certidaointernet/PJ/Emitir',
+    urlEmissaoCnd: 'https://servicos.receitafederal.gov.br/servico/certidoes',
     urlPortalPrincipal: 'https://www.gov.br/pt-br/servicos/emitir-certidao-de-regularidade-fiscal',
     servicosPrincipais: ['Certidão Negativa PJ', 'Certidão Positiva com Efeitos de Negativa', 'Validação de Autenticidade'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '📜'
   },
   {
@@ -50,7 +51,7 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     urlEmissaoCnd: 'https://www8.receita.fazenda.gov.br/SimplesNacional/Servicos/Grupo.aspx?grp=1',
     urlPortalPrincipal: 'https://www8.receita.fazenda.gov.br/SimplesNacional/',
     servicosPrincipais: ['PGDAS-D', 'Geração de DAS', 'DEFIS', 'Consulta de Opção', 'Parcelamento Simples'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '🟢'
   },
   {
@@ -62,7 +63,7 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     urlEmissaoCnd: 'https://loja.serpro.gov.br/integracontador',
     urlPortalPrincipal: 'https://gateway.apiserpro.serpro.gov.br',
     servicosPrincipais: ['API Integra Contador', 'Emissão em Lote de Guias', 'Consulta Situação Fiscal', 'Consulta CNPJ/CPF'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '⚡'
   },
   {
@@ -74,7 +75,7 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     urlEmissaoCnd: 'https://solucoes.receita.fazenda.gov.br/servicos/cnpjreva/cnpjreva_solicitacao.asp',
     urlPortalPrincipal: 'https://www.gov.br/empresas-e-negocios/pt-br/redesim',
     servicosPrincipais: ['Comprovante de CNPJ', 'DBE - Documento Básico de Entrada', 'Viabilidade', 'Consulta de Nome Empresarial'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '🌐'
   },
   {
@@ -85,7 +86,7 @@ export const ORGAOS_FEDERAIS: OrgaoPublicoItem[] = [
     descricao: 'Comunicações oficiais eletrônicas, citações, intimações fiscais da União e Poder Judiciário.',
     urlPortalPrincipal: 'https://comunicacaoprocessual.cnj.jus.br/',
     servicosPrincipais: ['Intimações Federais', 'Notificações Fiscais', 'Comunicações do Judiciário'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '📬'
   }
 ];
@@ -340,17 +341,17 @@ export const LISTA_PREFEITURAS: PrefeituraItem[] = [
     municipio: 'Goiânia',
     uf: 'GO',
     orgaoNome: 'Prefeitura de Goiânia — SEFIN / SCCER',
-    urlCnd: 'https://www.goiania.go.gov.br/sistemas/sccer/asp/sccer00300f0.asp',
-    urlPortal: 'https://www.goiania.go.gov.br/sefaz/',
-    descricao: 'Sistema SCCER de Certidão Negativa Municipal e Portal SEFIN Goiânia.'
+    urlCnd: 'https://www.goiania.go.gov.br/sistemas/saces/asp/saces00000f0.asp?sigla=sccer',
+    urlPortal: 'https://www.goiania.go.gov.br/',
+    descricao: 'Acesso direto ao sistema SCCER para Certidão de Situação Fiscal do Contribuinte (ISS) e Portal SEFIN Goiânia.'
   },
   {
     id: 'pref_sao_paulo',
     municipio: 'São Paulo',
     uf: 'SP',
     orgaoNome: 'Prefeitura de São Paulo — DUC / Tributos Mobiliários',
-    urlCnd: 'https://duc.prefeitura.sp.gov.br',
-    urlPortal: 'https://capital.sp.gov.br',
+    urlCnd: 'https://prefeitura.sp.gov.br/fazenda/w/servicos/certidoes/2397',
+    urlPortal: 'https://duc.prefeitura.sp.gov.br',
     descricao: 'DUC - Demonstrativo Unificado do Contribuinte e Certidão Conjunta de Tributos Mobiliários.'
   },
   {
@@ -458,7 +459,7 @@ export const ORGAOS_TRABALHISTAS: OrgaoPublicoItem[] = [
     urlEmissaoCnd: 'https://www.tst.jus.br/certidao',
     urlPortalPrincipal: 'https://www.tst.jus.br',
     servicosPrincipais: ['Emissão CNDT', 'Validação de Certidão', 'Consulta BNDT'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '⚖️'
   },
   {
@@ -466,11 +467,11 @@ export const ORGAOS_TRABALHISTAS: OrgaoPublicoItem[] = [
     nome: 'Caixa Econômica Federal — CRF FGTS',
     sigla: 'Caixa CRF FGTS',
     esfera: 'trabalhista',
-    descricao: 'Certificado de Regularidade do FGTS (CRF) emitido em tempo real pela Caixa Econômica Federal.',
+    descricao: 'Portal oficial da Caixa para consulta do Certificado de Regularidade do FGTS (CRF). A consulta deve ser feita no portal.',
     urlEmissaoCnd: 'https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf',
     urlPortalPrincipal: 'https://www.caixa.gov.br',
     servicosPrincipais: ['Consulta CRF Empregador', 'Histórico de Regularidade', 'Comprovante Oficial de Quitação'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '💰'
   },
   {
@@ -481,7 +482,7 @@ export const ORGAOS_TRABALHISTAS: OrgaoPublicoItem[] = [
     descricao: 'Novo sistema oficial de recolhimento do FGTS via Pix com integração ao eSocial e DCTFWeb.',
     urlPortalPrincipal: 'https://fgtsdigital.sistema.gov.br',
     servicosPrincipais: ['Geração de Guia Rápida Pix', 'Gestão de Guias', 'Remunerações para FGTS', 'Certidões'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '📱'
   },
   {
@@ -492,7 +493,7 @@ export const ORGAOS_TRABALHISTAS: OrgaoPublicoItem[] = [
     descricao: 'Sistema de Escrituração Digital das Obrigações Fiscais, Previdenciárias e Trabalhistas.',
     urlPortalPrincipal: 'https://www.gov.br/esocial/pt-br',
     servicosPrincipais: ['Folha de Pagamento', 'Eventos S-1200 / S-1210 / S-1299', 'Fechamento de Período', 'SST'],
-    status: 'operacional',
+    status: 'portal_listado',
     icone: '👥'
   }
 ];
@@ -506,9 +507,21 @@ export function obterSefazPorUf(uf: string): SefazEstado | undefined {
 // Helper para obter Prefeitura por nome ou UF
 export function obterPrefeituraPorNomeOuUf(municipioOuUf: string): PrefeituraItem | undefined {
   if (!municipioOuUf) return undefined;
-  const termo = municipioOuUf.toLowerCase();
+  const termo = normalizarNomeMunicipio(municipioOuUf);
   return (
-    LISTA_PREFEITURAS.find(p => p.municipio.toLowerCase() === termo) ||
+    LISTA_PREFEITURAS.find(p => normalizarNomeMunicipio(p.municipio) === termo) ||
     LISTA_PREFEITURAS.find(p => p.uf.toLowerCase() === termo)
   );
+}
+
+function normalizarNomeMunicipio(valor: string): string {
+  return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
+}
+
+/** Só retorna uma prefeitura quando município e UF identificam a mesma cidade. */
+export function obterPrefeituraPorMunicipioEUf(municipio: string, uf: string): PrefeituraItem | undefined {
+  if (!municipio.trim() || !uf.trim()) return undefined;
+  const nome = normalizarNomeMunicipio(municipio);
+  const sigla = uf.trim().toUpperCase();
+  return LISTA_PREFEITURAS.find(p => p.uf === sigla && normalizarNomeMunicipio(p.municipio) === nome);
 }

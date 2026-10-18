@@ -2,11 +2,11 @@ import { useState, FormEvent, useEffect } from 'react';
 import { 
   User, Shield, Lock, CreditCard, CheckCircle2, 
   Calendar, Building2, Phone, Mail, Award, Key, 
-  AlertCircle, Sparkles, RefreshCw, Trash2, ArrowRight
+  AlertCircle, Sparkles, RefreshCw, ArrowRight
 } from 'lucide-react';
 import { UsuarioAuth } from '../../types';
 import { PLANOS } from '../../config/planos';
-import { atualizarPerfilUsuario, limparTodosOsCadastros } from '../../services/auth/auth.service';
+import { atualizarPerfilUsuario, alterarSenhaContaLocal } from '../../services/auth/auth.service';
 
 interface MinhaContaScreenProps {
   usuario: UsuarioAuth | null;
@@ -17,11 +17,12 @@ interface MinhaContaScreenProps {
 export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavegar }: MinhaContaScreenProps) {
   // Form State da Contadora / Titular
   const [nome, setNome] = useState(usuario?.nome || '');
-  const [email, setEmail] = useState(usuario?.email || '');
   const [telefone, setTelefone] = useState(usuario?.telefone || '');
   const [crc, setCrc] = useState(usuario?.crc || '');
   const [cpfCnpj, setCpfCnpj] = useState(usuario?.cpfCnpj || '');
   const [salvoComSucesso, setSalvoComSucesso] = useState(false);
+  const [erroPerfil, setErroPerfil] = useState<string | null>(null);
+  const [salvandoPerfil, setSalvandoPerfil] = useState(false);
 
   // Estados de troca de senha
   const [senhaAtual, setSenhaAtual] = useState('');
@@ -33,14 +34,13 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
   useEffect(() => {
     if (usuario) {
       setNome(usuario.nome || '');
-      setEmail(usuario.email || '');
       setTelefone(usuario.telefone || '');
       setCrc(usuario.crc || '');
       setCpfCnpj(usuario.cpfCnpj || '');
     }
   }, [usuario]);
 
-  const planoInfo = PLANOS[(usuario?.idPlano || 'empresarial').toUpperCase()] || PLANOS.EMPRESARIAL;
+  const planoInfo = PLANOS[(usuario?.idPlano || 'basico').toUpperCase()] || PLANOS.BASICO;
 
   const formatarCrc = (valor: string) => {
     // Mantém maiúsculas e remove caracteres indesejados
@@ -54,55 +54,59 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
     setCpfCnpj('');
   };
 
-  const handleSalvarPerfil = (e: FormEvent) => {
+  const handleSalvarPerfil = async (e: FormEvent) => {
     e.preventDefault();
+    if (!usuario) {
+      setErroPerfil('Não há uma sessão autenticada para salvar o perfil.');
+      return;
+    }
     const atualizado: UsuarioAuth = {
-      ...(usuario || {
-        id: 'user-contador',
-        idPlano: 'empresarial',
-        nomePlano: 'Plano Empresarial (Até 500 CNPJs)',
-        dataVencimento: '31/12/2030',
-        primeiroAcesso: false,
-        ativo: true,
-        ehAdmin: false,
-        tipo: 'CONTADOR'
-      }),
+      ...usuario,
       nome: nome.trim() || (usuario?.nome || 'Contabilidade'),
-      email: email.trim() || (usuario?.email || ''),
+      email: usuario.email,
       telefone: telefone.trim(),
       crc: crc.trim(),
       cpfCnpj: cpfCnpj.trim()
     };
 
-    atualizarPerfilUsuario(atualizado);
+    setSalvandoPerfil(true);
+    setErroPerfil(null);
+    setSalvoComSucesso(false);
+    const resultado = await atualizarPerfilUsuario(atualizado);
+    setSalvandoPerfil(false);
+    if (!resultado.sucesso || !resultado.usuario) {
+      setErroPerfil(resultado.mensagem);
+      return;
+    }
+    const usuarioSalvo = resultado.usuario;
 
     // Também armazena como dados padrão da contadora para novos cadastros de empresas
     try {
       localStorage.setItem('fiscoia_contadora_padrao', JSON.stringify({
-        nome: atualizado.nome,
-        crc: atualizado.crc,
-        telefone: atualizado.telefone,
-        cpfCnpj: atualizado.cpfCnpj,
-        email: atualizado.email
+        nome: usuarioSalvo.nome,
+        crc: usuarioSalvo.crc,
+        telefone: usuarioSalvo.telefone,
+        cpfCnpj: usuarioSalvo.cpfCnpj,
+        email: usuarioSalvo.email
       }));
     } catch {}
 
     if (onAtualizarUsuario) {
-      onAtualizarUsuario(atualizado);
+      onAtualizarUsuario(usuarioSalvo);
     }
 
     setSalvoComSucesso(true);
     setTimeout(() => setSalvoComSucesso(false), 3500);
   };
 
-  const handleTrocarSenha = (e: FormEvent) => {
+  const handleTrocarSenha = async (e: FormEvent) => {
     e.preventDefault();
     if (!senhaAtual || !novaSenha) {
       setMsgSenha({ tipo: 'erro', texto: 'Preencha a senha atual e a nova senha.' });
       return;
     }
-    if (novaSenha.length < 6) {
-      setMsgSenha({ tipo: 'erro', texto: 'A nova senha deve ter no mínimo 6 caracteres.' });
+    if (novaSenha.length < 12) {
+      setMsgSenha({ tipo: 'erro', texto: 'A nova senha deve ter no mínimo 12 caracteres.' });
       return;
     }
     if (novaSenha !== confirmarSenha) {
@@ -110,20 +114,16 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
       return;
     }
 
-    setMsgSenha({ tipo: 'sucesso', texto: 'Senha alterada com sucesso!' });
+    const resultado = await alterarSenhaContaLocal(usuario?.email || '', senhaAtual, novaSenha);
+    if (!resultado.sucesso) {
+      setMsgSenha({ tipo: 'erro', texto: resultado.mensagem });
+      return;
+    }
+    setMsgSenha({ tipo: 'sucesso', texto: resultado.mensagem });
     setSenhaAtual('');
     setNovaSenha('');
     setConfirmarSenha('');
     setTimeout(() => setMsgSenha(null), 4000);
-  };
-
-  const handleLimparTodosCadastrosGerais = () => {
-    if (window.confirm('Deseja realmente redefinir a base local e deixar tudo limpo para o uso oficial do seu escritório?')) {
-      limparTodosOsCadastros();
-      handleLimparFormulario();
-      alert('Base redefinida com sucesso! Agora você pode cadastrar suas empresas reais e preencher o CRC da contadora.');
-      window.location.reload();
-    }
   };
 
   const inicial = (nome || usuario?.nome || 'C').charAt(0).toUpperCase();
@@ -152,10 +152,10 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">{email || usuario?.email || 'contato@empresa.com.br'}</p>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">{usuario?.email || ''}</p>
             <p className="text-xs text-emerald-700 font-semibold mt-1 flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              Conta Ativa e Habilitada no Compliance FISCOIA
+              Perfil e autenticação vinculados à conta do servidor
             </p>
           </div>
         </div>
@@ -174,10 +174,10 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
           )}
 
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-xs space-y-0.5">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block">Capacidade</span>
+            <span className="text-[10px] font-bold uppercase text-slate-400 block">Plano de referência</span>
             <p className="font-bold text-slate-900">{usuario?.nomePlano || planoInfo.nome}</p>
             <p className="text-slate-500 text-[11px]">
-              Limite: <strong className="text-indigo-950">{planoInfo.maxCnpjs} CNPJs</strong>
+              Limite não aplicado pelo servidor: <strong className="text-indigo-950">{planoInfo.maxCnpjs} CNPJs</strong>
             </p>
           </div>
         </div>
@@ -204,6 +204,8 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
                 </span>
               )}
             </div>
+
+            {erroPerfil && <p role="alert" className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{erroPerfil}</p>}
 
             <form onSubmit={handleSalvarPerfil} className="space-y-4 text-xs">
               <div>
@@ -258,11 +260,12 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
                   </label>
                   <input
                     type="email"
-                    placeholder="contato@seuescritorio.com.br"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-indigo-600 font-mono"
+                    value={usuario?.email || ''}
+                    readOnly
+                    aria-describedby="email-acesso-ajuda"
+                    className="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-200 rounded-xl outline-none font-mono text-slate-600"
                   />
+                  <span id="email-acesso-ajuda" className="text-[10px] text-slate-500 mt-1 block">O e-mail de acesso não pode ser alterado por este formulário.</span>
                 </div>
 
                 <div>
@@ -283,10 +286,11 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
               <div className="pt-2 flex items-center gap-3">
                 <button
                   type="submit"
-                  className="flex-1 py-3 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-2"
+                  disabled={salvandoPerfil}
+                  className="flex-1 py-3 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait"
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Salvar Cadastro da Contadora</span>
+                  <span>{salvandoPerfil ? 'Salvando no servidor…' : 'Salvar Perfil no Servidor'}</span>
                 </button>
 
                 <button
@@ -314,7 +318,7 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
           </div>
         </div>
 
-        {/* Coluna Direita: Segurança & Senha + Reset Geral */}
+        {/* Coluna Direita: Segurança & Senha */}
         <div className="md:col-span-5 space-y-6">
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h2 className="text-sm font-black text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
@@ -349,7 +353,7 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
                 <label className="font-bold text-slate-700 block mb-1">Nova Senha</label>
                 <input
                   type="password"
-                  placeholder="Mínimo 6 caracteres"
+                    placeholder="Mínimo 12 caracteres"
                   value={novaSenha}
                   onChange={(e) => setNovaSenha(e.target.value)}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-indigo-600"
@@ -376,24 +380,6 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
             </form>
           </div>
 
-          {/* Área de Limpeza Geral de Cadastros Antigos */}
-          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 text-xs text-slate-700 space-y-3">
-            <div className="flex items-center gap-2 font-bold text-slate-900">
-              <Trash2 className="w-4 h-4 text-rose-600" />
-              <span>Limpeza e Redefinição de Cadastros</span>
-            </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Caso deseje reiniciar o banco de dados local do navegador e começar com seus cadastros 100% reais, use o botão abaixo:
-            </p>
-            <button
-              type="button"
-              onClick={handleLimparTodosCadastrosGerais}
-              className="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Redefinir Todos os Cadastros do Sistema</span>
-            </button>
-          </div>
         </div>
       </div>
     </div>

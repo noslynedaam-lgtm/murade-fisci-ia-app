@@ -28,15 +28,16 @@ import { ModulosMuradeScreen } from './screens/ModulosMuradeScreen';
 import { IaMuradVozScreen } from './screens/IaVoz/IaMuradVozScreen';
 import { ModalCalculadoraFiscal } from './components/ModalCalculadoraFiscal';
 import { PainelAnimadoLateral } from './components/PainelAnimadoLateral';
-import { obterSessaoAtual, logout, obterEmailsEnviados, EmailEnviadoLog } from './services/auth/auth.service';
+import { validarSessaoCentral, logout, obterEmailsEnviados, EmailEnviadoLog } from './services/auth/auth.service';
 import { UsuarioAuth, EmpresaDados } from './types';
 import { ehUsuarioAdmin, TIPOS_USUARIO } from './config/Permissoes';
 import { AlertCircle, ShieldCheck, Mail, LogIn, Key, X, ShieldAlert, ClipboardCheck } from 'lucide-react';
 import { NavigationProvider } from './context/NavigationContext';
+import { MonitorPendenciasFiscal } from './components/MonitorPendenciasFiscal';
 
 export default function App() {
   const [abaAtiva, setAbaAtiva] = useState<string>('dashboard');
-  const [planoAtivoId, setPlanoAtivoId] = useState<'basico' | 'profissional' | 'empresarial'>('empresarial');
+  const [planoAtivoId, setPlanoAtivoId] = useState<'basico' | 'profissional' | 'empresarial'>('basico');
   const [mostrarAvisoVencimento, setMostrarAvisoVencimento] = useState(false);
   const [avisoRestricaoAdmin, setAvisoRestricaoAdmin] = useState<string | null>(null);
   const [empresaParaGuias, setEmpresaParaGuias] = useState<EmpresaDados | null>(null);
@@ -46,28 +47,15 @@ export default function App() {
   const [menuLateralRecolhidoDesktop, setMenuLateralRecolhidoDesktop] = useState(false);
 
   // Estados de Autenticação & Sessão
-  const [usuarioAtual, setUsuarioAtual] = useState<UsuarioAuth | null>(() => {
-    // Inicializa com a sessão salva ou Master Admin Murade limpo
-    const salvo = obterSessaoAtual();
-    if (salvo) return salvo;
-    return {
-      id: 'user-admin',
-      nome: 'Diretoria Murad Master',
-      email: 'noslyneda.murad@gmail.com',
-      telefone: '',
-      cpfCnpj: '',
-      crc: '',
-      idPlano: 'empresarial',
-      nomePlano: 'Plano Empresarial (Até 500 CNPJs)',
-      dataVencimento: '31/12/2030',
-      primeiroAcesso: false,
-      ativo: true,
-      ehAdmin: true,
-      tipo: 'ADMIN'
-    };
-  });
+  const [usuarioAtual, setUsuarioAtual] = useState<UsuarioAuth | null>(null);
 
-  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir'>('app');
+  const notificarMudancaSessao = () => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fiscoia_auth_session_updated'));
+  };
+
+  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir'>('login');
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
+  const [mensagemAuthServidor, setMensagemAuthServidor] = useState<string | null>(null);
   const [emailPrimeiroAcesso, setEmailPrimeiroAcesso] = useState('');
   const [emailRecuperacao, setEmailRecuperacao] = useState('');
   const [tokenRedefinicao, setTokenRedefinicao] = useState('');
@@ -79,27 +67,19 @@ export default function App() {
   const [subAbaFiscal, setSubAbaFiscal] = useState<'saida' | 'entrada' | 'baixa' | 'apuracao' | 'calculadora'>('saida');
 
   // 🔐 CONTROLE DO ACESSO ADMIN MASTER (Oculto do Cliente por padrão)
-  const [adminDesbloqueado, setAdminDesbloqueado] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem('murade_admin_desbloqueado') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
-
-  const [visaoAdminAtiva, setVisaoAdminAtiva] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem('murade_admin_visao_ativa') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
+  const [adminDesbloqueado, setAdminDesbloqueado] = useState(false);
+  const [visaoAdminAtiva, setVisaoAdminAtiva] = useState(false);
 
   // Somente considera o modo Admin como ativo se a senha tiver sido validada E a visão estiver em Admin
-  const estaAdminAtivo = Boolean(adminDesbloqueado && visaoAdminAtiva);
+  const estaAdminAtivo = Boolean(usuarioAtual?.ehAdmin && adminDesbloqueado && visaoAdminAtiva);
   const isAdmin = estaAdminAtivo;
 
   const handleDesbloquearAdmin = () => {
+    if (!usuarioAtual?.ehAdmin) {
+      setAvisoRestricaoAdmin('A conta autenticada não tem perfil de administrador no servidor.');
+      setTimeout(() => setAvisoRestricaoAdmin(null), 5000);
+      return;
+    }
     setAdminDesbloqueado(true);
     setVisaoAdminAtiva(true);
     try {
@@ -140,6 +120,25 @@ export default function App() {
       setEmailsEnviados(obterEmailsEnviados());
     }
   }, [modalEmailsAberto]);
+
+  useEffect(() => {
+    let ativo = true;
+    void validarSessaoCentral().then((resultado) => {
+      if (!ativo) return;
+      if (resultado.autenticado && resultado.usuario) {
+        setUsuarioAtual(resultado.usuario);
+        setPlanoAtivoId(resultado.usuario.idPlano);
+        setModoAuth(resultado.usuario.primeiroAcesso ? 'primeiro_acesso' : 'app');
+      } else {
+        setUsuarioAtual(null);
+        setModoAuth('login');
+        setMensagemAuthServidor(resultado.mensagem || null);
+      }
+      notificarMudancaSessao();
+      setVerificandoSessao(false);
+    });
+    return () => { ativo = false; };
+  }, []);
 
   // Navegação com proteção estrita de acesso e suporte abrangente a aliases
   const handleNavegacao = (novaAba: string) => {
@@ -210,16 +209,20 @@ export default function App() {
 
   // Handlers de Auth
   const handleLoginSucesso = (usuario: UsuarioAuth) => {
+    setMensagemAuthServidor(null);
     setUsuarioAtual(usuario);
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
     setAbaAtiva('dashboard');
+    notificarMudancaSessao();
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    const resultado = await logout();
     setUsuarioAtual(null);
     setModoAuth('login');
+    notificarMudancaSessao();
+    if (!resultado.sucesso) setMensagemAuthServidor(resultado.mensagem || 'O servidor não confirmou o encerramento da sessão.');
   };
 
   const handlePedirPrimeiroAcesso = (email: string) => {
@@ -227,11 +230,27 @@ export default function App() {
     setModoAuth('primeiro_acesso');
   };
 
+  const cancelarPrimeiroAcesso = () => {
+    void logout();
+    setUsuarioAtual(null);
+    setModoAuth('login');
+    notificarMudancaSessao();
+  };
+
   const handleSenhaAlteradaPrimeiroAcesso = (usuario: UsuarioAuth) => {
     setUsuarioAtual(usuario);
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
+    notificarMudancaSessao();
   };
+
+  if (verificandoSessao) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-sm text-slate-600">
+        Validando sua sessão segura no servidor…
+      </div>
+    );
+  }
 
   const handleAbrirRedefinicao = (token: string) => {
     setTokenRedefinicao(token);
@@ -279,7 +298,7 @@ export default function App() {
           <TrocarSenhaPrimeiroAcessoScreen
             email={emailPrimeiroAcesso || usuarioAtual?.email || ''}
             onSenhaAlterada={handleSenhaAlteradaPrimeiroAcesso}
-            onCancelar={() => setModoAuth('login')}
+            onCancelar={cancelarPrimeiroAcesso}
           />
         </main>
         <footer className="py-4 text-center text-xs text-slate-400">
@@ -305,7 +324,7 @@ export default function App() {
             className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>Ver E-mails Enviados pelo Sistema</span>
+            <span>Ver registros locais de e-mail</span>
           </button>
         </div>
 
@@ -313,9 +332,10 @@ export default function App() {
           <LoginScreen
             onLoginSucesso={handleLoginSucesso}
             onPedirPrimeiroAcesso={handlePedirPrimeiroAcesso}
+            mensagemSistema={mensagemAuthServidor}
             onEsqueciSenha={(emailDigitado) => {
               if (emailDigitado) setEmailRecuperacao(emailDigitado);
-              setModoAuth('recuperar');
+              setMensagemAuthServidor('A recuperação por e-mail ainda não está configurada. Peça ao administrador que redefina sua senha pelo processo seguro.');
             }}
           />
         </main>
@@ -324,7 +344,7 @@ export default function App() {
           FISCOIA © 2026 • Administrado por MURADE
         </footer>
 
-        {/* Modal de E-mails Enviados pelo Sistema */}
+        {/* Registros locais de mensagens; não foram enviadas */}
         {modalEmailsAberto && (
           <ModalEmailsEnviados
             emails={emailsEnviados}
@@ -341,6 +361,7 @@ export default function App() {
 
   return (
     <NavigationProvider abaAtual={abaAtiva} onMudarAba={handleNavegacao}>
+      <MonitorPendenciasFiscal />
       <div id="fiscoia-app" className="min-h-screen bg-slate-50 text-slate-900 flex font-sans antialiased">
         {/* 📱💻 Menu Lateral que se esconde sozinho */}
         <MenuLateral
@@ -544,10 +565,7 @@ export default function App() {
 
             {/* 👑 ROTAS ADMINISTRATIVAS MURADE (Protegidas) */}
             {isAdmin && abaAtiva === 'planos' && (
-              <PlanosAssinatura
-                planoAtivoId={planoAtivoId}
-                onSelecionarPlano={(novoPlano) => setPlanoAtivoId(novoPlano)}
-              />
+              <PlanosAssinatura />
             )}
 
             {isAdmin && abaAtiva === 'admin' && (
@@ -582,7 +600,7 @@ export default function App() {
                   </div>
                   <h3 className="text-lg font-bold text-slate-800">Acesso Restrito ao Administrador</h3>
                   <p className="text-sm text-slate-500">
-                    As conexões e integrações internas do sistema MURADE operam nos bastidores e são restritas ao Administrador Master (MURADE_CONFIG: adminVisaTudo).
+                    Os módulos MURADE ainda não estão conectados por APIs. Cada módulo funciona de forma independente; esta tela não troca dados em segundo plano.
                   </p>
                   <button 
                     onClick={() => handleNavegacao('dashboard')}
@@ -647,7 +665,7 @@ export default function App() {
             onFechar={() => setModalCalculadoraAberto(false)}
           />
 
-          {/* Modal de E-mails Disparados */}
+          {/* Modal de registros locais de mensagens */}
           {modalEmailsAberto && (
             <ModalEmailsEnviados
               emails={emailsEnviados}
@@ -682,7 +700,7 @@ export default function App() {
   );
 }
 
-// Sub-componente para inspecionar e-mails enviados pelo sistema
+// Sub-componente para inspecionar rascunhos locais não enviados
 function ModalEmailsEnviados({
   emails,
   onFechar,
@@ -702,10 +720,10 @@ function ModalEmailsEnviados({
             </span>
             <div>
               <h3 className="text-base font-bold text-slate-900">
-                Caixa de E-mails Transacionais do Sistema
+                Rascunhos locais de e-mail
               </h3>
               <p className="text-xs text-slate-500">
-                Histórico e registros dos e-mails de boas-vindas, senhas provisórias e links de recuperação enviados aos contadores.
+                Conteúdo salvo neste navegador para revisão. Nenhuma mensagem foi enviada a destinatários.
               </p>
             </div>
           </div>
@@ -722,9 +740,9 @@ function ModalEmailsEnviados({
           {emails.length === 0 ? (
             <div className="text-center py-12 text-xs text-slate-400 space-y-2">
               <Mail className="w-8 h-8 text-slate-300 mx-auto" />
-              <p>Nenhum e-mail disparado nesta sessão ainda.</p>
+              <p>Nenhum rascunho local registrado ainda.</p>
               <p className="text-[11px] text-slate-400">
-                Cadastre um contador no Painel MURADE ou clique em "Esqueci minha senha" para gerar um e-mail.
+                Os registros desta tela não são enviados por e-mail. É necessário configurar um provedor de envio no servidor.
               </p>
             </div>
           ) : (
@@ -735,7 +753,7 @@ function ModalEmailsEnviados({
               >
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="font-bold text-slate-900">{em.assunto}</span>
-                  <span className="text-[11px] text-slate-400 font-mono">{em.dataEnvio}</span>
+                  <span className="text-[11px] text-slate-400 font-mono">Registro local: {em.dataEnvio}</span>
                 </div>
 
                 <div className="text-[11px] text-slate-600">
@@ -757,7 +775,7 @@ function ModalEmailsEnviados({
                       }}
                       className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer"
                     >
-                      Abrir este Link de Redefinição Direto
+                      Abrir redefinição local neste navegador
                     </button>
                   </div>
                 )}

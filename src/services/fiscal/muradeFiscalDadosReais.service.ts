@@ -1,149 +1,117 @@
-// ==================================================
-// MURADE FISCAL — SÓ DADOS REAIS · SEM DADOS FALSOS
-// ==================================================
 
-// --------------------------
-// CONFIGURAÇÃO — BLOQUEAR FALSO
-// --------------------------
-export const CONFIG = {
-  BLOQUEAR_SIMULACAO: true,
-  EXIGIR_CERTIFICADO_REAL: true,
-  EXIGIR_CHAVE_NF_44_DIGITOS: true,
-  
-  ORIGENS_PERMITIDAS: ['SEFAZ', 'ReceitaFederal', 'Serpro', 'NF-e_Portal'],
-  ORIGENS_PROIBIDAS: ['simulacao', 'mock', 'dados_teste', 'gerador_falso']
+import { normalizarCnpj, validarCnpj, validarCpf } from '../cnpj/cnpjValidation';
+import { chaveNfeTemDigitoValido } from './chaveNfe.service';
+
+/**
+ * Conferências puramente estruturais de documentos locais.
+ * Não consulta SEFAZ/SERPRO e nunca deve ser usada como prova de autenticidade.
+ */
+
+const FONTES_DE_TESTE_EXPLICITAS = new Set(['simulacao', 'mock', 'dados_teste', 'gerador_falso']);
+
+type DocumentoLocal = Record<string, unknown> & {
+  chaveAcesso?: string;
+  cnpj?: string;
+  cpf?: string;
+  fonte?: string;
+  valorTotal?: number;
 };
 
-// --------------------------
-// FILTRO — LIMPAR DADOS FALSOS
-// --------------------------
 export class FiltroDadosReais {
-  static verificar(dados: any): any {
+  /** Confere apenas identificadores e valor básico; não valida estrutura nem autenticidade fiscal. */
+  static verificar(dados: DocumentoLocal | null | undefined) {
     if (!dados) return null;
+    const fonte = String(dados.fonte || '').trim().toLowerCase();
+    if (FONTES_DE_TESTE_EXPLICITAS.has(fonte)) return null;
 
-    // Bloqueia fonte proibida
-    if (dados.fonte && CONFIG.ORIGENS_PROIBIDAS.includes(dados.fonte)) {
-      console.log('❌ BLOQUEADO — Fonte falsa:', dados.fonte);
-      return null;
-    }
+    const cnpjInformado = String(dados.cnpj || '').trim();
+    const cpfInformado = String(dados.cpf || '').trim();
+    const cnpj = normalizarCnpj(cnpjInformado);
+    const cpf = cpfInformado.replace(/\D/g, '');
+    const cnpjValido = Boolean(cnpj) && validarCnpj(cnpj);
+    const cpfValido = Boolean(cpf) && validarCpf(cpf);
+    const temChave = Boolean(dados.chaveAcesso);
+    const chaveValida = temChave && chaveNfeTemDigitoValido(String(dados.chaveAcesso));
 
-    // Valida chave NF-e oficial = 44 dígitos
-    if (dados.chaveAcesso && dados.chaveAcesso.length !== 44) {
-      console.log('❌ BLOQUEADO — Chave NF-e inválida');
-      return null;
-    }
+    if ((cnpjInformado && !cnpjValido) || (cpfInformado && !cpfValido)) return null;
+    if (temChave && !chaveValida) return null;
+    if (!temChave && !cnpjValido && !cpfValido) return null;
+    if (dados.valorTotal !== undefined && (typeof dados.valorTotal !== 'number' || !Number.isFinite(dados.valorTotal) || dados.valorTotal < 0)) return null;
 
-    // Sem CNPJ/CPF/chave = não é oficial
-    if (!dados.cnpj && !dados.cpf && !dados.chaveAcesso) {
-      console.log('❌ BLOQUEADO — Sem identificação oficial');
-      return null;
-    }
-
-    // Marca como dado real
-    return { ...dados, _confirmadoReal: true };
+    return {
+      ...dados,
+      identificacaoBasicaConferida: true,
+      origemVerificada: false,
+      respostaAutenticada: false,
+      autenticidadeConfirmada: false
+    };
   }
 
-  static conexaoEhReal(resposta: any): boolean {
-    return resposta && !resposta.simulacao && !resposta._mock;
+  /** Campos enviados pelo navegador não comprovam chamada autenticada ao órgão. */
+  static conexaoEhReal(_resposta: unknown): boolean {
+    return false;
   }
 }
 
-// --------------------------
-// ROBÔS — CONFERÊNCIA FISCAL
-// --------------------------
 export class RobosMurade {
-  nome = 'MURADE — CONFERÊNCIA FISCAL OFICIAL';
+  readonly nome = 'MURADE — CONFERÊNCIA ESTRUTURAL LOCAL';
 
-  // ROBÔ 1 — Conferir Notas Fiscais
-  async conferirNotas(listaNotas: any[]) {
-    console.log('🤖 Robô 1 trabalhando...');
-    
-    const reais: any[] = [];
-    const bloqueadas = { qtd: 0, motivos: [] as string[] };
-
-    for (const nota of listaNotas) {
-      const notaLimpa = FiltroDadosReais.verificar(nota);
-      
-      if (notaLimpa && FiltroDadosReais.conexaoEhReal(nota)) {
-        reais.push({
-          ...notaLimpa,
-          conferidoEm: new Date().toLocaleString('pt-BR'),
-          status: '✅ VALIDADO — DADO REAL DA SEFAZ'
-        });
-      } else {
-        bloqueadas.qtd++;
-        bloqueadas.motivos.push('Dado falso/simulado');
-      }
-    }
-
+  async conferirNotas(listaNotas: DocumentoLocal[]) {
+    const conferidas = listaNotas.map(nota => ({
+      chave: String(nota.chaveAcesso || ''),
+      identificacaoBasicaConferida: Boolean(FiltroDadosReais.verificar(nota)),
+      autenticidadeConfirmada: false as const
+    }));
+    const identificacoesConferidas = conferidas.filter(nota => nota.identificacaoBasicaConferida).length;
     return {
       total: listaNotas.length,
-      notasReais: reais.length,
-      bloqueadas: bloqueadas.qtd,
-      listaReais: reais,
-      resumo: bloqueadas.qtd > 0
-        ? `⚠️ ${bloqueadas.qtd} dado(s) falso(s) BLOQUEADO(s)`
-        : '✅ TODOS os dados são reais e oficiais'
+      identificacoesBasicasConferidas: identificacoesConferidas,
+      identificacoesBasicasInvalidas: listaNotas.length - identificacoesConferidas,
+      origemOficialConfirmada: false as const,
+      conferidas,
+      resumo: 'Conferência local de identificadores básicos concluída. Não valida o XML, não consulta órgão oficial e não confirma autenticidade.'
     };
   }
 
-  // ROBÔ 2 — Conferir Valores e Impostos
-  async conferirValores(dados: any) {
-    const dadosReais = FiltroDadosReais.verificar(dados);
-    
-    if (!dadosReais) {
-      return { erro: '❌ BLOQUEADO — Usar conexão REAL da SEFAZ' };
+  async conferirValores(dados: DocumentoLocal) {
+    const documento = FiltroDadosReais.verificar(dados);
+    if (!documento) {
+      return { erro: 'Documento local com estrutura inválida ou identificação ausente.', origemOficialConfirmada: false as const };
     }
-
     return {
-      status: '✅ CONFERIDO — VALORES REAIS',
-      dados: dadosReais,
-      data: new Date().toLocaleString('pt-BR')
+      status: 'IDENTIFICACAO_BASICA_LOCAL' as const,
+      dados: documento,
+      origemOficialConfirmada: false as const,
+      observacao: 'Apenas identificadores básicos foram conferidos. XML, origem, autorização, valores e tratamento tributário não foram validados contra a SEFAZ.'
     };
   }
 
-  // ROBÔ 3 — Comparar com outro sistema
-  async compararSistemas(dadosExterno: any[], dadosMurade: any[]) {
-    const res = { iguais: 0, divergencias: 0, bloqueados: 0, detalhes: [] as any[] };
-
-    for (let i = 0; i < dadosExterno.length; i++) {
-      const dadoLimpo = FiltroDadosReais.verificar(dadosExterno[i]);
-      
-      if (!dadoLimpo) {
-        res.bloqueados++;
+  async compararSistemas(dadosExternos: DocumentoLocal[], dadosMurade: DocumentoLocal[]) {
+    const mapaMurade = new Map(dadosMurade.filter(item => item.chaveAcesso).map(item => [String(item.chaveAcesso), item]));
+    const resultado = { iguais: 0, divergencias: 0, semCorrespondencia: 0, detalhes: [] as Array<Record<string, unknown>> };
+    for (const externo of dadosExternos) {
+      const chave = String(externo.chaveAcesso || '');
+      const interno = mapaMurade.get(chave);
+      if (!chave || !interno) {
+        resultado.semCorrespondencia++;
+        resultado.detalhes.push({ chave: chave || null, status: 'SEM_CORRESPONDENCIA' });
         continue;
       }
-
-      const v1 = dadoLimpo.valorTotal;
-      const v2 = dadosMurade[i]?.valorTotal;
-
-      if (v1 === v2) {
-        res.iguais++;
-        res.detalhes.push({ status: '✅ IGUAL', valor: v1 });
+      const valorExterno = Number(externo.valorTotal);
+      const valorMurade = Number(interno.valorTotal);
+      if (!Number.isFinite(valorExterno) || !Number.isFinite(valorMurade)) {
+        resultado.semCorrespondencia++;
+        resultado.detalhes.push({ chave, status: 'VALOR_INDISPONIVEL' });
+      } else if (Math.round(valorExterno * 100) === Math.round(valorMurade * 100)) {
+        resultado.iguais++;
+        resultado.detalhes.push({ chave, status: 'IGUAL', valor: valorExterno });
       } else {
-        res.divergencias++;
-        res.detalhes.push({ status: '⚠️ DIVERGÊNCIA', externo: v1, murade: v2, dif: (v1 || 0) - (v2 || 0) });
+        resultado.divergencias++;
+        resultado.detalhes.push({ chave, status: 'DIVERGENCIA', externo: valorExterno, murade: valorMurade, diferenca: valorExterno - valorMurade });
       }
     }
-
-    return res;
+    return { ...resultado, origemOficialConfirmada: false as const };
   }
 }
 
-// --------------------------
-// ATIVAR TUDO
-// --------------------------
-console.log('=====================================');
-console.log('  ✅ SISTEMA ATIVADO — SÓ DADOS REAIS');
-console.log('  ❌ Dados falsos serão bloqueados');
-console.log('=====================================');
-
 export const sistema = new RobosMurade();
-
-// Injeção global para acesso direto via console ou outros módulos
-if (typeof window !== 'undefined') {
-  (window as any).MURADE_FISCAL_REAIS = sistema;
-  (window as any).FiltroDadosReais = FiltroDadosReais;
-  (window as any).RobosMurade = RobosMurade;
-  (window as any).CONFIG_MURADE_DADOS_REAIS = CONFIG;
-}

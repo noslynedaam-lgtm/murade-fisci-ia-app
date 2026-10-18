@@ -7,32 +7,18 @@ import {
   ChevronDown, 
   Key, 
   Activity, 
-  ShieldCheck, 
   Zap, 
   ExternalLink,
   Minimize2,
   Maximize2,
   Minus,
-  Power,
   Calculator,
   X,
   FileText,
   Upload,
-  CheckCircle2,
   AlertTriangle,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  Trash2,
-  Check,
-  Ban,
-  Scale
+  Trash2
 } from 'lucide-react';
-import { 
-  sistema as SISTEMA_DADOS_REAIS, 
-  FiltroDadosReais, 
-  CONFIG as CONFIG_DADOS_REAIS 
-} from '../services/fiscal/muradeFiscalDadosReais.service';
 
 interface PainelAnimadoLateralProps {
   onAbrirAutomacao?: () => void;
@@ -66,105 +52,13 @@ export function PainelAnimadoLateral({
   // Aba ativa: 'robo' | 'cert' | 'monitor' | 'dadosReais'
   const [abaAtiva, setAbaAtiva] = useState<'robo' | 'cert' | 'monitor' | 'dadosReais'>('robo');
 
-  // Estados dos Robôs Murade — Só Dados Reais
-  const [resumoRobo1, setResumoRobo1] = useState<any>(null);
-  const [resumoRobo2, setResumoRobo2] = useState<any>(null);
-  const [resumoRobo3, setResumoRobo3] = useState<any>(null);
-  const [executandoRobo, setExecutandoRobo] = useState<number | null>(null);
-
-  // Executar Robô 1 — Conferir Notas Fiscais
-  const handleExecutarRobo1 = async (incluirFake: boolean = false) => {
-    setExecutandoRobo(1);
-    const listaTeste: any[] = [
-      {
-        chaveAcesso: '52260901234567000199550010000012451000012456', // 44 dígitos
-        cnpj: '01.234.567/0001-99',
-        fonte: 'SEFAZ',
-        numero: '1245',
-        valorTotal: 18500.00
-      },
-      {
-        chaveAcesso: '35260998765432000188550010000098711000098712', // 44 dígitos
-        cnpj: '98.765.432/0001-88',
-        fonte: 'NF-e_Portal',
-        numero: '9871',
-        valorTotal: 42300.00
-      }
-    ];
-
-    if (incluirFake) {
-      listaTeste.push(
-        {
-          chaveAcesso: '123456', // INVÁLIDO (menos de 44 dígitos)
-          cnpj: '00.000.000/0000-00',
-          fonte: 'gerador_falso',
-          numero: '9999',
-          valorTotal: 1000.00
-        },
-        {
-          chaveAcesso: '52260901234567000199550010000012451000012459',
-          cnpj: '01.234.567/0001-99',
-          fonte: 'simulacao',
-          simulacao: true,
-          numero: '7777',
-          valorTotal: 500.00
-        }
-      );
-    }
-
-    const resultado = await SISTEMA_DADOS_REAIS.conferirNotas(listaTeste);
-    setResumoRobo1(resultado);
-    setExecutandoRobo(null);
-  };
-
-  // Executar Robô 2 — Conferir Valores e Impostos
-  const handleExecutarRobo2 = async (comErro: boolean = false) => {
-    setExecutandoRobo(2);
-    const dado = comErro 
-      ? { fonte: 'mock', valorTotal: 5000 }
-      : {
-          cnpj: '01.234.567/0001-99',
-          chaveAcesso: '52260901234567000199550010000012451000012456',
-          fonte: 'SEFAZ',
-          valorTotal: 18500.00,
-          impostos: { ICMS: 2220.00, PIS: 120.25, COFINS: 555.00 }
-        };
-
-    const resultado = await SISTEMA_DADOS_REAIS.conferirValores(dado);
-    setResumoRobo2(resultado);
-    setExecutandoRobo(null);
-  };
-
-  // Executar Robô 3 — Comparar com outro sistema
-  const handleExecutarRobo3 = async () => {
-    setExecutandoRobo(3);
-    const dadosExterno = [
-      { cnpj: '01.234.567/0001-99', chaveAcesso: '52260901234567000199550010000012451000012456', valorTotal: 18500.00 },
-      { cnpj: '98.765.432/0001-88', chaveAcesso: '35260998765432000188550010000098711000098712', valorTotal: 42000.00 }
-    ];
-    const dadosMurade = [
-      { valorTotal: 18500.00 },
-      { valorTotal: 42300.00 } // Diferença de R$ 300,00 detectada!
-    ];
-
-    const resultado = await SISTEMA_DADOS_REAIS.compararSistemas(dadosExterno, dadosMurade);
-    setResumoRobo3(resultado);
-    setExecutandoRobo(null);
-  };
-
   // Dados do Robô & Agente
-  const [notasHoje, setNotasHoje] = useState(8542);
-  const [empresasAtivas] = useState(1247);
   const [pacoteCiclo, setPacoteCiclo] = useState(0);
 
   // Dados do Certificado Digital
-  const [certAtivo, setCertAtivo] = useState(false);
   const [nomeArquivoCert, setNomeArquivoCert] = useState('');
-  const [senhaCert, setSenhaCert] = useState('');
-  const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [salvandoCert, setSalvandoCert] = useState(false);
   const [statusMensagemCert, setStatusMensagemCert] = useState<{
-    tipo: 'sucesso' | 'aviso' | 'info' | 'erro';
+    tipo: 'aviso';
     texto: string;
   } | null>(null);
 
@@ -174,19 +68,19 @@ export function PainelAnimadoLateral({
       id: 'init-1',
       tipo: 'info',
       hora: new Date().toLocaleTimeString('pt-BR'),
-      msg: 'Robô Central Murade & Agente IA iniciados',
-      detalhe: 'Integração ativa: Fiscal ↔ DP ↔ Fisco IA',
+      msg: 'Painel local Murade aberto',
+      detalhe: 'Nenhuma tarefa oficial foi iniciada por este painel.',
       cor: '#2563eb',
       icone: '🤖'
     },
     {
       id: 'init-2',
-      tipo: 'sucesso',
+      tipo: 'info',
       hora: new Date().toLocaleTimeString('pt-BR'),
-      msg: 'Conexão SERPRO / RFB 2.0 pronta para tráfego',
-      detalhe: 'Protocolo mTLS e auto-resolução ativados',
-      cor: '#16a34a',
-      icone: '✅'
+      msg: 'Integração oficial pendente',
+      detalhe: 'SERPRO, RFB e SEFAZ não estão conectados neste painel.',
+      cor: '#d97706',
+      icone: '⚠️'
     }
   ]);
 
@@ -202,34 +96,13 @@ export function PainelAnimadoLateral({
     return () => clearTimeout(timerSubida);
   }, []);
 
-  // Efeito 2: Carregar certificado salvo em localStorage
+  // Efeito visual decorativo; não representa tráfego nem conexão com órgãos.
   useEffect(() => {
-    try {
-      const salvo = localStorage.getItem('murade_cert_ativo');
-      const nomeSalvo = localStorage.getItem('murade_cert_nome');
-      if (salvo === 'true' || (window as any).CERTIFICADO_ATIVO) {
-        setCertAtivo(true);
-        setNomeArquivoCert(nomeSalvo || 'certificado_a1_icp_brasil.pfx');
-      }
-    } catch (e) {
-      // fallback
-    }
-  }, []);
-
-  // Efeito 3: Simulação contínua do fluxo de notas do governo
-  useEffect(() => {
-    const intervaloNotas = setInterval(() => {
-      setNotasHoje(prev => prev + Math.floor(Math.random() * 2) + 1);
-    }, 4500);
-
     const intervaloCiclo = setInterval(() => {
       setPacoteCiclo(prev => (prev + 1) % 100);
     }, 2000);
 
-    return () => {
-      clearInterval(intervaloNotas);
-      clearInterval(intervaloCiclo);
-    };
+    return () => clearInterval(intervaloCiclo);
   }, []);
 
   // Efeito 4: Auto-scroll do terminal de logs
@@ -257,16 +130,8 @@ export function PainelAnimadoLateral({
       }
     };
 
-    const handleCertAtualizado = (e: any) => {
-      if (e?.detail) {
-        setCertAtivo(Boolean(e.detail.ativo));
-        if (e.detail.nome) setNomeArquivoCert(e.detail.nome);
-      }
-    };
-
     window.addEventListener('abrir_painel_unificado', handleAbrir);
     window.addEventListener('murade_novo_log', handleNovoLog);
-    window.addEventListener('murade_cert_atualizado', handleCertAtualizado);
 
     // Registra proxies no window para máxima compatibilidade com menus e barras
     (window as any).ABRIR_PAINEL_MURADE = () => {
@@ -290,64 +155,17 @@ export function PainelAnimadoLateral({
     return () => {
       window.removeEventListener('abrir_painel_unificado', handleAbrir);
       window.removeEventListener('murade_novo_log', handleNovoLog);
-      window.removeEventListener('murade_cert_atualizado', handleCertAtualizado);
     };
   }, []);
 
-  // Processar salvamento do certificado
+  // Este painel não valida PKCS#12 nem estabelece conexão mTLS.
   const handleSalvarCertificado = () => {
-    const arquivoSelecionado = inputArquivoRef.current?.files?.[0];
-    const nomeAtual = arquivoSelecionado?.name || nomeArquivoCert;
-
-    if (!nomeAtual || !senhaCert) {
-      setStatusMensagemCert({
-        tipo: 'aviso',
-        texto: 'Selecione o arquivo .pfx/.p12 e digite a senha!'
-      });
-      if ((window as any).LOG_MURADE) {
-        (window as any).LOG_MURADE('aviso', 'Certificado pendente', 'Preencha o arquivo .pfx/.p12 e a senha.');
-      }
-      return;
-    }
-
-    setSalvandoCert(true);
+    setNomeArquivoCert('');
+    if (inputArquivoRef.current) inputArquivoRef.current.value = '';
     setStatusMensagemCert({
-      tipo: 'info',
-      texto: 'Conectando mTLS Serpro / Receita Federal...'
+      tipo: 'aviso',
+      texto: 'Validação e conexão mTLS não estão implementadas neste painel. Nenhum certificado foi enviado, salvo ou validado.'
     });
-
-    if ((window as any).LOG_MURADE) {
-      (window as any).LOG_MURADE('info', 'Autenticando Certificado Digital', `Arquivo: ${nomeAtual} | Conectando mTLS Serpro/RFB...`);
-    }
-
-    setTimeout(() => {
-      setSalvandoCert(false);
-      setCertAtivo(true);
-      setNomeArquivoCert(nomeAtual);
-      (window as any).CERTIFICADO_ATIVO = true;
-      (window as any).CERTIFICADO_DADOS = {
-        nomeArquivo: nomeAtual,
-        dataUpload: new Date().toLocaleDateString('pt-BR'),
-        status: 'ATIVO',
-        expiracao: '31/12/2026'
-      };
-
-      try {
-        localStorage.setItem('murade_cert_ativo', 'true');
-        localStorage.setItem('murade_cert_nome', nomeAtual);
-      } catch (e) {
-        // ignora
-      }
-
-      setStatusMensagemCert({
-        tipo: 'sucesso',
-        texto: '✅ Certificado Válido — Conexão Serpro Ativa!'
-      });
-
-      if ((window as any).LOG_MURADE) {
-        (window as any).LOG_MURADE('sucesso', 'Certificado configurado', 'Robô já pode buscar dados REAIS do governo!');
-      }
-    }, 1200);
   };
 
   const handleLimparLogs = () => {
@@ -418,10 +236,10 @@ export function PainelAnimadoLateral({
                 <span className="bg-emerald-500 text-slate-900 text-[8px] font-black px-1 py-0.2 rounded-full">2026</span>
               </div>
               <div className="text-xs font-bold flex items-center gap-2">
-                <span>{notasHoje.toLocaleString('pt-BR')} NFe</span>
+                <span>Notas oficiais: não consultadas</span>
                 <span className="text-white/40">|</span>
                 <span className="text-[11px] font-medium text-amber-300">
-                  {certAtivo ? '🔑 Cert. OK' : '🔑 Cert. Pendente'}
+                  🔑 Certificado não validado
                 </span>
               </div>
             </div>
@@ -478,14 +296,14 @@ export function PainelAnimadoLateral({
               <div className="min-w-0 pr-1">
                 <div className="flex items-center gap-1 leading-tight">
                   <span className="text-[10px] font-black tracking-wide text-white">Robô Murade</span>
-                  <span className="text-[7px] font-bold bg-emerald-400/90 text-slate-950 px-1 py-0.2 rounded-full uppercase">
-                    On
+                    <span className="text-[7px] font-bold bg-amber-300 text-slate-950 px-1 py-0.2 rounded-full uppercase">
+                    Local
                   </span>
                 </div>
                 <div className="text-[9px] text-blue-100 flex items-center gap-1 mt-0.5 leading-none">
-                  <span className="font-extrabold text-amber-300">{notasHoje.toLocaleString('pt-BR')} NFe</span>
+                  <span className="font-extrabold text-amber-300">Sem consulta oficial</span>
                   <span className="text-white/40">•</span>
-                  <span className="text-blue-200">{certAtivo ? 'Cert. OK' : 'Cert.'}</span>
+                  <span className="text-blue-200">Cert. pendente</span>
                 </div>
               </div>
 
@@ -608,10 +426,10 @@ export function PainelAnimadoLateral({
                       ? 'bg-white text-emerald-700 shadow-xs border border-emerald-300 font-black'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                   }`}
-                  title="Murade Fiscal — Só Dados Reais (Sem Simulação)"
+                  title="Auditoria local de dados importados; não autentica origem nem consulta órgãos oficiais"
                 >
                   <span>🛡️</span>
-                  <span>Só Reais</span>
+                  <span>Auditoria local</span>
                 </button>
 
                 <button
@@ -625,11 +443,7 @@ export function PainelAnimadoLateral({
                 >
                   <span>🔑</span>
                   <span>Cert.</span>
-                  {certAtivo ? (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Conectado" />
-                  ) : (
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Pendente" />
-                  )}
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Validação pendente; sem conexão" />
                 </button>
 
                 <button
@@ -701,7 +515,7 @@ export function PainelAnimadoLateral({
                   {/* Porta do Governo 🇧🇷 */}
                   <div 
                     className="absolute top-4 right-2.5 w-10 h-18 bg-gradient-to-b from-sky-100 to-blue-200 border-2 border-blue-600 rounded-t-lg flex flex-col items-center justify-between p-1 z-10 shadow-md"
-                    title="Porta de Integração Direta com Governo (RFB, SEFAZ, SERPRO 2.0)"
+                    title="Ilustração visual; integração governamental não configurada"
                   >
                     <div className="flex items-center gap-0.5">
                       <span className="text-[11px]">🇧🇷</span>
@@ -718,7 +532,7 @@ export function PainelAnimadoLateral({
                     </div>
 
                     <span className="text-[6.5px] font-bold text-emerald-800 bg-emerald-100 px-1 rounded">
-                      2.0 OK
+                      Não conectado
                     </span>
                   </div>
 
@@ -729,7 +543,7 @@ export function PainelAnimadoLateral({
                       left: `${10 + (pacoteCiclo % 50 < 25 ? (pacoteCiclo % 50) * 1.6 : (50 - (pacoteCiclo % 50)) * 1.6)}px`,
                       transform: `scale(${1 + (pacoteCiclo % 20 === 0 ? 0.08 : 0)})`
                     }}
-                    title="Robô Central Murade — Emite, Recebe, Transmite e Auto-Resolve"
+                    title="Mascote ilustrativo; nenhuma emissão ou transmissão está ocorrendo"
                   >
                     🤖
                   </div>
@@ -741,38 +555,28 @@ export function PainelAnimadoLateral({
                       right: `${50 + (pacoteCiclo % 60 < 30 ? (pacoteCiclo % 60) * 1.1 : (60 - (pacoteCiclo % 60)) * 1.1)}px`,
                       transform: `scale(${1 + ((pacoteCiclo + 10) % 20 === 0 ? 0.08 : 0)})`
                     }}
-                    title="IA Murad — Validação Legislativa, Prazos 2026 e Voz Natural"
+                    title="Ilustração; consulta legislativa oficial indisponível"
                   >
                     🧠
                   </div>
 
                   {/* Balão de Status Dinâmico */}
                   <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-md border border-blue-200 text-[8.5px] font-bold text-blue-900 shadow-xs flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span>SERPRO 2.0 • Auto-Resolução</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <span>Ilustração • sem conexão ativa</span>
                   </div>
                 </div>
 
-                {/* Métricas em tempo real */}
+                {/* Estado das fontes fiscais */}
                 <div className="grid grid-cols-2 gap-1.5 text-center">
-                  <div className="p-2 rounded-xl bg-white border border-slate-200 shadow-xs">
-                    <div className="text-sm font-black text-blue-600">{empresasAtivas.toLocaleString('pt-BR')}</div>
-                    <div className="text-[10px] text-slate-500 font-medium">Empresas Ativas</div>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-white border border-slate-200 shadow-xs">
-                    <div className="text-sm font-black text-indigo-600">{notasHoje.toLocaleString('pt-BR')}</div>
-                    <div className="text-[10px] text-slate-500 font-medium">NFe Hoje (SEFAZ)</div>
-                  </div>
-
                   <div className="p-1.5 rounded-xl bg-sky-50 border border-sky-200">
-                    <div className="text-xs font-black text-sky-700">IBS 12%</div>
-                    <div className="text-[9px] text-sky-600 font-bold">Vigência 2026 ✅</div>
+                    <div className="text-xs font-black text-sky-700">IBS</div>
+                    <div className="text-[9px] text-sky-600 font-bold">Taxa não configurada</div>
                   </div>
 
                   <div className="p-1.5 rounded-xl bg-purple-50 border border-purple-200">
-                    <div className="text-xs font-black text-purple-700">CBS 9%</div>
-                    <div className="text-[9px] text-purple-600 font-bold">Vigência 2026 ✅</div>
+                    <div className="text-xs font-black text-purple-700">CBS</div>
+                    <div className="text-[9px] text-purple-600 font-bold">Taxa não configurada</div>
                   </div>
                 </div>
 
@@ -785,7 +589,7 @@ export function PainelAnimadoLateral({
                       className="w-full py-1.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-amber-200"
                     >
                       <Calculator className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Calculadora Fiscal (27 UFs)</span>
+                      <span>Calculadora com taxas manuais</span>
                     </button>
                   )}
 
@@ -816,18 +620,10 @@ export function PainelAnimadoLateral({
                       <span>Certificado Digital A1 / A3</span>
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Necessário para puxar dados reais de RFB, e-CAC e SEFAZ via mTLS.
+                      A integração segura no servidor não está configurada. Selecionar arquivo nesta tela não valida nem conecta o certificado.
                     </p>
                   </div>
-                  {certAtivo ? (
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-                      Ativo ✅
-                    </span>
-                  ) : (
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-300">
-                      Pendente ⚠️
-                    </span>
-                  )}
+                  <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-300">Validação indisponível</span>
                 </div>
 
                 {/* Upload do Arquivo (.pfx ou .p12) */}
@@ -856,49 +652,15 @@ export function PainelAnimadoLateral({
                   )}
                 </div>
 
-                {/* Campo de Senha do Certificado */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    Senha do Certificado / PIN A3
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={mostrarSenha ? 'text' : 'password'}
-                      id="cert-senha"
-                      value={senhaCert}
-                      onChange={(e) => setSenhaCert(e.target.value)}
-                      placeholder="Digite a senha do certificado..."
-                      className="w-full text-xs px-3 py-2 pr-9 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenha(!mostrarSenha)}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      {mostrarSenha ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Botão de Conectar e Salvar */}
+                {/* Ação informativa; não envia o certificado */}
                 <button
                   type="button"
                   id="btn-salvar-cert-murade"
-                  disabled={salvandoCert}
                   onClick={handleSalvarCertificado}
                   className="w-full py-2 px-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
                 >
-                  {salvandoCert ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Conectando no SERPRO...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Salvar e Conectar na Serpro</span>
-                    </>
-                  )}
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Validar indisponível — integração não configurada</span>
                 </button>
 
                 {/* Status em tempo real */}
@@ -906,234 +668,51 @@ export function PainelAnimadoLateral({
                   {statusMensagemCert && (
                     <div
                       className={`text-[11px] p-2 rounded-lg font-bold flex items-center gap-1.5 ${
-                        statusMensagemCert.tipo === 'sucesso'
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                          : statusMensagemCert.tipo === 'aviso'
-                          ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                          : statusMensagemCert.tipo === 'erro'
-                          ? 'bg-red-50 text-red-800 border border-red-200'
-                          : 'bg-blue-50 text-blue-800 border border-blue-200'
+                        'bg-amber-50 text-amber-800 border border-amber-200'
                       }`}
                     >
-                      {statusMensagemCert.tipo === 'sucesso' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
                       {statusMensagemCert.tipo === 'aviso' && <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />}
                       <span>{statusMensagemCert.texto}</span>
                     </div>
                   )}
 
-                  {!statusMensagemCert && certAtivo && (
-                    <div className="text-[11px] p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 font-bold flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>Conexão mTLS 1.3 ativa com Serpro / Receita Federal</span>
-                    </div>
-                  )}
+                  {!statusMensagemCert && <div className="text-[11px] p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">Sem conexão mTLS. O servidor ainda precisa de validação PKCS#12 e integração oficial configurada.</div>}
                 </div>
               </div>
             )}
 
             {/* ======================================================== */}
-            {/* ABA 4: 🛡️ SÓ DADOS REAIS · SEM DADOS FALSOS (ROBÔS MURADE) */}
+            {/* ABA 4: 🛡️ AUDITORIA LOCAL DE DOCUMENTOS IMPORTADOS */}
             {/* ======================================================== */}
             {abaAtiva === 'dadosReais' && (
               <div className="space-y-3">
-                {/* CABEÇALHO DO FILTRO OFICIAL */}
-                <div className="bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 text-white p-3 rounded-xl shadow-xs border border-emerald-500/40">
-                  <div className="flex items-center gap-1.5 font-black text-xs text-emerald-300">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>MURADE FISCAL — SÓ DADOS REAIS</span>
-                  </div>
-                  <p className="text-[10.5px] text-emerald-100/90 mt-0.5">
-                    Bloqueio automático de qualquer simulação, mock ou gerador de teste. Apenas SEFAZ, Serpro e Receita Federal.
-                  </p>
-
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-200 px-1.5 py-0.5 rounded font-bold border border-emerald-400/30">
-                      ✓ Chave 44 Dígitos
-                    </span>
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-200 px-1.5 py-0.5 rounded font-bold border border-emerald-400/30">
-                      ✓ Certificado mTLS
-                    </span>
-                    <span className="text-[9px] bg-red-500/20 text-red-200 px-1.5 py-0.5 rounded font-bold border border-red-400/30">
-                      ✗ Bloqueia Mocks
-                    </span>
-                  </div>
+                <div className="bg-amber-50 border border-amber-200 text-amber-950 p-3 rounded-xl">
+                  <div className="font-black text-xs">Robôs fiscais — estado real das integrações</div>
+                  <p className="text-[10.5px] mt-1">Este painel não consulta SEFAZ, SERPRO ou Receita Federal. A leitura de XMLs locais e a auditoria estrutural estão no módulo de Automação Fiscal.</p>
                 </div>
-
-                {/* ROBÔ 1: CONFERIR NOTAS FISCAIS */}
-                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-black text-slate-800 flex items-center gap-1">
-                      <span>🤖</span>
-                      <span>Robô 1 — Conferir Notas Fiscais</span>
-                    </div>
-                    {resumoRobo1 && (
-                      <span className={`text-[9.5px] font-black px-1.5 py-0.5 rounded ${
-                        resumoRobo1.bloqueadas > 0 ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'
-                      }`}>
-                        {resumoRobo1.resumo}
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-[10px] text-slate-500">
-                    Valida chaves oficiais de 44 dígitos e descarta dados de teste e fontes proibidas.
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-1.5 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => handleExecutarRobo1(false)}
-                      disabled={executandoRobo === 1}
-                      className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
-                    >
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>{executandoRobo === 1 ? 'Conferindo...' : 'Conferir SEFAZ Real'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExecutarRobo1(true)}
-                      disabled={executandoRobo === 1}
-                      className="py-1.5 px-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                      title="Testar injeção de dado simulado para provar que é bloqueado"
-                    >
-                      <Ban className="w-3 h-3 text-red-600" />
-                      <span>Testar Bloqueio Fake</span>
-                    </button>
-                  </div>
-
-                  {resumoRobo1 && (
-                    <div className="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200 space-y-1 text-[10.5px]">
-                      <div className="flex justify-between font-bold text-slate-700">
-                        <span>Total Analisado: {resumoRobo1.total}</span>
-                        <span className="text-emerald-700">Reais: {resumoRobo1.notasReais}</span>
-                        <span className="text-red-600">Bloqueadas: {resumoRobo1.bloqueadas}</span>
-                      </div>
-                      {resumoRobo1.listaReais?.slice(0, 2).map((nota: any, idx: number) => (
-                        <div key={idx} className="p-1.5 bg-white rounded border border-emerald-200 text-[10px] text-slate-700 font-mono">
-                          <div className="text-emerald-700 font-bold">{nota.status}</div>
-                          <div className="truncate">Chave: {nota.chaveAcesso}</div>
-                          <div>NF nº {nota.numero} • R$ {Number(nota.valorTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
+                  <div className="text-xs font-black text-slate-800">Auditoria local do Radar e do livro</div>
+                  <p className="text-[10px] text-slate-600">A auditoria local confere apenas documentos já importados neste navegador. Ela não confirma autorização, assinatura digital, valores devidos ou consulta órgãos públicos.</p>
+                  {onAbrirAutomacao ? (
+                    <button type="button" onClick={onAbrirAutomacao} className="w-full py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-[11px] font-bold">Abrir painel de auditoria local</button>
+                  ) : <div className="text-[10px] text-amber-900">Navegação para o painel de auditoria não configurada.</div>}
                 </div>
-
-                {/* ROBÔ 2: CONFERIR VALORES E IMPOSTOS */}
-                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-black text-slate-800 flex items-center gap-1">
-                      <span>🤖</span>
-                      <span>Robô 2 — Conferir Valores e Impostos</span>
-                    </div>
-                    {resumoRobo2?.status && (
-                      <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1 rounded">
-                        {resumoRobo2.status}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleExecutarRobo2(false)}
-                      disabled={executandoRobo === 2}
-                      className="py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-xs"
-                    >
-                      <Activity className="w-3 h-3" />
-                      <span>Conferir Impostos</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExecutarRobo2(true)}
-                      disabled={executandoRobo === 2}
-                      className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                    >
-                      <Ban className="w-3 h-3 text-red-500" />
-                      <span>Testar Bloqueio</span>
-                    </button>
-                  </div>
-
-                  {resumoRobo2 && (
-                    <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 text-[10.5px]">
-                      {resumoRobo2.erro ? (
-                        <div className="text-red-700 font-bold">{resumoRobo2.erro}</div>
-                      ) : (
-                        <div className="space-y-0.5 text-slate-700">
-                          <div className="text-emerald-700 font-bold">{resumoRobo2.status}</div>
-                          <div>Total da Nota: R$ {Number(resumoRobo2.dados?.valorTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                          <div>ICMS: R$ 2.220,00 • PIS: R$ 120,25 • COFINS: R$ 555,00</div>
-                          <div className="text-[9px] text-slate-400">{resumoRobo2.data}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* ROBÔ 3: COMPARAR COM OUTRO SISTEMA */}
-                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-black text-slate-800 flex items-center gap-1">
-                      <span>🤖</span>
-                      <span>Robô 3 — Comparar Sistemas</span>
-                    </div>
-                    {resumoRobo3 && (
-                      <span className="text-[9.5px] font-bold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded">
-                        {resumoRobo3.divergencias} divergência(s)
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-[10px] text-slate-500">
-                    Compara dados fiscais de sistema externo contra o repositório Murade validando divergências centavo a centavo.
-                  </p>
-
-                  <button
-                    type="button"
-                    onClick={handleExecutarRobo3}
-                    disabled={executandoRobo === 3}
-                    className="w-full py-1.5 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Scale className="w-3.5 h-3.5" />
-                    <span>Executar Comparação Cruzada</span>
-                  </button>
-
-                  {resumoRobo3 && (
-                    <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5 text-[10.5px]">
-                      <div className="flex justify-between font-bold">
-                        <span className="text-emerald-700">Iguais: {resumoRobo3.iguais}</span>
-                        <span className="text-amber-700">Divergências: {resumoRobo3.divergencias}</span>
-                        <span className="text-red-700">Bloqueados: {resumoRobo3.bloqueados}</span>
-                      </div>
-                      {resumoRobo3.detalhes?.map((item: any, idx: number) => (
-                        <div key={idx} className="p-1 rounded bg-white border border-slate-200 text-[10px]">
-                          <span className="font-bold">{item.status}: </span>
-                          {item.dif !== undefined ? (
-                            <span className="text-amber-700 font-medium">
-                              Externo R$ {item.externo} vs Murade R$ {item.murade} (Dif: R$ {item.dif})
-                            </span>
-                          ) : (
-                            <span>Valor R$ {item.valor}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-1 text-[10px] text-slate-700">
+                  <div className="font-bold">Operações ainda não conectadas</div>
+                  <div>• Busca e download de notas: API oficial autenticada pendente.</div>
+                  <div>• Validação de certificado e mTLS: integração de servidor pendente.</div>
+                  <div>• Comparação com outro sistema: origem externa e credenciais pendentes.</div>
                 </div>
               </div>
             )}
-
-            {/* ======================================================== */}
-            {/* ABA 3: 📊 MONITOR & LOGS EM TEMPO REAL */}
+            {/* ABA 3: 📊 MONITOR DE EVENTOS LOCAIS */}
             {/* ======================================================== */}
             {abaAtiva === 'monitor' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between px-1">
                   <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Activity className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Logs de Execução em Tempo Real</span>
+                    <span>Eventos locais desta sessão</span>
                   </div>
                   <button
                     type="button"
@@ -1171,7 +750,7 @@ export function PainelAnimadoLateral({
 
                 <div className="text-[10px] text-slate-400 text-center flex items-center justify-center gap-1.5 pt-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Sincronização contínua com Serpro, RFB e e-CAC</span>
+                  <span>Nenhum tráfego ou sincronização com órgãos públicos</span>
                 </div>
               </div>
             )}

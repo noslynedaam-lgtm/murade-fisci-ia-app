@@ -9,17 +9,17 @@ export const PLANOS: Record<string, PlanoConfig> = {
     valorAnual: 2038.98,
     descontoAnual: 15,
     funcionalidades: [
-      'Dashboard e Alertas',
-      'Simples Nacional (DAS)',
-      'Consulta CND',
-      'Relatórios e Exportação'
+      'Cadastro e seleção local de empresas',
+      'Agenda com lembretes manuais',
+      'Importação manual de XML para conferência local',
+      'Relatórios locais disponíveis'
     ],
     oQueEstaIncluido: [
-      'Suporta até 50 CNPJs ativos',
-      'Dashboard e Alertas Fiscais',
-      'Simples Nacional (Geração de DAS)',
-      'Consulta Automatizada de CND',
-      'Relatórios e Exportação em PDF/Excel'
+      'Limite de referência: 50 CNPJs; não aplicado por serviço central',
+      'Dashboard e registros fiscais locais',
+      'Registro manual de guias; emissão oficial não conectada',
+      'Registro manual de CND; consulta oficial não conectada',
+      'Relatórios e exportações locais disponíveis'
     ]
   },
   PROFISSIONAL: {
@@ -30,19 +30,19 @@ export const PLANOS: Record<string, PlanoConfig> = {
     valorAnual: 3568.98,
     descontoAnual: 15,
     funcionalidades: [
-      'Tudo do Básico',
-      'DCTFWeb',
-      'Parcelamentos (PERT/RELP)',
-      'Procuração Eletrônica',
-      'Assistente IA Fiscal'
+      'Recursos locais do plano Básico',
+      'Controle local de guias; DCTFWeb não conectada',
+      'Registro de informações; parcelamentos não integrados',
+      'Minuta local; e-CAC não conectado',
+      'Assistente fiscal; fontes oficiais não integradas'
     ],
     oQueEstaIncluido: [
-      'Tudo do Plano Básico incluso',
-      'Suporta até 100 CNPJs ativos',
-      'DCTFWeb e Fechamento eSocial',
-      'Parcelamentos Ativos (PERT/RELP)',
-      'Procuração Eletrônica e-CAC RFB',
-      'Assistente IA Fiscal 24/7'
+      'Limite de referência: 100 CNPJs; não aplicado por serviço central',
+      'Recursos locais do plano Básico',
+      'Registros locais de guias; consulta/transmissão DCTFWeb e eSocial não conectadas',
+      'Parcelamentos não integrados',
+      'Minuta local; concessão de procuração no e-CAC não conectada',
+      'Assistente fiscal sem fontes oficiais conectadas'
     ]
   },
   EMPRESARIAL: {
@@ -53,19 +53,19 @@ export const PLANOS: Record<string, PlanoConfig> = {
     valorAnual: 6118.98,
     descontoAnual: 15,
     funcionalidades: [
-      'Tudo do Profissional',
-      'DCTFWeb Completa',
-      'Apuração e Transmissão DCTFWeb',
-      'Prioridade no Suporte',
-      'Requerimento de Pagamento Automático'
+      'Recursos locais do plano Profissional',
+      'Controle local de guias; DCTFWeb não conectada',
+      'Apuração e transmissão oficiais não conectadas',
+      'Canal de suporte não configurado',
+      'Pagamentos automáticos não integrados'
     ],
     oQueEstaIncluido: [
-      'Tudo do Plano Profissional incluso',
-      'Suporta até 500 CNPJs ativos',
-      'DCTFWeb Completa e Geração de DARF Previdenciário (vencimento dia 20)',
-      'Transmissão Automática RFB e-CAC',
-      'Requerimento de Pagamento Automático',
-      'Atendimento e Suporte VIP MURADE'
+      'Limite de referência: 500 CNPJs; não aplicado por serviço central',
+      'Recursos locais do plano Profissional',
+      'Guias não são calculadas, emitidas ou consultadas oficialmente',
+      'Transmissão automática RFB/e-CAC não conectada',
+      'Pagamentos automáticos não integrados',
+      'Suporte VIP não configurado'
     ]
   }
 };

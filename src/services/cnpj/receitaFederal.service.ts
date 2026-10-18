@@ -1,3 +1,5 @@
+import { formatarCnpj, normalizarCnpj, validarCnpj } from './cnpjValidation';
+
 export interface DadosEmpresaCNPJ {
   razaoSocial: string;
   nomeFantasia: string;
@@ -18,44 +20,47 @@ export interface DadosEmpresaCNPJ {
 export interface RespostaConsultaCNPJ {
   sucesso: boolean;
   mensagem?: string;
+  fonte?: 'BrasilAPI' | 'ReceitaWS';
   dados?: DadosEmpresaCNPJ;
 }
 
 export const formatarCnpjString = (v: string): string => {
-  const limpo = v.replace(/\D/g, '').slice(0, 14);
-  if (limpo.length <= 2) return limpo;
-  if (limpo.length <= 5) return `${limpo.slice(0, 2)}.${limpo.slice(2)}`;
-  if (limpo.length <= 8) return `${limpo.slice(0, 2)}.${limpo.slice(2, 5)}.${limpo.slice(5)}`;
-  if (limpo.length <= 12) return `${limpo.slice(0, 2)}.${limpo.slice(2, 5)}.${limpo.slice(5, 8)}/${limpo.slice(8)}`;
-  return `${limpo.slice(0, 2)}.${limpo.slice(2, 5)}.${limpo.slice(5, 8)}/${limpo.slice(8, 12)}-${limpo.slice(12, 14)}`;
+  return formatarCnpj(v);
 };
 
+const campoTexto = (valor: unknown): string => valor == null ? '' : String(valor);
+
 /**
- * Consulta dados cadastrais de empresa pelo CNPJ junto à Receita Federal
- * Utiliza APIs públicas e gratuitas (BrasilAPI e ReceitaWS) com fallback robusto
+ * Consulta dados cadastrais por meio de APIs públicas de terceiros (BrasilAPI e ReceitaWS).
+ * Isso não é uma consulta autenticada ou garantia de atualização direta da Receita Federal.
  */
 export const buscarDadosCNPJ = async (cnpj: string): Promise<RespostaConsultaCNPJ> => {
-  const cnpjLimpo = cnpj.replace(/\D/g, '');
+  const cnpjLimpo = normalizarCnpj(cnpj);
 
-  if (cnpjLimpo.length !== 14) {
+  if (!validarCnpj(cnpjLimpo)) {
     return { 
       sucesso: false, 
-      mensagem: 'CNPJ precisa ter 14 dígitos!' 
+      mensagem: 'Informe um CNPJ válido com 14 caracteres e dígitos verificadores corretos.'
     };
   }
 
-  // 1ª Tentativa: BrasilAPI (Suporta CORS nativamente no navegador web, sem custo, base oficial Receita)
+  // 1ª tentativa: provedor terceiro BrasilAPI. Não é conexão autenticada com a Receita Federal.
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
+    let dados: Record<string, unknown> | null = null;
+    try {
+      const resposta = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${encodeURIComponent(cnpjLimpo)}`, { signal: controller.signal });
+      if (resposta.ok) {
+        const json: unknown = await resposta.json();
+        if (json && typeof json === 'object' && !Array.isArray(json)) dados = json as Record<string, unknown>;
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
-    const resBrasilApi = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`, {
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (resBrasilApi.ok) {
-      const dados = await resBrasilApi.json();
+    if (dados) {
+      if (normalizarCnpj(String(dados.cnpj ?? '')) !== cnpjLimpo) throw new Error('O CNPJ retornado pela BrasilAPI não corresponde ao consultado.');
 
       const cepLimpo = dados.cep ? String(dados.cep).replace(/\D/g, '') : '';
       const cepFormatado = cepLimpo.length === 8 ? `${cepLimpo.slice(0, 5)}-${cepLimpo.slice(5)}` : cepLimpo;
@@ -71,26 +76,28 @@ export const buscarDadosCNPJ = async (cnpj: string): Promise<RespostaConsultaCNP
       }
 
       const cnaeCode = dados.cnae_fiscal ? String(dados.cnae_fiscal) : '';
-      const cnaeDesc = dados.cnae_fiscal_descricao ? ` - ${dados.cnae_fiscal_descricao}` : '';
+      const cnaeDescricao = campoTexto(dados.cnae_fiscal_descricao);
+      const cnaeDesc = cnaeDescricao ? ` - ${cnaeDescricao}` : '';
       const cnaeFormatado = cnaeCode ? `${cnaeCode}${cnaeDesc}` : '';
 
       return {
         sucesso: true,
+        fonte: 'BrasilAPI',
         dados: {
-          razaoSocial: dados.razao_social || '',
-          nomeFantasia: dados.nome_fantasia || dados.razao_social || '',
+          razaoSocial: campoTexto(dados.razao_social),
+          nomeFantasia: campoTexto(dados.nome_fantasia) || campoTexto(dados.razao_social),
           cnpj: cnpjLimpo,
           cnpjFormatado: formatarCnpjString(cnpjLimpo),
-          endereco: dados.logradouro || '',
-          numero: dados.numero || '',
-          bairro: dados.bairro || '',
-          cidade: dados.municipio || '',
-          uf: (dados.uf || '').toUpperCase(),
+          endereco: campoTexto(dados.logradouro),
+          numero: campoTexto(dados.numero),
+          bairro: campoTexto(dados.bairro),
+          cidade: campoTexto(dados.municipio),
+          uf: campoTexto(dados.uf).toUpperCase(),
           cep: cepFormatado,
           telefone: telefoneStr,
-          email: (dados.email || '').toLowerCase(),
+          email: campoTexto(dados.email).toLowerCase(),
           cnaePrincipal: cnaeFormatado,
-          situacaoCadastral: dados.descricao_situacao_cadastral || 'ATIVA'
+          situacaoCadastral: campoTexto(dados.descricao_situacao_cadastral)
         }
       };
     }
@@ -98,29 +105,38 @@ export const buscarDadosCNPJ = async (cnpj: string): Promise<RespostaConsultaCNP
     // Continuar para fallback
   }
 
-  // 2ª Tentativa: ReceitaWS
+  // 2ª tentativa: provedor terceiro ReceitaWS. Também não equivale a consulta autenticada da RFB.
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    const resposta = await fetch(`https://www.receitaws.com.br/v1/cnpj/${cnpjLimpo}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+    let resposta: Response;
+    try {
+      resposta = await fetch(`https://www.receitaws.com.br/v1/cnpj/${encodeURIComponent(cnpjLimpo)}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!resposta.ok) {
       throw new Error('Erro na resposta do servidor ReceitaWS');
     }
 
-    const dados = await resposta.json();
+    const json: unknown = await resposta.json();
+    if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('Resposta inválida da ReceitaWS.');
+    const dados = json as Record<string, any>;
 
     if (dados.status === 'ERROR') {
       return { 
         sucesso: false, 
-        mensagem: dados.message || 'CNPJ não encontrado na base da Receita Federal!' 
+        mensagem: `O provedor terceiro ReceitaWS informou que não localizou o CNPJ${dados.message ? `: ${campoTexto(dados.message)}` : '.'} Isso não é uma consulta autenticada à Receita Federal.`
       };
+    }
+    if (normalizarCnpj(String(dados.cnpj || '')) !== cnpjLimpo) {
+      return { sucesso: false, mensagem: 'O CNPJ retornado pela ReceitaWS não corresponde ao consultado. Confira e tente novamente.' };
     }
 
     const cepLimpo = dados.cep ? String(dados.cep).replace(/\D/g, '') : '';
@@ -128,6 +144,7 @@ export const buscarDadosCNPJ = async (cnpj: string): Promise<RespostaConsultaCNP
 
     return {
       sucesso: true,
+      fonte: 'ReceitaWS',
       dados: {
         razaoSocial: dados.nome || '',
         nomeFantasia: dados.fantasia || dados.nome || '',
@@ -144,13 +161,13 @@ export const buscarDadosCNPJ = async (cnpj: string): Promise<RespostaConsultaCNP
         cnaePrincipal: dados.atividade_principal?.[0]?.code 
           ? `${dados.atividade_principal[0].code} - ${dados.atividade_principal[0].text || ''}`
           : '',
-        situacaoCadastral: dados.situacao || 'ATIVA'
+        situacaoCadastral: dados.situacao || ''
       }
     };
   } catch {
     return {
       sucesso: false,
-      mensagem: 'Erro ao consultar Receita Federal. Verifique a internet ou preencha os dados manualmente.'
+      mensagem: 'Os provedores terceiros de consulta cadastral não responderam. Nenhuma consulta autenticada foi feita à Receita Federal; verifique a internet ou preencha os dados manualmente.'
     };
   }
 };

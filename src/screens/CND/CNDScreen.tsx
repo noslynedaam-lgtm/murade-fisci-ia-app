@@ -14,18 +14,17 @@ import {
   X,
   Search,
   Printer,
-  Download,
-  QrCode,
-  Check,
-  RefreshCw
 } from 'lucide-react';
 import BotaoVoltar from '../../components/BotaoVoltar';
 import { useEmpresa } from '../../context/EmpresaContext';
+import { EVENTO_CND_LOCAL_ATUALIZADA } from '../../services/cnd/cndMonitor.service';
 
 import { 
   LISTA_SEFAZ_ESTADOS, 
   LISTA_PREFEITURAS, 
-  obterSefazPorUf 
+  obterSefazPorUf,
+  obterPrefeituraPorNomeOuUf,
+  obterPrefeituraPorMunicipioEUf
 } from '../../data/orgaosPublicosData';
 
 export interface CertidaoCND {
@@ -35,6 +34,7 @@ export interface CertidaoCND {
   clienteDoc: string;
   tipo: 'federal' | 'estadual' | 'municipal' | 'fgts' | 'trabalhista';
   uf?: string;
+  municipio?: string;
   numero: string;
   emissao: string;
   validade: string;
@@ -43,17 +43,13 @@ export interface CertidaoCND {
 }
 
 const LINKS_EMISSAO: Record<string, string> = {
-  federal: 'https://www.gov.br/pt-br/servicos/emitir-certidao-de-regularidade-fiscal',
-  estadual: 'https://www.sefaz.go.gov.br/Certidao/Emissao/',
-  municipal: 'https://www.goiania.go.gov.br/sistemas/sccer/asp/sccer00300f0.asp',
+  federal: 'https://servicos.receitafederal.gov.br/servico/certidoes',
   fgts: 'https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf',
   trabalhista: 'https://www.tst.jus.br/certidao'
 };
 
 const LINKS_ALTERNATIVOS: Record<string, { rotulo: string; url: string }> = {
   federal: { rotulo: 'Portal e-CAC (RFB)', url: 'https://cav.receita.fazenda.gov.br/ecac/' },
-  estadual: { rotulo: 'Portal Economia GO', url: 'https://goias.gov.br/economia/' },
-  municipal: { rotulo: 'Portal SEFIN Goiânia', url: 'https://www.goiania.go.gov.br/sefaz/' },
   fgts: { rotulo: 'FGTS Digital (Pix)', url: 'https://fgtsdigital.sistema.gov.br' },
   trabalhista: { rotulo: 'Portal TST / BNDT', url: 'https://www.tst.jus.br' }
 };
@@ -66,6 +62,23 @@ const NOMES_TIPOS: Record<string, { rotulo: string; orgao: string; icone: string
   trabalhista: { rotulo: 'CNDT — Débitos Trabalhistas', orgao: 'Tribunal Superior do Trabalho (TST)', icone: '⚖️' }
 };
 
+function dataIsoValida(data: string): boolean {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data);
+  if (!partes) return false;
+  const [, ano, mes, dia] = partes;
+  const dataCivil = new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia)));
+  return dataCivil.getUTCFullYear() === Number(ano)
+    && dataCivil.getUTCMonth() === Number(mes) - 1
+    && dataCivil.getUTCDate() === Number(dia);
+}
+
+function hojeIsoLocal(data = new Date()): string {
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, '0');
+  const dia = String(data.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
 interface CNDScreenProps {
   onVoltar?: () => void;
   onNavegar?: (aba: string) => void;
@@ -74,24 +87,27 @@ interface CNDScreenProps {
 export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
   const { empresas, empresaAtiva } = useEmpresa();
   const [certidoes, setCertidoes] = useState<CertidaoCND[]>([]);
+  const [erroArmazenamento, setErroArmazenamento] = useState<string | null>(null);
+  const [mensagemStatus, setMensagemStatus] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('todas');
   const [filtroCliente, setFiltroCliente] = useState<string>('todos');
   const [busca, setBusca] = useState<string>('');
   
-  // Seleção de UF para a SEFAZ Estadual (padrão: UF da empresa ativa ou GO)
-  const [ufSefazAtiva, setUfSefazAtiva] = useState<string>(empresaAtiva?.uf || 'GO');
-  const [idPrefeituraAtiva, setIdPrefeituraAtiva] = useState<string>('pref_goiania');
+  // Abre o órgão da empresa ativa quando os dados cadastrais permitem identificá-lo.
+  const [ufSefazAtiva, setUfSefazAtiva] = useState<string>(empresaAtiva?.uf?.toUpperCase() || '');
+  const prefeituraInicial = empresaAtiva?.cidade && empresaAtiva?.uf
+    ? obterPrefeituraPorMunicipioEUf(empresaAtiva.cidade, empresaAtiva.uf)?.id || ''
+    : '';
+  const [idPrefeituraAtiva, setIdPrefeituraAtiva] = useState<string>(prefeituraInicial);
 
-  // Modal de visualização e emissão oficial de CND
+  // Visualização local do registro; a emissão ocorre no portal externo.
   const [certidaoVisualizacao, setCertidaoVisualizacao] = useState<CertidaoCND | null>(null);
-  const [consultandoOrgao, setConsultandoOrgao] = useState<boolean>(false);
-  const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
   // Modal de cadastro
   const [modalAberto, setModalAberto] = useState(false);
   const [novoClienteId, setNovoClienteId] = useState('');
   const [novoTipo, setNovoTipo] = useState<'federal' | 'estadual' | 'municipal' | 'fgts' | 'trabalhista'>('federal');
-  const [novoUf, setNovoUf] = useState(empresaAtiva?.uf || 'GO');
+  const [novoUf, setNovoUf] = useState(empresaAtiva?.uf || '');
   const [novoNumero, setNovoNumero] = useState('');
   const [novaEmissao, setNovaEmissao] = useState('');
   const [novaValidade, setNovaValidade] = useState('');
@@ -99,72 +115,70 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
 
   // Atualiza UF quando a empresa ativa mudar
   useEffect(() => {
-    if (empresaAtiva?.uf) {
-      setUfSefazAtiva(empresaAtiva.uf);
-      setNovoUf(empresaAtiva.uf);
-    }
+    const uf = empresaAtiva?.uf?.toUpperCase() || '';
+    setUfSefazAtiva(uf);
+    setNovoUf(uf);
+    const prefeitura = empresaAtiva?.cidade && uf
+      ? obterPrefeituraPorMunicipioEUf(empresaAtiva.cidade, uf)
+      : undefined;
+    setIdPrefeituraAtiva(prefeitura?.id || '');
   }, [empresaAtiva]);
 
-  // Carrega certidões do localStorage
+  // Carrega os registros locais sem apagar dados desconhecidos ou registros de empresas reais.
   useEffect(() => {
     try {
       const salvas = localStorage.getItem('fiscoia_cnd');
-      let listaValida: CertidaoCND[] = [];
-      if (salvas) {
-        try {
-          const parsed = JSON.parse(salvas);
-          if (Array.isArray(parsed)) {
-            // Remove qualquer empresa de teste/amostra
-            listaValida = parsed.filter(c => {
-              const nome = ((c.clienteNome || '') + ' ' + (c.obs || '')).toUpperCase();
-              const doc = (c.clienteDoc || '').replace(/\D/g, '');
-              const ehTeste = 
-                nome.includes('AUTO POSTO') ||
-                nome.includes('ROTA 85') ||
-                nome.includes('MERCADO CENTRAL') ||
-                nome.includes('CLINICA') ||
-                nome.includes('ALPHA') ||
-                nome.includes('BETA') ||
-                doc === '12345678000190' ||
-                doc === '98765432000110' ||
-                doc === '45678901000123';
-              return !ehTeste;
-            });
-          }
-        } catch {
-          listaValida = [];
-        }
-      }
-
-      if (listaValida.length > 0) {
-        setCertidoes(listaValida);
-        localStorage.setItem('fiscoia_cnd', JSON.stringify(listaValida));
-      } else {
+      if (salvas === null) {
         setCertidoes([]);
-        localStorage.setItem('fiscoia_cnd', JSON.stringify([]));
+        setErroArmazenamento(null);
+        return;
       }
+      const parsed: unknown = JSON.parse(salvas);
+      if (!Array.isArray(parsed) || parsed.some((item) => !item || typeof item !== 'object' || Array.isArray(item)
+        || !['number', 'string'].includes(typeof item.id) || !['number', 'string'].includes(typeof item.clienteId)
+        || typeof item.clienteNome !== 'string' || typeof item.clienteDoc !== 'string'
+        || !['federal', 'estadual', 'municipal', 'fgts', 'trabalhista'].includes(item.tipo)
+        || typeof item.numero !== 'string' || typeof item.emissao !== 'string' || typeof item.validade !== 'string')) {
+        throw new Error('O cadastro local tem formato inválido. Os dados foram preservados; exporte ou recupere uma cópia antes de editar.');
+      }
+      setCertidoes(parsed as CertidaoCND[]);
+      setErroArmazenamento(null);
     } catch (e) {
       console.error('Erro ao ler fiscoia_cnd:', e);
-      setCertidoes([]);
+      setErroArmazenamento(e instanceof SyntaxError
+        ? 'Os registros locais de certidões estão corrompidos. Foram preservados e não serão sobrescritos.'
+        : e instanceof Error ? e.message : 'Não foi possível ler as certidões. Os dados existentes foram preservados.');
     }
   }, [empresas]);
 
-  // Salva no localStorage sempre que alterar
-  const salvarCertidoesNoStorage = (novas: CertidaoCND[]) => {
-    setCertidoes(novas);
-    localStorage.setItem('fiscoia_cnd', JSON.stringify(novas));
+  // Confirma a persistência antes de atualizar a interface.
+  const salvarCertidoesNoStorage = (novas: CertidaoCND[]): boolean => {
+    try {
+      localStorage.setItem('fiscoia_cnd', JSON.stringify(novas));
+      setCertidoes(novas);
+      window.dispatchEvent(new Event(EVENTO_CND_LOCAL_ATUALIZADA));
+      setErroArmazenamento(null);
+      setMensagemStatus(null);
+      return true;
+    } catch {
+      setErroArmazenamento('Não foi possível salvar as alterações neste navegador. Os registros anteriores continuam preservados.');
+      return false;
+    }
   };
 
   // Cálculo de dias e status
-  const calcularDias = (dataValidade: string) => {
-    const alvo = new Date(dataValidade + 'T23:59:59');
+  const calcularDias = (dataValidade: string): number | null => {
+    if (!dataIsoValida(dataValidade)) return null;
     const agora = new Date();
-    agora.setHours(0, 0, 0, 0);
-    return Math.ceil((alvo.getTime() - agora.getTime()) / (1000 * 60 * 60 * 24));
+    const hojeCivilUtc = Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    const validadeCivilUtc = Date.UTC(Number(dataValidade.slice(0, 4)), Number(dataValidade.slice(5, 7)) - 1, Number(dataValidade.slice(8, 10)));
+    return Math.round((validadeCivilUtc - hojeCivilUtc) / 86_400_000);
   };
 
-  const obterStatus = (dataValidade: string): 'valida' | 'alerta' | 'vencida' => {
-    const dias = calcularDias(dataValidade);
+  const obterStatus = (certidao: Pick<CertidaoCND, 'emissao' | 'validade'>): 'valida' | 'alerta' | 'vencida' | 'invalida' => {
+    if (!dataIsoValida(certidao.emissao) || !dataIsoValida(certidao.validade)) return 'invalida';
+    const dias = calcularDias(certidao.validade);
+    if (dias === null) return 'invalida';
     if (dias < 0) return 'vencida';
     if (dias <= 10) return 'alerta';
     return 'valida';
@@ -172,6 +186,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
 
   const formatarDataBR = (dataIso: string) => {
     if (!dataIso) return '—';
+    if (!dataIsoValida(dataIso)) return `${dataIso} (data inválida)`;
     const partes = dataIso.split('-');
     if (partes.length === 3) {
       return `${partes[2]}/${partes[1]}/${partes[0]}`;
@@ -181,15 +196,16 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
 
   // Contadores
   const total = certidoes.length;
-  const validas = certidoes.filter(c => obterStatus(c.validade) === 'valida').length;
-  const emAlerta = certidoes.filter(c => obterStatus(c.validade) === 'alerta').length;
-  const vencidas = certidoes.filter(c => obterStatus(c.validade) === 'vencida').length;
+  const validas = certidoes.filter(c => obterStatus(c) === 'valida').length;
+  const emAlerta = certidoes.filter(c => obterStatus(c) === 'alerta').length;
+  const vencidas = certidoes.filter(c => obterStatus(c) === 'vencida').length;
+  const datasInvalidas = certidoes.filter(c => obterStatus(c) === 'invalida').length;
 
   // Filtragem
   const certidoesFiltradas = certidoes.filter(c => {
     // Filtro por tipo
     if (filtroTipo === 'vencidas') {
-      if (obterStatus(c.validade) !== 'vencida') return false;
+      if (obterStatus(c) !== 'vencida') return false;
     } else if (filtroTipo !== 'todas') {
       if (c.tipo !== filtroTipo) return false;
     }
@@ -209,18 +225,35 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
     }
 
     return true;
-  }).sort((a, b) => new Date(a.validade).getTime() - new Date(b.validade).getTime());
+  }).sort((a, b) => {
+    const validadeA = dataIsoValida(a.validade) ? Date.parse(`${a.validade}T00:00:00`) : Number.MAX_SAFE_INTEGER;
+    const validadeB = dataIsoValida(b.validade) ? Date.parse(`${b.validade}T00:00:00`) : Number.MAX_SAFE_INTEGER;
+    return validadeA - validadeB;
+  });
 
   // Salvar nova CND
   const handleCadastrar = (e: React.FormEvent) => {
     e.preventDefault();
+    if (erroArmazenamento) return;
     if (!novoClienteId || !novoNumero || !novaEmissao || !novaValidade) {
-      alert('Por favor, preencha todos os campos obrigatórios.');
+      setMensagemStatus('Preencha empresa, número e datas de emissão e validade.');
+      return;
+    }
+    if (!dataIsoValida(novaEmissao) || !dataIsoValida(novaValidade)) {
+      setMensagemStatus('Informe datas válidas no calendário. Nenhum registro foi salvo.');
+      return;
+    }
+    if (novaValidade < novaEmissao) {
+      setMensagemStatus('A validade informada não pode ser anterior à emissão. Nenhum registro foi salvo.');
       return;
     }
 
     // Acha cliente correspondente
     const clienteEncontrado = empresas.find(emp => String(emp.id) === novoClienteId);
+    if (!clienteEncontrado) {
+      setMensagemStatus('A empresa selecionada não está mais disponível. Atualize o cadastro e tente novamente.');
+      return;
+    }
     const nomeCliente = clienteEncontrado ? clienteEncontrado.razaoSocial : 'Cliente';
     const docCliente = clienteEncontrado ? clienteEncontrado.cnpj : '—';
 
@@ -230,7 +263,8 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
       clienteNome: nomeCliente,
       clienteDoc: docCliente,
       tipo: novoTipo,
-      uf: novoTipo === 'estadual' ? novoUf : undefined,
+      uf: novoTipo === 'estadual' ? novoUf : novoTipo === 'municipal' ? clienteEncontrado.uf : undefined,
+      municipio: novoTipo === 'municipal' ? clienteEncontrado.cidade : undefined,
       numero: novoNumero.trim(),
       emissao: novaEmissao,
       validade: novaValidade,
@@ -239,7 +273,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
     };
 
     const atualizadas = [...certidoes, nova];
-    salvarCertidoesNoStorage(atualizadas);
+    if (!salvarCertidoesNoStorage(atualizadas)) return;
 
     // Limpar
     setModalAberto(false);
@@ -248,56 +282,31 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
     setNovaEmissao('');
     setNovaValidade('');
     setNovaObs('');
-    alert('✅ Certidão cadastrada com sucesso!');
+    setMensagemStatus('Registro local salvo neste navegador. A certidão e sua validade não foram verificadas pelo órgão emissor.');
   };
 
   const handleExcluir = (id: number) => {
     if (!window.confirm('Tem certeza que deseja excluir esta certidão?')) return;
     const atualizadas = certidoes.filter(c => c.id !== id);
-    salvarCertidoesNoStorage(atualizadas);
+    if (salvarCertidoesNoStorage(atualizadas)) setMensagemStatus('Registro local removido. Nenhum documento foi alterado no órgão emissor.');
   };
 
   const handleAbrirConsultaEmissao = (cnd: CertidaoCND) => {
-    setConsultandoOrgao(true);
     setCertidaoVisualizacao(cnd);
-    setTimeout(() => {
-      setConsultandoOrgao(false);
-    }, 450);
   };
 
-  const handleEmitirParaEmpresaAtiva = (tipo: 'federal' | 'estadual' | 'municipal' | 'fgts' | 'trabalhista') => {
-    const hoje = new Date();
-    const emissao = hoje.toISOString().split('T')[0];
-    const validadeDate = new Date();
-    validadeDate.setDate(hoje.getDate() + (tipo === 'fgts' ? 30 : 180));
-    const validade = validadeDate.toISOString().split('T')[0];
-    
-    const empresaTarget = empresaAtiva || empresas[0];
-    if (!empresaTarget) {
-      setMensagemSucesso('⚠️ Cadastre uma empresa primeiro para emitir certidões CND.');
-      setTimeout(() => setMensagemSucesso(null), 3000);
-      return;
+  const obterLinkPortalCnd = (cnd: CertidaoCND): string | undefined => {
+    if (cnd.tipo === 'estadual') return obterSefazPorUf(cnd.uf || '')?.urlCnd;
+    if (cnd.tipo === 'municipal') {
+      const empresa = empresas.find(item => String(item.id) === String(cnd.clienteId));
+      const uf = cnd.uf || empresa?.uf;
+      const prefeitura = obterPrefeituraPorNomeOuUf(cnd.municipio || empresa?.cidade || '');
+      if (!prefeitura || !uf || prefeitura.uf.toUpperCase() !== uf.toUpperCase()) return undefined;
+      return prefeitura?.urlCnd;
     }
-
-    const cndNova: CertidaoCND = {
-      id: Date.now(),
-      clienteId: empresaTarget.id,
-      clienteNome: empresaTarget.razaoSocial,
-      clienteDoc: empresaTarget.cnpj,
-      tipo,
-      uf: empresaTarget.uf || 'GO',
-      numero: `${tipo.toUpperCase()}-2026-${Math.floor(100000 + Math.random() * 900000)}`,
-      emissao,
-      validade,
-      obs: `Certidão emitida e autenticada via SERPRO / Órgão Competente em ${hoje.toLocaleDateString('pt-BR')}`
-    };
-
-    setConsultandoOrgao(true);
-    setCertidaoVisualizacao(cndNova);
-    setTimeout(() => {
-      setConsultandoOrgao(false);
-    }, 450);
+    return LINKS_EMISSAO[cnd.tipo];
   };
+  const linkPortalVisualizacao = certidaoVisualizacao ? obterLinkPortalCnd(certidaoVisualizacao) : undefined;
 
   return (
     <div id="cnd-screen" className="space-y-6 max-w-6xl mx-auto pb-16">
@@ -317,12 +326,9 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
             <div>
               <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
                 CND — Certidões Negativas de Débitos
-                <span className="text-xs bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-                  Atualizado 2026
-                </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Controle e monitoramento de certidões Federal (RFB), Estadual (todas as 27 SEFAZ), Municipal, FGTS/Caixa e Trabalhista (TST).
+                Registro manual de certidões e cálculo da validade informada. O sistema não consulta nem valida certidões nos órgãos.
               </p>
             </div>
           </div>
@@ -341,11 +347,12 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
           )}
           <button
             type="button"
+            disabled={Boolean(erroArmazenamento)}
             onClick={() => {
-              setNovaEmissao(new Date().toISOString().split('T')[0]);
+              setNovaEmissao(hojeIsoLocal());
               setModalAberto(true);
             }}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4" />
             Cadastrar Certidão
@@ -353,8 +360,19 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
         </div>
       </div>
 
+      {erroArmazenamento && (
+        <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+          <strong>Armazenamento local indisponível.</strong> {erroArmazenamento} Edições e exclusões estão suspensas para evitar perda dos registros.
+        </div>
+      )}
+      {mensagemStatus && (
+        <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          {mensagemStatus}
+        </div>
+      )}
+
       {/* Cartões de Resumo Rápido */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
           <div className="p-3 bg-slate-100 text-slate-700 rounded-lg">
             <FileText className="w-5 h-5" />
@@ -366,11 +384,21 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-lg">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-xs text-rose-700 font-semibold uppercase tracking-wider block">Data inválida</span>
+            <span className="text-xl font-black text-rose-600">{datasInvalidas}</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center gap-3">
           <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-xs text-emerald-700 font-semibold uppercase tracking-wider block">Válidas</span>
+            <span className="text-xs text-emerald-700 font-semibold uppercase tracking-wider block">Prazo informado ativo</span>
             <span className="text-xl font-black text-emerald-600">{validas}</span>
           </div>
         </div>
@@ -380,7 +408,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
             <Clock className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-xs text-amber-700 font-semibold uppercase tracking-wider block">Próx. Vencer (≤10d)</span>
+            <span className="text-xs text-amber-700 font-semibold uppercase tracking-wider block">Validade informada ≤10d</span>
             <span className="text-xl font-black text-amber-600">{emAlerta}</span>
           </div>
         </div>
@@ -390,24 +418,24 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
             <XCircle className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-xs text-rose-700 font-semibold uppercase tracking-wider block">Vencidas</span>
+            <span className="text-xs text-rose-700 font-semibold uppercase tracking-wider block">Datas informadas vencidas</span>
             <span className="text-xl font-black text-rose-600">{vencidas}</span>
           </div>
         </div>
       </div>
 
-      {/* Bloco de Emissão Rápida com Links Oficiais 2026 */}
+      {/* Atalhos para emissão nos portais oficiais */}
       <div className="bg-linear-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-2xl p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
               <ExternalLink className="w-5 h-5 text-blue-700" />
               <h3 className="text-sm font-bold text-blue-900">
-                Emitir Nova Certidão — Links Oficiais dos Órgãos Públicos 2026
+                Emitir Nova Certidão — atalhos para portais oficiais
               </h3>
             </div>
             <p className="text-xs text-blue-700 mt-0.5">
-              Acesso direto aos portais com fé pública: Receita Federal, 27 SEFAZ estaduais, Prefeituras, Caixa e TST:
+              Os botões abaixo abrem os sites dos órgãos. A emissão acontece no portal oficial, fora do Murade:
             </p>
           </div>
 
@@ -454,7 +482,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
 
           {/* 2. Estadual SEFAZ (Dinâmica por Estado) */}
           {(() => {
-            const sefazAtual = obterSefazPorUf(ufSefazAtiva) || obterSefazPorUf('GO')!;
+            const sefazAtual = obterSefazPorUf(ufSefazAtiva);
             return (
               <div className="p-3.5 bg-white hover:bg-blue-50/40 border border-blue-200 rounded-xl flex flex-col justify-between transition-all group shadow-2xs">
                 <div>
@@ -466,35 +494,28 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                       className="text-[11px] font-bold bg-blue-50 border border-blue-200 text-blue-900 rounded px-1.5 py-0.5 cursor-pointer focus:outline-none"
                       title="Selecione o estado para emissão da CND Estadual"
                     >
+                      <option value="">Selecione a UF</option>
                       {LISTA_SEFAZ_ESTADOS.map(s => (
                         <option key={s.uf} value={s.uf}>{s.uf} ({s.sigla})</option>
                       ))}
                     </select>
                   </div>
                   <h4 className="text-xs font-bold text-blue-900 mt-1">
-                    CND Estadual — {sefazAtual.sigla}
+                    {sefazAtual ? `CND Estadual — ${sefazAtual.sigla}` : 'CND Estadual — selecione a UF da empresa'}
                   </h4>
-                  <p className="text-[11px] text-slate-500 truncate" title={sefazAtual.nomeEstado}>
-                    {sefazAtual.nomeEstado}
+                  <p className="text-[11px] text-slate-500 truncate" title={sefazAtual?.nomeEstado || 'A UF precisa estar cadastrada na empresa ou ser selecionada'}>
+                    {sefazAtual?.nomeEstado || 'Sem UF confirmada'}
                   </p>
                 </div>
                 <div className="mt-3 flex flex-col gap-1.5">
-                  <a
-                    href={sefazAtual.urlCnd}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors text-center"
-                  >
-                    Emitir SEFAZ {sefazAtual.uf} <ExternalLink className="w-3 h-3" />
-                  </a>
-                  <a
-                    href={sefazAtual.urlPortal}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-center font-medium text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
-                  >
-                    Portal Fazenda {sefazAtual.uf} ↗
-                  </a>
+                  {sefazAtual ? <>
+                    <a href={sefazAtual.urlCnd} target="_blank" rel="noopener noreferrer" className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors text-center">
+                      Abrir serviço / portal {sefazAtual.uf} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a href={sefazAtual.urlPortal} target="_blank" rel="noopener noreferrer" className="text-[10px] text-center font-medium text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate">
+                      Portal Fazenda {sefazAtual.uf} ↗
+                    </a>
+                  </> : <p className="rounded-lg bg-amber-50 p-2 text-[10px] text-amber-800">Nenhum portal será aberto até selecionar uma UF válida.</p>}
                 </div>
               </div>
             );
@@ -502,7 +523,10 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
 
           {/* 3. Municipal (Prefeitura / ISS) */}
           {(() => {
-            const prefAtual = LISTA_PREFEITURAS.find(p => p.id === idPrefeituraAtiva) || LISTA_PREFEITURAS[0];
+            const prefeituraDaEmpresa = empresaAtiva?.cidade && empresaAtiva?.uf
+              ? obterPrefeituraPorMunicipioEUf(empresaAtiva.cidade, empresaAtiva.uf)
+              : undefined;
+            const prefAtual = LISTA_PREFEITURAS.find(p => p.id === idPrefeituraAtiva) || prefeituraDaEmpresa;
             return (
               <div className="p-3.5 bg-white hover:bg-blue-50/40 border border-blue-200 rounded-xl flex flex-col justify-between transition-all group shadow-2xs">
                 <div>
@@ -514,35 +538,28 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                       className="text-[11px] font-bold bg-blue-50 border border-blue-200 text-blue-900 rounded px-1.5 py-0.5 cursor-pointer focus:outline-none max-w-[110px] truncate"
                       title="Selecione o município"
                     >
+                      <option value="">Selecione o município</option>
                       {LISTA_PREFEITURAS.map(p => (
                         <option key={p.id} value={p.id}>{p.municipio}/{p.uf}</option>
                       ))}
                     </select>
                   </div>
                   <h4 className="text-xs font-bold text-blue-900 mt-1">
-                    CND Municipal — {prefAtual.municipio}
+                    {prefAtual ? `CND Municipal — ${prefAtual.municipio}` : 'CND Municipal — portal não mapeado'}
                   </h4>
-                  <p className="text-[11px] text-slate-500 truncate" title={prefAtual.orgaoNome}>
-                    {prefAtual.orgaoNome}
+                  <p className="text-[11px] text-slate-500 truncate" title={prefAtual?.orgaoNome || 'A lista atual cobre apenas municípios mapeados; informe a prefeitura da empresa manualmente'}>
+                    {prefAtual?.orgaoNome || `${empresaAtiva?.cidade || 'Município'}${empresaAtiva?.uf ? `/${empresaAtiva.uf}` : ''} ainda não tem portal verificado nesta lista.`}
                   </p>
                 </div>
                 <div className="mt-3 flex flex-col gap-1.5">
-                  <a
-                    href={prefAtual.urlCnd}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors text-center"
-                  >
-                    Emitir Prefeitura <ExternalLink className="w-3 h-3" />
-                  </a>
-                  <a
-                    href={prefAtual.urlPortal}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-center font-medium text-blue-600 hover:text-blue-800 hover:underline py-0.5"
-                  >
-                    Portal ISS {prefAtual.municipio} ↗
-                  </a>
+                  {prefAtual ? <>
+                    <a href={prefAtual.urlCnd} target="_blank" rel="noopener noreferrer" className="px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors text-center">
+                      Abrir serviço / portal <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a href={prefAtual.urlPortal} target="_blank" rel="noopener noreferrer" className="text-[10px] text-center font-medium text-blue-600 hover:text-blue-800 hover:underline py-0.5">
+                      Portal ISS {prefAtual.municipio} ↗
+                    </a>
+                  </> : <p className="rounded-lg bg-amber-50 p-2 text-[10px] text-amber-800">Não há portal municipal verificado para esta cidade nesta lista.</p>}
                 </div>
               </div>
             );
@@ -613,7 +630,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
               { id: 'municipal', rotulo: 'Municipal' },
               { id: 'fgts', rotulo: 'FGTS / CRF' },
               { id: 'trabalhista', rotulo: 'Trabalhista (TST)' },
-              { id: 'vencidas', rotulo: 'Vencidas' }
+              { id: 'vencidas', rotulo: 'Data informada vencida' }
             ].map(f => (
               <button
                 key={f.id}
@@ -675,10 +692,10 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
           </div>
         ) : (
           certidoesFiltradas.map(cnd => {
-            const status = obterStatus(cnd.validade);
+            const status = obterStatus(cnd);
             const dias = calcularDias(cnd.validade);
             const tipoInfo = NOMES_TIPOS[cnd.tipo] || { rotulo: cnd.tipo, orgao: 'Órgão Competente', icone: '📄' };
-            const linkOficial = LINKS_EMISSAO[cnd.tipo];
+            const linkOficial = obterLinkPortalCnd(cnd);
 
             return (
               <div
@@ -706,19 +723,25 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                     {status === 'valida' && (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Válida ({dias} dias restantes)
+                        Validade informada · {dias} dia(s) restante(s)
                       </span>
                     )}
                     {status === 'alerta' && (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
                         <AlertTriangle className="w-3.5 h-3.5" />
-                        {dias === 0 ? 'Vence Hoje' : `A Vencer (${dias} dias)`}
+                        {dias === 0 ? 'Data informada: vence hoje' : `Data informada: vence em ${dias} dia(s)`}
                       </span>
                     )}
                     {status === 'vencida' && (
                       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
                         <XCircle className="w-3.5 h-3.5" />
-                        Vencida (há {Math.abs(dias)} dias)
+                        Data informada vencida (há {Math.abs(dias ?? 0)} dia(s))
+                      </span>
+                    )}
+                    {status === 'invalida' && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Data de emissão/validade inválida; revise o registro
                       </span>
                     )}
                   </div>
@@ -734,7 +757,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                     <span className="font-semibold text-slate-800">{formatarDataBR(cnd.emissao)}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 font-semibold block text-[10px] uppercase">Validade</span>
+                    <span className="text-slate-400 font-semibold block text-[10px] uppercase">Validade informada</span>
                     <span className="font-bold text-slate-800">{formatarDataBR(cnd.validade)}</span>
                   </div>
                   <div>
@@ -754,10 +777,10 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                     type="button"
                     onClick={() => handleAbrirConsultaEmissao(cnd)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                    title="Consultar e Emitir CND Oficializada (SERPRO / Receita Federal)"
+                    title="Visualizar o registro local informado; não consulta nem emite certidão"
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Consultar / Emitir CND</span>
+                    <span>Ver registro local</span>
                   </button>
 
                   {linkOficial && (
@@ -766,17 +789,18 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
-                      title="Abrir página oficial do órgão público no Gov.br"
+                      title="Abrir portal emissor informado para esta certidão"
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Gov.br Oficial</span>
+                      <span>Portal emissor</span>
                     </a>
                   )}
 
                   <button
                     type="button"
+                    disabled={Boolean(erroArmazenamento)}
                     onClick={() => handleExcluir(cnd.id)}
-                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Excluir certidão da listagem"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -943,26 +967,26 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
       )}
 
       {/* ========================================================== */}
-      {/* 🏛️ MODAL OFICIAL: VISUALIZAÇÃO E EMISSÃO DA CND (SERPRO) */}
+      {/* Registro local de certidão informada pelo usuário */}
       {/* ========================================================== */}
       {certidaoVisualizacao && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
             {/* Barra Superior do Modal */}
-            <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800">
+            <div className="no-print bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    Visualização da Certidão Oficial (CND)
-                    <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
-                      <Check className="w-2.5 h-2.5 text-emerald-400" /> Sincronizada SERPRO
+                    Registro local de certidão
+                    <span className="bg-amber-500/20 text-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1">
+                      Não consultada pelo sistema
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Documento oficial com fé pública e validade jurídica em todo o território nacional
+                    Os dados abaixo foram cadastrados localmente e não representam documento emitido pelo órgão.
                   </p>
                 </div>
               </div>
@@ -975,121 +999,32 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
               </button>
             </div>
 
-            {consultandoOrgao ? (
-              <div className="p-12 text-center space-y-3">
-                <div className="w-10 h-10 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-sm font-bold text-slate-800">Consultando base de dados oficial...</p>
-                <p className="text-xs text-slate-500">Conectando aos webservices do SERPRO, RFB e PGFN...</p>
-              </div>
-            ) : (
-              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto print:p-0">
-                {/* 📄 FOLHA DA CERTIDÃO FORMATO GOVERNO OFICIAL */}
-                <div className="bg-white border-2 border-slate-300 rounded-xl p-6 sm:p-8 shadow-inner space-y-6 text-slate-900 font-serif">
-                  {/* Cabeçalho da República */}
-                  <div className="text-center space-y-1 pb-4 border-b-2 border-slate-800">
-                    <div className="text-2xl mb-1">🏛️</div>
-                    <p className="text-xs font-bold uppercase tracking-widest text-slate-800">
-                      República Federativa do Brasil
-                    </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      {certidaoVisualizacao.tipo === 'federal' && 'Ministério da Fazenda — Secretaria Especial da Receita Federal do Brasil'}
-                      {certidaoVisualizacao.tipo === 'estadual' && `Governo do Estado — Secretaria da Economia / SEFAZ ${certidaoVisualizacao.uf || 'GO'}`}
-                      {certidaoVisualizacao.tipo === 'municipal' && 'Governo Municipal — Secretaria de Finanças e Tributação'}
-                      {certidaoVisualizacao.tipo === 'fgts' && 'Caixa Econômica Federal — Diretoria de Fundos de Governo'}
-                      {certidaoVisualizacao.tipo === 'trabalhista' && 'Poder Judiciário — Tribunal Superior do Trabalho (TST / CSJT)'}
-                    </p>
-                    {certidaoVisualizacao.tipo === 'federal' && (
-                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                        Procuradoria-Geral da Fazenda Nacional (PGFN)
-                      </p>
-                    )}
-                    <h2 className="text-sm sm:text-base font-black text-slate-950 uppercase pt-3 max-w-xl mx-auto leading-snug">
-                      {certidaoVisualizacao.tipo === 'federal' && 'CERTIDÃO NEGATIVA DE DÉBITOS RELATIVOS AOS TRIBUTOS FEDERAIS E À DÍVIDA ATIVA DA UNIÃO'}
-                      {certidaoVisualizacao.tipo === 'estadual' && `CERTIDÃO NEGATIVA DE DÉBITOS TRIBUTÁRIOS ESTADUAIS (SEFAZ ${certidaoVisualizacao.uf || 'GO'})`}
-                      {certidaoVisualizacao.tipo === 'municipal' && 'CERTIDÃO NEGATIVA DE DÉBITOS MUNICIPAIS E IMPOSTO SOBRE SERVIÇOS (ISS)'}
-                      {certidaoVisualizacao.tipo === 'fgts' && 'CERTIFICADO DE REGULARIDADE DO FGTS — CRF'}
-                      {certidaoVisualizacao.tipo === 'trabalhista' && 'CERTIDÃO NEGATIVA DE DÉBITOS TRABALHISTAS (CNDT)'}
-                    </h2>
+            <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto print:p-0">
+                <div id="cnd-print-report" className="bg-white border border-slate-300 rounded-xl p-6 sm:p-8 space-y-5 text-slate-900">
+                  <div className="border-b border-slate-200 pb-4">
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Relatório interno · cadastro manual</p>
+                    <h2 className="text-lg font-bold text-slate-950 mt-1">Dados informados sobre certidão externa</h2>
+                    <p className="text-xs text-slate-600 mt-1">Tipo: {NOMES_TIPOS[certidaoVisualizacao.tipo]?.rotulo || certidaoVisualizacao.tipo} · órgão emissor declarado: {NOMES_TIPOS[certidaoVisualizacao.tipo]?.orgao || 'não informado'}</p>
                   </div>
 
-                  {/* Identificação do Contribuinte */}
-                  <div className="space-y-2 text-xs border border-slate-300 p-3.5 rounded-lg bg-slate-50/50 font-sans">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <div className="sm:col-span-2">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase block">Nome Empresarial / Razão Social</span>
-                        <span className="font-black text-slate-900 text-xs sm:text-sm">{certidaoVisualizacao.clienteNome}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase block">CNPJ / Inscrição</span>
-                        <span className="font-black text-slate-900 font-mono text-xs sm:text-sm">{certidaoVisualizacao.clienteDoc}</span>
-                      </div>
-                    </div>
+                  <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+                    <strong>Este relatório não é uma certidão.</strong> O Murade não consultou o órgão, não recebeu o documento e não validou autenticidade, regularidade ou validade. Confira os dados no portal emissor.
                   </div>
 
-                  {/* Texto Legal Oficial */}
-                  <div className="text-xs sm:text-sm text-justify leading-relaxed text-slate-800 space-y-3 px-1">
-                    {certidaoVisualizacao.tipo === 'federal' && (
-                      <p>
-                        Ressalvado o direito de a Fazenda Nacional cobrar e inscrever quaisquer dívidas de responsabilidade do sujeito passivo acima identificado que vierem a ser apuradas, é certificado que <strong>NÃO CONSTAM</strong> pendências em seu nome relativas a créditos tributários administrados pela Secretaria Especial da Receita Federal do Brasil (RFB) e a inscrições em Dívida Ativa da União (DAU) junto à Procuradoria-Geral da Fazenda Nacional (PGFN).
-                      </p>
-                    )}
-                    {certidaoVisualizacao.tipo === 'estadual' && (
-                      <p>
-                        Certifica-se que, revistas as bases da Secretaria de Estado da Fazenda, <strong>NÃO CONSTAM</strong> débitos tributários inscritos na Dívida Ativa do Estado ou sob cobrança administrativa relativamente aos tributos estaduais sob fiscalização deste órgão.
-                      </p>
-                    )}
-                    {certidaoVisualizacao.tipo === 'municipal' && (
-                      <p>
-                        Certifica-se que, consultados os registros fiscais e cadastrais do Município, <strong>NÃO CONSTAM</strong> débitos de tributos mobiliários ou imobiliários (ISS, Taxas de Licença e Alvarás) vinculados ao CNPJ supracitado até a presente data.
-                      </p>
-                    )}
-                    {certidaoVisualizacao.tipo === 'fgts' && (
-                      <p>
-                        A Caixa Econômica Federal, no uso da atribuição conferida pelo art. 7º da Lei nº 8.036/90, certifica que a empresa acima identificada encontra-se em <strong>situação regular perante o Fundo de Garantia do Tempo de Serviço - FGTS</strong>.
-                      </p>
-                    )}
-                    {certidaoVisualizacao.tipo === 'trabalhista' && (
-                      <p>
-                        Certifica-se que a pessoa jurídica acima identificada <strong>NÃO CONSTA</strong> como devedora no Banco Nacional de Devedores Trabalhistas (BNDT), instituído pela Lei nº 12.440/2011.
-                      </p>
-                    )}
-                    <p className="text-[11px] text-slate-600 font-sans italic pt-1">
-                      Certidão emitida com base nas diretrizes do Decreto nº 8.302/2014 e Portaria Conjunta RFB/PGFN nº 1.751/2014. A autenticidade deste documento pode ser confirmada nos respectivos portais oficiais.
-                    </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Empresa informada</span><span className="font-semibold">{certidaoVisualizacao.clienteNome}</span></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">CNPJ / inscrição informada</span><span className="font-mono font-semibold">{certidaoVisualizacao.clienteDoc}</span></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Número / protocolo informado</span><span className="font-mono font-semibold">{certidaoVisualizacao.numero || 'Não informado'}</span></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Data de emissão informada</span><span>{formatarDataBR(certidaoVisualizacao.emissao)}</span></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Data de validade informada</span><span>{formatarDataBR(certidaoVisualizacao.validade)}</span></div>
+                    {certidaoVisualizacao.dataCadastro && <div><span className="block text-[10px] font-bold uppercase text-slate-500">Registro criado no Murade</span><span>{new Date(certidaoVisualizacao.dataCadastro).toLocaleString('pt-BR')}</span></div>}
                   </div>
 
-                  {/* Rodapé e Autenticação */}
-                  <div className="border-t-2 border-slate-300 pt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[11px] font-sans">
-                    <div className="space-y-1">
-                      <p>
-                        <strong>Código de Controle da Certidão:</strong>{' '}
-                        <span className="font-mono font-bold text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                          {certidaoVisualizacao.numero || 'RFB-2026-992140'}
-                        </span>
-                      </p>
-                      <p>
-                        <strong>Data de Emissão:</strong> {formatarDataBR(certidaoVisualizacao.emissao)}
-                      </p>
-                      <p className="text-emerald-800 font-bold">
-                        <strong>Válida até:</strong> {formatarDataBR(certidaoVisualizacao.validade)}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                      <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center rounded">
-                        <QrCode className="w-7 h-7" />
-                      </div>
-                      <div className="text-[10px] text-slate-600 leading-tight">
-                        <p className="font-bold text-slate-800">Autenticação Digital</p>
-                        <p>Validado via SERPRO</p>
-                        <p className="text-[9px] text-slate-400">Integra Contador v1.4</p>
-                      </div>
-                    </div>
-                  </div>
+                  {certidaoVisualizacao.obs && <div className="border-t border-slate-200 pt-3 text-xs"><strong>Observação local:</strong> {certidaoVisualizacao.obs}</div>}
                 </div>
 
                 {/* Botões de Ação do Modal */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="no-print flex flex-wrap items-center justify-between gap-3 pt-2">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -1100,15 +1035,17 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                       <span>Imprimir / Salvar PDF</span>
                     </button>
 
-                    <a
-                      href={LINKS_EMISSAO[certidaoVisualizacao.tipo] || LINKS_EMISSAO.federal}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      <ExternalLink className="w-4 h-4 text-blue-600" />
-                      <span>Acessar Portal Gov.br</span>
-                    </a>
+                    {linkPortalVisualizacao && (
+                      <a
+                        href={linkPortalVisualizacao}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+                      >
+                        <ExternalLink className="w-4 h-4 text-blue-600" />
+                        <span>Abrir portal emissor</span>
+                      </a>
+                    )}
                   </div>
 
                   <button
@@ -1119,11 +1056,10 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                     className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Concluído / Confirmado</span>
+                    <span>Fechar registro</span>
                   </button>
                 </div>
               </div>
-            )}
           </div>
         </div>
       )}
