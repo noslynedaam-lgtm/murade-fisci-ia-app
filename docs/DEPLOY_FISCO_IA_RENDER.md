@@ -28,6 +28,8 @@ Configure no ambiente do serviço, sem prefixo `VITE_` para segredos:
 - `SERPRO_VALIDACAO_CONSUMER_KEY` e `SERPRO_VALIDACAO_CONSUMER_SECRET`: opcional, credenciais de validação.
 - `SERPRO_PRODUCAO_CONSUMER_KEY` e `SERPRO_PRODUCAO_CONSUMER_SECRET`: opcional, credenciais de produção.
 
+O estado e o alcance do teste SERPRO estão descritos em [`INTEGRACAO_SERPRO.md`](./INTEGRACAO_SERPRO.md). A autenticação OAuth do gateway não substitui contrato nem valida acesso a APIs de produto.
+
 Nunca coloque credenciais em `VITE_*`, no código, no Git ou no navegador.
 
 ## Migração do banco

@@ -107,10 +107,10 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
     setConsumerSecret('');
     setTokenBearer('');
     setCertSenha('');
-    setMensagemSucesso('Por segurança, chaves, tokens e senhas não são gravados no navegador. Configure a autenticação no servidor antes de testar o SERPRO.');
+    setMensagemSucesso('As credenciais não foram armazenadas nesta tela. Configure o par OAuth como segredos no Render; o teste disponível verifica apenas a autenticação do gateway SERPRO.');
     setToastNotificacao({
       titulo: 'Credenciais não armazenadas',
-      mensagem: 'Esta versão não possui armazenamento seguro no servidor nem autenticação SERPRO implementada. Nenhuma chave ou senha foi salva.',
+      mensagem: 'Nenhuma chave ou senha foi salva pelo formulário. Configure os segredos no Render; o teste de gateway não valida acesso a APIs de produto.',
       tipo: 'info'
     });
   };
@@ -272,6 +272,11 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
   };
 
   const handleExecutarTesteConectividade = async () => {
+    const ambienteTeste = config.ambiente === 'producao' ? 'produção' : 'homologação';
+    const autorizado = window.confirm(
+      `O servidor fará uma requisição OAuth ao gateway SERPRO de ${ambienteTeste}, usando as credenciais já configuradas como segredos no Render. Isso testa somente a autenticação do gateway; não consulta CNPJ, notas, guias nem outro serviço fiscal. Continuar?`,
+    );
+    if (!autorizado) return;
     setTestando(true);
     setResultadoTeste(null);
     try {
@@ -428,7 +433,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-500 font-mono">
                   <span>Gateway: <strong>{resultadoTeste.gateway}</strong></span>
                   {resultadoTeste.testado && <span>Latência: <strong>{resultadoTeste.tempoMs}ms</strong></span>}
-                  <span>Protocolo necessário: <strong>mTLS / OAuth2</strong></span>
+                  <span>Etapa testada: <strong>OAuth do gateway</strong> (não valida acesso às APIs de produto)</span>
                 </div>
               </div>
             </div>
@@ -551,7 +556,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                     INTEGRAÇÃO NÃO CONFIGURADA
                   </span>
                   <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-xs font-bold px-3 py-1 rounded-full">
-                    Autenticação mTLS não configurada
+                    OAuth do gateway não confirmado
                   </span>
                   <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-bold px-3 py-1 rounded-full">
                     {config.ambiente === 'producao' ? 'Produção Oficial RFB' : 'Sandbox SERPRO'}
@@ -875,12 +880,12 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                       Testes no Ambiente Sandbox de Homologação SERPRO
                       {config.etapasHomologacao.passo4_testeSandbox && (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-                          Marcado por você; teste não realizado pelo Murade
+                          Checklist local; não comprova homologação oficial
                         </span>
                       )}
                     </h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      Nenhuma chamada de teste é enviada pelo Murade. Quando o SERPRO liberar o sandbox e a integração do servidor estiver configurada, o teste poderá ser executado por aqui.
+                      O botão de verificação abaixo envia uma requisição OAuth ao gateway SERPRO do ambiente escolhido. Ele não chama APIs de CNPJ, notas, guias ou outros serviços fiscais. A resposta confirma apenas a autenticação do gateway; contrato e permissões do produto precisam ser conferidos separadamente.
                     </p>
                   </div>
                 </div>
@@ -891,7 +896,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                     onClick={handleExecutarTesteConectividade}
                     className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    Verificar configuração <Radio className="w-3 h-3 text-indigo-500" />
+                    Testar OAuth do gateway <Radio className="w-3 h-3 text-indigo-500" />
                   </button>
                   <button
                     type="button"
@@ -1087,7 +1092,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                   Credenciais OAuth 2.0 (SERPRO API Gateway)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Campos temporários. A autenticação oficial ainda precisa ser implementada no servidor.
+                  Não digite credenciais aqui. O servidor usa somente os segredos configurados no Render; o teste abaixo verifica apenas o token OAuth do gateway.
                 </p>
               </div>
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
