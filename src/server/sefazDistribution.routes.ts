@@ -19,6 +19,8 @@ const ENDPOINTS = {
 const MAX_SOAP_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const MAX_BATCH_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
+const MAX_SEFAZ_REQUEST_MS = 45_000;
+const MIN_SEFAZ_REQUEST_GAP_MS = 60_000;
 
 router.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -145,8 +147,17 @@ function montarRequisicao(cnpj: string, ultNsu: string, ambiente: 'producao' | '
 function consultarSefaz(endpoint: string, pfx: Buffer, passphrase: string, body: string): Promise<{ status: number; xml: string }> {
   return new Promise((resolve, reject) => {
     const url = new URL(endpoint);
+    let settled = false;
+    let totalTimeout: ReturnType<typeof setTimeout>;
+    const finish = (error?: Error, result?: { status: number; xml: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(totalTimeout);
+      if (error) reject(error);
+      else resolve(result!);
+    };
     const request = httpsRequest(url, {
-      method: 'POST', pfx, passphrase, timeout: 30_000,
+      method: 'POST', pfx, passphrase, timeout: MAX_SEFAZ_REQUEST_MS,
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
         SOAPAction: `"${SOAP_ACTION}"`,
@@ -163,11 +174,12 @@ function consultarSefaz(endpoint: string, pfx: Buffer, passphrase: string, body:
         }
         chunks.push(Buffer.from(chunk));
       });
-      response.on('end', () => resolve({ status: response.statusCode || 0, xml: Buffer.concat(chunks).toString('utf8') }));
-      response.on('error', reject);
+      response.on('end', () => finish(undefined, { status: response.statusCode || 0, xml: Buffer.concat(chunks).toString('utf8') }));
+      response.on('error', (error) => finish(error));
     });
-    request.on('timeout', () => request.destroy(new Error('Tempo limite da conexão com a SEFAZ excedido.')));
-    request.on('error', reject);
+    totalTimeout = setTimeout(() => request.destroy(new Error('Tempo total da consulta ao WebService da SEFAZ excedido.')), MAX_SEFAZ_REQUEST_MS);
+    request.on('timeout', () => request.destroy(new Error('Tempo limite sem resposta do WebService da SEFAZ excedido.')));
+    request.on('error', (error) => finish(error));
     request.end(body, 'utf8');
   });
 }
@@ -340,12 +352,31 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       const blockedUntil = cursor.blocked_until ? new Date(cursor.blocked_until).getTime() : 0;
       if (blockedUntil > Date.now()) return { kind: 'bloqueado' as const, ate: cursor.blocked_until };
       const lastRequest = cursor.last_request_at ? new Date(cursor.last_request_at).getTime() : 0;
-      if (Date.now() - lastRequest < 30_000) return { kind: 'ocupado' as const };
+      if (Date.now() - lastRequest < MIN_SEFAZ_REQUEST_GAP_MS) return { kind: 'ocupado' as const };
 
       const ambiente = process.env.FISCOIA_SEFAZ_DFE_ENV === 'homologacao' ? 'homologacao' : 'producao';
       const endpoint = ENDPOINTS[ambiente];
       const requestXml = montarRequisicao(certificate.cnpj, String(cursor.last_nsu), ambiente);
       await client.query('UPDATE fiscoia.fiscal_dfe_cursors SET last_request_at=now(), updated_at=now() WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]);
+
+      // Persiste a reserva antes da rede. Se TLS, HTTP, parsing ou persistência falhar,
+      // o rollback da resposta não pode apagar a hora da tentativa e permitir repetição imediata.
+      await client.query(
+        `INSERT INTO fiscoia.audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id, details)
+         VALUES ($1,$2,'sefaz.dfe.consult_started','company',$3,$4::jsonb)`,
+        [tenantId, user.id, companyId, JSON.stringify({ ambiente, ultNSU: String(cursor.last_nsu) })],
+      );
+      await client.query('COMMIT');
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [user.id]);
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+      const cursorReaberto = await client.query(
+        'SELECT last_nsu FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2 FOR UPDATE',
+        [tenantId, companyId],
+      );
+      if (!cursorReaberto.rows[0] || String(cursorReaberto.rows[0].last_nsu) !== String(cursor.last_nsu)) {
+        return { kind: 'ocupado' as const };
+      }
 
       let response: { status: number; xml: string };
       try { response = await consultarSefaz(endpoint, pfx!, certificate.passphrase, requestXml); }
