@@ -128,10 +128,13 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
     const user = await obterUsuarioDaSessao(req);
     if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     const segredo = Buffer.from(JSON.stringify({ pfxBase64, passphrase }), 'utf8');
-    const encrypted = criptografarSegredoEmpresa(ids.tenantId, ids.companyId, segredo);
-    segredo.fill(0);
+    let encrypted: ReturnType<typeof criptografarSegredoEmpresa>;
+    try {
+      encrypted = criptografarSegredoEmpresa(ids.tenantId, ids.companyId, segredo);
+    } finally {
+      segredo.fill(0);
+    }
     const fingerprint = createHash('sha256').update(pfx).digest('hex');
-    pfx.fill(0);
 
     const scoped = await comContextoTenant(user.id, ids.tenantId, async (client) => {
       const company = await client.query(
@@ -174,8 +177,9 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
       mensagem: 'A1 recebido e cifrado no banco vinculado a esta empresa. Isso não valida o certificado na SEFAZ nem consulta notas.',
     });
   } catch {
-    pfx.fill(0);
     return res.status(503).json({ mensagem: 'Não foi possível armazenar o A1 com segurança. O sistema não confirmou o cadastro; tente novamente ou confira a chave de criptografia do servidor.' });
+  } finally {
+    pfx.fill(0);
   }
 });
 
