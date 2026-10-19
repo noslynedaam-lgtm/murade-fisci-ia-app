@@ -69,6 +69,14 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
     servicos: Array<{ nome: string; status: 'ONLINE' | 'OFFLINE'; latenciaMs: number; versao: string }>;
     detalhes: string;
   } | null>(null);
+  const [statusCredenciaisRender, setStatusCredenciaisRender] = useState<{
+    carregando: boolean;
+    dados: {
+      validacao: { consumerKeyConfigurada: boolean; consumerSecretConfigurado: boolean; prontoParaTeste: boolean };
+      producao: { consumerKeyConfigurada: boolean; consumerSecretConfigurado: boolean; prontoParaTeste: boolean };
+    } | null;
+    mensagem: string;
+  }>({ carregando: true, dados: null, mensagem: '' });
 
   const [abaInterna, setAbaInterna] = useState<'sincronizacao' | 'passo_a_passo' | 'pagamento_planos' | 'credenciais' | 'logs'>('sincronizacao');
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
@@ -118,6 +126,24 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
   const idsEmpresaFiscal = empresaAtiva?.idCentral && empresaAtiva?.tenantIdCentral
     ? { companyId: empresaAtiva.idCentral, tenantId: empresaAtiva.tenantIdCentral }
     : null;
+
+  useEffect(() => {
+    let cancelado = false;
+    fetch('/api/serpro/config-status', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.mensagem === 'string' ? data.mensagem : 'Não foi possível consultar a configuração SERPRO no servidor.');
+        if (!cancelado) setStatusCredenciaisRender({ carregando: false, dados: data, mensagem: '' });
+      })
+      .catch(error => {
+        if (!cancelado) setStatusCredenciaisRender({
+          carregando: false,
+          dados: null,
+          mensagem: error instanceof Error ? error.message : 'Falha ao consultar a configuração SERPRO no servidor.',
+        });
+      });
+    return () => { cancelado = true; };
+  }, []);
 
   useEffect(() => {
     if (!idsEmpresaFiscal) {
@@ -1082,6 +1108,34 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
           <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <strong>Não cole chaves ou tokens SERPRO aqui nem envie segredos pelo chat.</strong>
             <p className="mt-1">As chaves de produto SERPRO ficam somente como segredos no Render. O A1 pode ser enviado no campo próprio abaixo e salvo cifrado por empresa; isso, por si só, ainda não conecta nem consulta um órgão público.</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-800">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <strong>Estado dos segredos no servidor</strong>
+                <p className="mt-1 text-xs text-slate-600">A tela consulta apenas se as variáveis existem; nunca recebe os valores.</p>
+              </div>
+              {statusCredenciaisRender.carregando && <span className="text-xs text-slate-500">Consultando…</span>}
+            </div>
+            {statusCredenciaisRender.mensagem && (
+              <p role="status" className="mt-2 text-xs text-amber-800">{statusCredenciaisRender.mensagem}</p>
+            )}
+            {statusCredenciaisRender.dados && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {([
+                  ['Homologação', statusCredenciaisRender.dados.validacao],
+                  ['Produção', statusCredenciaisRender.dados.producao],
+                ] as const).map(([ambiente, status]) => (
+                  <div key={ambiente} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <strong>{ambiente}: {status.prontoParaTeste ? 'par de segredos presente' : status.consumerKeyConfigurada || status.consumerSecretConfigurado ? 'configuração parcial' : 'segredos ausentes'}</strong>
+                    <p className="mt-1 text-slate-600">Consumer Key: {status.consumerKeyConfigurada ? 'presente' : 'ausente'} · Consumer Secret: {status.consumerSecretConfigurado ? 'presente' : 'ausente'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-600">
+              Configure no Render: <code>SERPRO_VALIDACAO_CONSUMER_KEY</code>, <code>SERPRO_VALIDACAO_CONSUMER_SECRET</code> e, se houver contrato de produção, <code>SERPRO_PRODUCAO_CONSUMER_KEY</code> e <code>SERPRO_PRODUCAO_CONSUMER_SECRET</code>. Presença das variáveis não confirma autenticação nem acesso ao produto Consulta NF-e.
+            </p>
           </div>
           <fieldset disabled className="space-y-6 opacity-60">
           <form onSubmit={handleSalvarCredenciais} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
