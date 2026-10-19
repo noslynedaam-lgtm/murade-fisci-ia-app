@@ -101,6 +101,17 @@ export async function trocarSenhaPrimeiroAcesso(
   return { sucesso: true, mensagem: resultado.dados.mensagem || 'Senha alterada no servidor.', usuario: resultado.dados.usuario };
 }
 
+export async function aceitarConvite(token: string, senha: string): Promise<{ sucesso: boolean; mensagem: string; usuario?: UsuarioAuth }> {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string; usuario?: UsuarioAuth }>('accept-invite', {
+    method: 'POST',
+    body: JSON.stringify({ token, senha }),
+  });
+  if (!resultado.ok || !resultado.dados?.sucesso || !resultado.dados.usuario) {
+    return { sucesso: false, mensagem: resultado.dados?.mensagem || 'Não foi possível aceitar o convite.' };
+  }
+  return { sucesso: true, mensagem: resultado.dados.mensagem || 'Senha criada.', usuario: resultado.dados.usuario };
+}
+
 export async function logout(): Promise<{ sucesso: boolean; mensagem?: string }> {
   const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string }>('logout', {
     method: 'POST',
@@ -124,18 +135,18 @@ export async function alterarSenhaContaLocal(_email: string, senhaAtual: string,
 }
 
 export async function cadastrarContador(dados: DadosCadastroContador): Promise<{
-  sucesso: boolean; mensagem: string; senhaProvisoria?: string; usuario?: UsuarioAuth;
+  sucesso: boolean; mensagem: string; conviteUrl?: string; usuario?: UsuarioAuth;
 }> {
   const resultado = await requisicaoAuthCentral<{
-    sucesso?: boolean; mensagem?: string; senhaProvisoria?: string; usuario?: UsuarioAuth;
+    sucesso?: boolean; mensagem?: string; conviteUrl?: string; usuario?: UsuarioAuth;
   }>('users', { method: 'POST', body: JSON.stringify(dados) });
-  if (!resultado.ok || !resultado.dados?.sucesso || !resultado.dados.usuario) {
+  if (!resultado.ok || !resultado.dados?.sucesso || !resultado.dados.usuario || !resultado.dados.conviteUrl) {
     return { sucesso: false, mensagem: resultado.dados?.mensagem || 'Não foi possível criar a conta central.' };
   }
   return {
     sucesso: true,
     mensagem: resultado.dados.mensagem || 'Conta central criada.',
-    senhaProvisoria: resultado.dados.senhaProvisoria,
+    conviteUrl: resultado.dados.conviteUrl,
     usuario: resultado.dados.usuario,
   };
 }

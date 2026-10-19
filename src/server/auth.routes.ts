@@ -318,8 +318,19 @@ router.post('/users', async (req, res) => {
     if (!membership.rows[0]) return res.status(403).json({ mensagem: 'Conta administrativa sem escritório proprietário configurado.' });
 
     const planNames: Record<string, string> = { basico: 'Básico', profissional: 'Profissional', empresarial: 'Empresarial' };
-    const senhaProvisoria = randomBytes(18).toString('base64url');
-    const passwordHash = await criarHash(senhaProvisoria);
+    const convite = randomBytes(32).toString('base64url');
+    const passwordHash = await criarHash(randomBytes(48).toString('base64url'));
+    const appUrl = (process.env.APP_URL || 'https://murade-fisco-ia.onrender.com').replace(/\/$/, '');
+    let conviteBase: URL;
+    try {
+      conviteBase = new URL(appUrl);
+      if (conviteBase.protocol !== 'https:' && process.env.NODE_ENV === 'production') throw new Error('APP_URL must use HTTPS');
+    } catch {
+      return res.status(503).json({ mensagem: 'Convites indisponíveis: configure uma URL pública HTTPS válida no APP_URL.' });
+    }
+    // O fragmento não é enviado em requisições HTTP nem em cabeçalhos Referer.
+    conviteBase.hash = new URLSearchParams({ convite }).toString();
+    const hashConvite = hashToken(convite);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -334,11 +345,21 @@ router.post('/users', async (req, res) => {
         "INSERT INTO fiscoia.tenant_memberships (tenant_id, user_id, role) VALUES ($1, $2, 'CONTADOR')",
         [membership.rows[0].tenant_id, inserted.rows[0].id],
       );
+      await client.query(
+        `UPDATE fiscoia.password_reset_tokens SET consumed_at = now()
+          WHERE user_id = $1 AND consumed_at IS NULL`,
+        [inserted.rows[0].id],
+      );
+      await client.query(
+        `INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at)
+         VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '48 hours')`,
+        [hashConvite, inserted.rows[0].id],
+      );
       await client.query('COMMIT');
       return res.status(201).json({
         sucesso: true,
-        mensagem: 'Conta criada no servidor. Entregue a senha temporária por canal seguro; ela será exigida no primeiro acesso.',
-        senhaProvisoria,
+        mensagem: 'Conta criada no servidor. Envie o link de uso único ao usuário; ele expira em 48 horas. Nenhum e-mail foi enviado.',
+        conviteUrl: conviteBase.toString(),
         usuario: usuarioPublico(inserted.rows[0] as Record<string, unknown>),
       });
     } catch (error) {
@@ -352,6 +373,55 @@ router.post('/users', async (req, res) => {
     }
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível criar a conta no banco.' });
+  }
+});
+
+router.post('/accept-invite', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Autenticação central indisponível: banco permanente não configurado.' });
+  const token = typeof req.body?.token === 'string' ? req.body.token : '';
+  const senha = typeof req.body?.senha === 'string' ? req.body.senha : '';
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return res.status(400).json({ mensagem: 'Link de convite inválido ou incompleto.' });
+  if (senha.length < 12 || senha.length > 1024) return res.status(400).json({ mensagem: 'A senha precisa ter entre 12 e 1024 caracteres.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const invite = await client.query(
+      `SELECT t.user_id, u.*
+         FROM fiscoia.password_reset_tokens t
+         JOIN fiscoia.users u ON u.id = t.user_id
+        WHERE t.token_sha256 = $1 AND t.purpose = 'FIRST_ACCESS'
+          AND t.consumed_at IS NULL AND t.expires_at > now() AND u.active = true
+        FOR UPDATE OF t, u`,
+      [hashToken(token)],
+    );
+    const row = invite.rows[0] as Record<string, unknown> | undefined;
+    if (!row) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ mensagem: 'Este convite expirou, já foi usado ou não é válido. Peça um novo link ao administrador.' });
+    }
+    const passwordHash = await criarHash(senha);
+    await client.query(
+      `UPDATE fiscoia.users SET password_hash = $1, must_change_password = false, updated_at = now() WHERE id = $2`,
+      [passwordHash, row.user_id],
+    );
+    await client.query('UPDATE fiscoia.password_reset_tokens SET consumed_at = now() WHERE token_sha256 = $1', [hashToken(token)]);
+    await client.query('UPDATE fiscoia.auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [row.user_id]);
+    const sessionToken = randomBytes(32).toString('base64url');
+    await client.query(
+      `INSERT INTO fiscoia.auth_sessions (user_id, token_sha256, expires_at)
+       VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
+      [row.user_id, hashToken(sessionToken), SESSION_SECONDS],
+    );
+    await client.query('COMMIT');
+    definirCookie(res, sessionToken);
+    return res.json({ sucesso: true, mensagem: 'Senha criada. Acesso liberado.', usuario: usuarioPublico({ ...row, must_change_password: false }) });
+  } catch {
+    await client.query('ROLLBACK').catch(() => undefined);
+    return res.status(503).json({ mensagem: 'Não foi possível concluir o convite no banco.' });
+  } finally {
+    client.release();
   }
 });
 

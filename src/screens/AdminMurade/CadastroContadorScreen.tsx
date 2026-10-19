@@ -24,7 +24,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
 
   const [carregando, setCarregando] = useState(false);
   const [sucesso, setSucesso] = useState<{
-    senhaProvisoria: string;
+    conviteUrl: string;
     email: string;
     nome: string;
     nomePlano: string;
@@ -51,9 +51,9 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
 
     setCarregando(false);
 
-    if (resp.sucesso && resp.senhaProvisoria) {
+    if (resp.sucesso && resp.conviteUrl) {
       setSucesso({
-        senhaProvisoria: resp.senhaProvisoria,
+        conviteUrl: resp.conviteUrl,
         email: dados.email,
         nome: dados.nome,
         nomePlano: planoInfo.nome
@@ -74,12 +74,16 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
     }
   };
 
-  const copiarAcesso = () => {
+  const copiarAcesso = async () => {
     if (!sucesso) return;
-    const texto = `DADOS DE ACESSO — MURADE FISCO IA\n\nOlá ${sucesso.nome}.\n\nSua conta foi criada no servidor. Nenhum e-mail foi enviado.\n\nLogin: ${sucesso.email}\nSenha temporária: ${sucesso.senhaProvisoria}\nPerfil selecionado: ${sucesso.nomePlano} (não comprova assinatura ou pagamento)\n\nTroque a senha no primeiro acesso. Entregue estes dados por um canal seguro.`;
-    navigator.clipboard.writeText(texto);
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+    const texto = `Convite de acesso — Murade Fisco IA\n\nOlá ${sucesso.nome}! Sua conta foi criada. Abra o link abaixo para criar sua senha pessoal.\n\n${sucesso.conviteUrl}\n\nLogin: ${sucesso.email}\nO link é de uso único e expira em 48 horas. Nenhum e-mail foi enviado.\nPerfil selecionado: ${sucesso.nomePlano} (não comprova assinatura ou pagamento).`;
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      setErro('Não foi possível copiar automaticamente. Use o link clicável exibido acima.');
+    }
   };
 
   return (
@@ -100,7 +104,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             </h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Este cadastro fica apenas neste navegador. A senha temporária é exibida para entrega manual; não há envio de e-mail nem autenticação central.
+            A conta é criada no servidor e recebe um link completo para a pessoa criar a própria senha. O convite não é enviado por e-mail automaticamente.
           </p>
         </div>
       </div>
@@ -118,7 +122,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-200 pb-3">
             <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
               <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              <span>Conta local criada; e-mail não enviado</span>
+              <span>Conta criada; convite pronto para compartilhar</span>
             </div>
             <button
               type="button"
@@ -126,7 +130,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               {copiado ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiado ? 'Texto copiado' : 'Copiar texto para entrega manual'}</span>
+              <span>{copiado ? 'Convite copiado' : 'Copiar convite para WhatsApp'}</span>
             </button>
           </div>
 
@@ -137,8 +141,8 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             </div>
 
             <div className="p-3 bg-white rounded-xl border border-emerald-200">
-              <span className="text-slate-500 block text-[11px]">Senha Temporária Gerada:</span>
-              <strong className="text-indigo-700 font-mono text-base block font-bold">{sucesso.senhaProvisoria}</strong>
+              <span className="text-slate-500 block text-[11px]">Link pessoal para criar senha:</span>
+              <a href={sucesso.conviteUrl} className="mt-1 block break-all font-semibold text-indigo-700 underline" rel="noreferrer">Abrir convite de uso único</a>
             </div>
 
             <div className="p-3 bg-white rounded-xl border border-emerald-200">
@@ -149,7 +153,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
 
           <div className="p-3 bg-white/80 rounded-xl border border-emerald-200/80 text-[11px] text-emerald-950 flex items-center gap-2">
             <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>O perfil e os dados de login não são compartilhados com outros dispositivos. Autenticação central ainda não está configurada.</span>
+            <span>O link expira em 48 horas e só pode ser usado uma vez. A senha pessoal será definida diretamente pelo usuário no servidor.</span>
           </div>
         </div>
       )}
@@ -290,7 +294,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
             className="px-6 py-3 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer disabled:opacity-50 transition-all"
           >
             <Send className="w-4 h-4 text-amber-400" />
-            <span>{carregando ? 'Criando registro local...' : 'Criar conta local'}</span>
+            <span>{carregando ? 'Criando conta e convite...' : 'Criar conta e gerar convite'}</span>
           </button>
         </div>
       </form>

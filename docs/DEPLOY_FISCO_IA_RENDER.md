@@ -23,7 +23,7 @@ Configure no ambiente do serviço, sem prefixo `VITE_` para segredos:
 - `FISCOIA_MIGRATION_DATABASE_URL`: credencial administrativa, somente em jobs privados de migração/bootstrap. Nunca coloque no serviço web.
 - `FISCOIA_DATA_ENCRYPTION_KEY`: chave aleatória de 32 bytes em Base64; preserve-a e faça backup seguro, pois dados cifrados dependem dela.
 - `FISCOIA_DATA_ENCRYPTION_KEY_VERSION`: `v1` na primeira instalação.
-- `APP_URL`: URL pública do serviço.
+- `APP_URL`: URL pública HTTPS do serviço. Usada para formar links de convite de primeiro acesso. O convite é entregue como link de uso único, expira em 48 horas e não é enviado por e-mail automaticamente.
 - `GEMINI_API_KEY`: opcional para a assistente.
 - `SERPRO_VALIDACAO_CONSUMER_KEY` e `SERPRO_VALIDACAO_CONSUMER_SECRET`: opcional, credenciais de validação.
 - `SERPRO_PRODUCAO_CONSUMER_KEY` e `SERPRO_PRODUCAO_CONSUMER_SECRET`: opcional, credenciais de produção.

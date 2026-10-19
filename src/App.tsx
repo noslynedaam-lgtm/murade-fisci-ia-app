@@ -15,6 +15,7 @@ import LoginScreen from './screens/Auth/LoginScreen';
 import TrocarSenhaPrimeiroAcessoScreen from './screens/Auth/TrocarSenhaPrimeiroAcessoScreen';
 import RecuperarSenhaScreen from './screens/Auth/RecuperarSenhaScreen';
 import RedefinirSenhaScreen from './screens/Auth/RedefinirSenhaScreen';
+import AceitarConviteScreen from './screens/Auth/AceitarConviteScreen';
 import CadastroEmpresaScreen from './screens/CadastroEmpresa';
 import GeracaoGuiasScreen from './screens/GeracaoGuiasScreen';
 import SerproHomologacaoScreen from './screens/Serpro/SerproHomologacaoScreen';
@@ -50,12 +51,18 @@ export default function App() {
   // Estados de Autenticação & Sessão
   const [usuarioAtual, setUsuarioAtual] = useState<UsuarioAuth | null>(null);
   const [mostrarPortalSistemas, setMostrarPortalSistemas] = useState(false);
+  const [tokenConvite, setTokenConvite] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const queryToken = new URLSearchParams(window.location.search).get('convite');
+    const fragmentToken = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('convite');
+    return fragmentToken || queryToken || '';
+  });
 
   const notificarMudancaSessao = () => {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fiscoia_auth_session_updated'));
   };
 
-  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir'>('login');
+  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir' | 'convite'>(() => tokenConvite ? 'convite' : 'login');
   const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [mensagemAuthServidor, setMensagemAuthServidor] = useState<string | null>(null);
   const [emailPrimeiroAcesso, setEmailPrimeiroAcesso] = useState('');
@@ -124,6 +131,11 @@ export default function App() {
   }, [modalEmailsAberto]);
 
   useEffect(() => {
+    if (tokenConvite) {
+      setModoAuth('convite');
+      setVerificandoSessao(false);
+      return () => undefined;
+    }
     let ativo = true;
     void validarSessaoCentral().then((resultado) => {
       if (!ativo) return;
@@ -141,7 +153,7 @@ export default function App() {
       setVerificandoSessao(false);
     });
     return () => { ativo = false; };
-  }, []);
+  }, [tokenConvite]);
 
   // Navegação com proteção estrita de acesso e suporte abrangente a aliases
   const handleNavegacao = (novaAba: string) => {
@@ -251,6 +263,26 @@ export default function App() {
     notificarMudancaSessao();
   };
 
+  const limparTokenConviteDaUrl = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('convite');
+    const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
+    fragment.delete('convite');
+    url.hash = fragment.toString();
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    setTokenConvite('');
+  };
+
+  const handleConviteConcluido = (usuario: UsuarioAuth) => {
+    limparTokenConviteDaUrl();
+    handleSenhaAlteradaPrimeiroAcesso(usuario);
+  };
+
+  const cancelarConvite = () => {
+    limparTokenConviteDaUrl();
+    setModoAuth('login');
+  };
+
   if (verificandoSessao) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-sm text-slate-600">
@@ -270,6 +302,15 @@ export default function App() {
         onAbrirFiscoIa={() => setMostrarPortalSistemas(false)}
         onSair={() => { void handleLogout(); }}
       />
+    );
+  }
+
+  if (modoAuth === 'convite') {
+    return (
+      <div className="min-h-screen bg-slate-100 flex flex-col justify-between font-sans">
+        <AceitarConviteScreen token={tokenConvite} onConcluido={handleConviteConcluido} onVoltarLogin={cancelarConvite} />
+        <footer className="py-4 text-center text-xs text-slate-400">FISCOIA © 2026 • Administrado por MURADE</footer>
+      </div>
     );
   }
 

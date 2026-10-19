@@ -21,7 +21,7 @@ Escopos aceitos: `email` e `profile`. O serviço não se anuncia como OpenID Con
 
 ## Configuração privada do provedor
 
-Quando os adaptadores estiverem prontos, configure `FISCOIA_SSO_CLIENTS_JSON` como variável privada no serviço Fisco IA. Valor de formato (substitua tudo pelos dados reais; não use esse exemplo literalmente):
+Quando os adaptadores estiverem prontos, configure `FISCOIA_OIDC_CLIENTS_JSON` como variável privada no serviço Fisco IA. Esse é o nome lido pelo servidor. Valor de formato (substitua tudo pelos dados reais; não use esse exemplo literalmente):
 
 ```json
 [
