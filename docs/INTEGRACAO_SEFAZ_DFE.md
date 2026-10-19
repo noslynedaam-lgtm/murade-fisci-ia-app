@@ -11,6 +11,7 @@ O serviço consulta a Distribuição DF-e nacional para o CNPJ da empresa seleci
 
 ## Cursor, documentos e eventos
 
+- CNPJ numérico ou alfanumérico é normalizado em maiúsculas e validado antes da consulta. A Distribuição usa o campo CNPJ e a chave NF-e de 44 posições de acordo com os esquemas oficiais atuais.
 - Uma consulta usa o último `ultNSU` retornado pela SEFAZ. O cursor e os XMLs são gravados na mesma transação do tenant; erro de transporte, XML inválido ou falha de persistência não avança o cursor.
 - O sistema registra como validado o fingerprint do A1 somente depois de resposta de distribuição bem-formada (`cStat=137` ou `138`). A tela compara esse fingerprint com o certificado atualmente armazenado, então trocar o A1 invalida o estado anterior. Isso não valida autorização para SERPRO, eSocial ou outros serviços.
 - Os XMLs `docZip`, inclusive eventos, ficam cifrados em `fiscal_dfe_items`, idempotentes por empresa/NSU. NF-e só é estruturada em `fiscal_documents` quando modelo, chave válida e CNPJ participante estão explícitos. Valores ausentes continuam nulos e aguardam conferência.

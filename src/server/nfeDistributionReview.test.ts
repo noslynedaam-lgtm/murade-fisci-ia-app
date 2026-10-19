@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { revisarNfeDistribuida } from './nfeDistributionReview';
+import { chaveNfeTemDigitoValido } from '../services/fiscal/chaveNfe.service';
 
 const cnpj = '11497078000180';
 const key = '52261011497078000180550010000027651750396125';
@@ -39,4 +40,24 @@ test('detects a disagreement between invoice key and protocol key', () => {
   const otherKey = `${key.slice(0, 43)}${key[43] === '0' ? '1' : '0'}`;
   const result = revisarNfeDistribuida(xmlNfe({ keyInProtocol: otherKey }), cnpj);
   assert.ok(result.findings.some((finding) => finding.code === 'CHAVE_PROTOCOLO_DIVERGENTE'));
+});
+
+test('accepts an alphanumeric CNPJ and matching NF-e access key from NT 2026.004', () => {
+  const companyCnpj = '00000000E08G12';
+  const payload = `522607${companyCnpj}55001000000001112345678`;
+  let weight = 2;
+  let sum = 0;
+  for (let index = payload.length - 1; index >= 0; index -= 1) {
+    sum += (payload.charCodeAt(index) - 48) * weight;
+    weight = weight === 9 ? 2 : weight + 1;
+  }
+  const remainder = sum % 11;
+  const accessKey = `${payload}${remainder < 2 ? 0 : 11 - remainder}`;
+  assert.equal(payload.length, 43);
+  assert.equal(chaveNfeTemDigitoValido(accessKey), true);
+
+  const xml = `<nfeProc><NFe><infNFe Id="NFe${accessKey}"><ide><mod>55</mod><serie>1</serie><nNF>1</nNF><dhEmi>2026-07-01T10:00:00-03:00</dhEmi></ide><emit><CNPJ>${companyCnpj}</CNPJ></emit><det nItem="1"><prod><vProd>100.00</vProd></prod></det><total><ICMSTot><vProd>100.00</vProd><vNF>100.00</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><tpAmb>1</tpAmb><chNFe>${accessKey}</chNFe><cStat>100</cStat><nProt>152260000000001</nProt></infProt></protNFe></nfeProc>`;
+  const result = revisarNfeDistribuida(xml, companyCnpj);
+  assert.equal(result.status, 'SEM_ALERTA_ESTRUTURAL');
+  assert.deepEqual(result.findings, []);
 });

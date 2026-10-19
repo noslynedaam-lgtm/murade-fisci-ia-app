@@ -7,6 +7,7 @@ import { obterCertificadoFiscalDaEmpresa } from './companyCertificate.routes';
 import { criptografarSegredoEmpresa, descriptografarSegredoEmpresa, criptografarXml } from './encryption';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 import { chaveNfeTemDigitoValido } from '../services/fiscal/chaveNfe.service';
+import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { revisarNfeDistribuida } from './nfeDistributionReview';
 
 const router = Router();
@@ -53,15 +54,16 @@ function validarNsu(value: string): string {
 }
 
 function extrairChave(xml: string): string | null {
-  const id = /<(?:[A-Za-z_][\w.-]*:)?infNFe\b[^>]*\bId\s*=\s*(["'])NFe([0-9]{44})\1/i.exec(xml);
-  if (id) return id[2];
+  const id = /<(?:[A-Za-z_][\w.-]*:)?infNFe\b[^>]*\bId\s*=\s*(["'])NFe([0-9A-Z]{44})\1/i.exec(xml);
+  if (id) return id[2].toUpperCase();
   const value = extrairTag(xml, 'chNFe');
-  return /^[0-9]{44}$/.test(value) ? value : null;
+  return /^[0-9A-Z]{44}$/.test(value) ? value.toUpperCase() : null;
 }
 
 function extrairCpfCnpj(xml: string, parent: string): string {
   const content = extrairTag(xml, parent);
-  return extrairTag(content, 'CNPJ') || extrairTag(content, 'CPF');
+  const cnpj = extrairTag(content, 'CNPJ');
+  return cnpj ? normalizarCnpj(cnpj) : extrairTag(content, 'CPF').replace(/\D/g, '');
 }
 
 function textoXml(xml: string, tag: string): string | null {
@@ -79,7 +81,7 @@ export function metadadosEvento(xml: string) {
   const retornoEvento = extrairTag(xml, 'retEvento');
   const infoRetorno = extrairTag(retornoEvento, 'infEvento');
   const detalhe = extrairTag(infoPedido, 'detEvento');
-  const chave = textoXml(infoPedido, 'chNFe') || textoXml(xml, 'chNFe');
+  const chave = (textoXml(infoPedido, 'chNFe') || textoXml(xml, 'chNFe'))?.toUpperCase() || null;
   const chaveValida = chave && chaveNfeTemDigitoValido(chave) ? chave : null;
   const codigo = textoXml(infoPedido, 'tpEvento');
   const dataHora = textoXml(infoPedido, 'dhEvento');
@@ -335,14 +337,15 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
     if (!certificate) return res.status(409).json({ mensagem: 'Cadastre o certificado A1 desta empresa antes da consulta. Nenhuma conexão foi iniciada.' });
     pfx = certificate.pfx;
     const certificateFingerprint = createHash('sha256').update(pfx).digest('hex');
-    if (!/^\d{14}$/.test(certificate.cnpj)) return res.status(422).json({ mensagem: 'O CNPJ precisa estar normalizado com 14 dígitos para consultar este WebService.' });
+    const cnpjConsulta = normalizarCnpj(certificate.cnpj);
+    if (!validarCnpj(cnpjConsulta)) return res.status(422).json({ mensagem: 'O CNPJ vinculado ao certificado não tem 14 posições ou dígitos verificadores válidos.' });
 
     // O lock da posição NSU serializa consultas concorrentes desta empresa. A transação
     // é curta e nunca atualiza NSU sem resposta oficial parseável e persistência completa.
     const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
       const company = await client.query('SELECT cnpj FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]);
       if (!company.rows[0]) return { kind: 'erro' as const, erro: 'Empresa ativa não encontrada neste escritório.' };
-      if (String(company.rows[0].cnpj) !== certificate.cnpj) return { kind: 'erro' as const, erro: 'O CNPJ da credencial mudou; nenhum documento foi consultado.' };
+      if (normalizarCnpj(String(company.rows[0].cnpj)) !== cnpjConsulta) return { kind: 'erro' as const, erro: 'O CNPJ da credencial mudou; nenhum documento foi consultado.' };
       await client.query(
         `INSERT INTO fiscoia.fiscal_dfe_cursors (tenant_id, company_id) VALUES ($1,$2)
          ON CONFLICT (tenant_id, company_id) DO NOTHING`, [tenantId, companyId],
@@ -362,7 +365,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       // antes de iniciar a chamada externa; falhas de rede também contam.
       const rate = await client.query(
         'SELECT allowed, retry_at, requests_in_window FROM fiscoia.reserve_sefaz_dfe_request($1, $2, $3)',
-        [certificate.cnpj, tenantId, companyId],
+        [cnpjConsulta, tenantId, companyId],
       );
       if (rate.rows[0]?.allowed !== true) {
         const retryAt = rate.rows[0]?.retry_at || new Date(Date.now() + 60 * 60_000).toISOString();
@@ -375,7 +378,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
 
       const ambiente = process.env.FISCOIA_SEFAZ_DFE_ENV === 'homologacao' ? 'homologacao' : 'producao';
       const endpoint = ENDPOINTS[ambiente];
-      const requestXml = montarRequisicao(certificate.cnpj, String(cursor.last_nsu), ambiente);
+      const requestXml = montarRequisicao(cnpjConsulta, String(cursor.last_nsu), ambiente);
       await client.query('UPDATE fiscoia.fiscal_dfe_cursors SET last_request_at=now(), updated_at=now() WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]);
 
       // Persiste a reserva antes da rede. Se TLS, HTTP, parsing ou persistência falhar,
@@ -409,7 +412,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
         const globalBlock = retorno.cStat === 656
           ? await client.query(
             'SELECT fiscoia.block_sefaz_dfe_cnpj($1, $2, $3, now() + interval \'1 hour\') AS blocked_until',
-            [certificate.cnpj, tenantId, companyId],
+            [cnpjConsulta, tenantId, companyId],
           )
           : null;
         const bloqueadoAte = globalBlock?.rows[0]?.blocked_until || null;
@@ -435,7 +438,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       }
       // Direção usa os CNPJs do XML quando fornecidos e nunca infere participante ausente.
       for (const item of retorno.documentos) {
-        item.metadata = classificar(item.schema, item.documentXml, certificate.cnpj);
+        item.metadata = classificar(item.schema, item.documentXml, cnpjConsulta);
       }
 
       const nsuAtual = BigInt(String(cursor.last_nsu));
@@ -507,7 +510,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       const globalBlock = bloqueio
         ? await client.query(
           'SELECT fiscoia.block_sefaz_dfe_cnpj($1, $2, $3, now() + interval \'1 hour\') AS blocked_until',
-          [certificate.cnpj, tenantId, companyId],
+          [cnpjConsulta, tenantId, companyId],
         )
         : null;
       const bloqueadoAte = globalBlock?.rows[0]?.blocked_until || null;

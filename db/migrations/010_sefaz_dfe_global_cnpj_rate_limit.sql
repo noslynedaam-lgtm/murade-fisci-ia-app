@@ -3,7 +3,7 @@
 -- migração; o runtime só pode consultar/registrar por funções SECURITY DEFINER.
 CREATE TABLE IF NOT EXISTS fiscoia.sefaz_dfe_global_request_attempts (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  cnpj char(14) NOT NULL CHECK (cnpj ~ '^[0-9]{14}$'),
+  cnpj char(14) NOT NULL CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
   requested_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -11,7 +11,7 @@ CREATE INDEX IF NOT EXISTS sefaz_dfe_global_attempts_cnpj_time_idx
   ON fiscoia.sefaz_dfe_global_request_attempts (cnpj, requested_at DESC);
 
 CREATE TABLE IF NOT EXISTS fiscoia.sefaz_dfe_global_request_state (
-  cnpj char(14) PRIMARY KEY CHECK (cnpj ~ '^[0-9]{14}$'),
+  cnpj char(14) PRIMARY KEY CHECK (cnpj ~ '^[A-Z0-9]{12}[0-9]{2}$'),
   blocked_until timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -32,8 +32,8 @@ DECLARE
   oldest_request timestamptz;
   request_count integer;
 BEGIN
-  normalized_cnpj := regexp_replace(coalesce(target_cnpj, ''), '[^0-9]', '', 'g');
-  IF normalized_cnpj !~ '^[0-9]{14}$' THEN
+  normalized_cnpj := upper(regexp_replace(coalesce(target_cnpj, ''), '[^A-Za-z0-9]', '', 'g'));
+  IF normalized_cnpj !~ '^[A-Z0-9]{12}[0-9]{2}$' THEN
     RAISE EXCEPTION 'CNPJ inválido para reserva SEFAZ.' USING ERRCODE = '22023';
   END IF;
   IF NOT EXISTS (
@@ -98,8 +98,8 @@ DECLARE
   normalized_cnpj text;
   effective_block timestamptz;
 BEGIN
-  normalized_cnpj := regexp_replace(coalesce(target_cnpj, ''), '[^0-9]', '', 'g');
-  IF normalized_cnpj !~ '^[0-9]{14}$' OR target_blocked_until IS NULL THEN
+  normalized_cnpj := upper(regexp_replace(coalesce(target_cnpj, ''), '[^A-Za-z0-9]', '', 'g'));
+  IF normalized_cnpj !~ '^[A-Z0-9]{12}[0-9]{2}$' OR target_blocked_until IS NULL THEN
     RAISE EXCEPTION 'Bloqueio SEFAZ inválido.' USING ERRCODE = '22023';
   END IF;
   IF NOT EXISTS (

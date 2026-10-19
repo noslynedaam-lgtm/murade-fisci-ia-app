@@ -684,7 +684,7 @@ export default function CadastroEmpresaScreen({
                     consultarCNPJ();
                   }
                 }}
-                placeholder="00.000.000/0000-00"
+                placeholder="00.000.000/E08G-12"
                 className="w-full px-4 py-3 bg-white border-2 border-[#1a237e] rounded-xl text-base sm:text-lg font-bold font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1a237e]/40 shadow-inner"
               />
             </div>

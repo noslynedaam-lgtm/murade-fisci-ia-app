@@ -1,4 +1,5 @@
 import { chaveNfeTemDigitoValido } from '../services/fiscal/chaveNfe.service';
+import { normalizarCnpj } from '../services/cnpj/cnpjValidation';
 
 export type NfeDistributionFinding = {
   code: string;
@@ -44,26 +45,27 @@ export function revisarNfeDistribuida(xml: string, expectedCompanyCnpj: string) 
   }
 
   const openInf = new RegExp(`<((?:[A-Za-z_][\\w.-]*:)?infNFe)\\b([^>]*)>`, 'i').exec(xml);
-  const id = openInf?.[2].match(/\bId\s*=\s*(["'])NFe([0-9]{44})\1/i)?.[2] ?? '';
-  const protocolKey = tag(xml, 'chNFe');
+  const id = openInf?.[2].match(/\bId\s*=\s*(["'])NFe([0-9A-Z]{44})\1/i)?.[2]?.toUpperCase() ?? '';
+  const protocolKey = tag(xml, 'chNFe').toUpperCase();
   const key = id || protocolKey;
   if (!key || !chaveNfeTemDigitoValido(key)) findings.push({ code: 'CHAVE_INVALIDA', severity: 'ERRO', message: 'A chave da NF-e está ausente ou tem dígito verificador inválido.' });
   if (id && protocolKey && id !== protocolKey) findings.push({ code: 'CHAVE_PROTOCOLO_DIVERGENTE', severity: 'ERRO', message: 'A chave em infNFe diverge da chave no protocolo do XML.' });
 
   const ide = block(inf, 'ide') ?? '';
   const emit = block(inf, 'emit') ?? '';
-  const cnpj = tag(emit, 'CNPJ').replace(/\D/g, '');
+  const cnpj = normalizarCnpj(tag(emit, 'CNPJ'));
+  const expectedCnpj = normalizarCnpj(expectedCompanyCnpj);
   const modelo = tag(ide, 'mod');
   const serie = tag(ide, 'serie');
   const numero = tag(ide, 'nNF');
   const emissao = (tag(ide, 'dhEmi') || tag(ide, 'dEmi')).slice(0, 10);
-  if (key && /^\d{44}$/.test(key)) {
+  if (key && /^[0-9A-Z]{44}$/.test(key)) {
     if (cnpj && key.slice(6, 20) !== cnpj) findings.push({ code: 'CNPJ_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'O CNPJ do emitente diverge do CNPJ embutido na chave.' });
     if (modelo && key.slice(20, 22) !== modelo) findings.push({ code: 'MODELO_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'O modelo do XML diverge do modelo embutido na chave.' });
     if (/^\d{1,3}$/.test(serie) && key.slice(22, 25) !== serie.padStart(3, '0')) findings.push({ code: 'SERIE_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'A série do XML diverge da série embutida na chave.' });
     if (/^\d{1,9}$/.test(numero) && key.slice(25, 34) !== numero.padStart(9, '0')) findings.push({ code: 'NUMERO_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'O número do XML diverge do número embutido na chave.' });
     if (/^\d{4}-\d{2}-\d{2}$/.test(emissao) && key.slice(2, 6) !== `${emissao.slice(2, 4)}${emissao.slice(5, 7)}`) findings.push({ code: 'DATA_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'O mês/ano de emissão diverge da data embutida na chave.' });
-    if (key.slice(6, 20) !== expectedCompanyCnpj.replace(/\D/g, '') && cnpj === expectedCompanyCnpj.replace(/\D/g, '')) findings.push({ code: 'EMPRESA_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'A chave da nota não corresponde ao CNPJ da empresa emitente consultada.' });
+    if (key.slice(6, 20) !== expectedCnpj && cnpj === expectedCnpj) findings.push({ code: 'EMPRESA_CHAVE_DIVERGENTE', severity: 'ERRO', message: 'A chave da nota não corresponde ao CNPJ da empresa emitente consultada.' });
   }
 
   const total = block(inf, 'ICMSTot');
