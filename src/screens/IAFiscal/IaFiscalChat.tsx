@@ -78,7 +78,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
   // Referência para scroll automático
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Hook de reconhecimento e síntese de voz calibrado para voz masculina (Dr. Benny Gonçalves - 1.15x)
+  // Hook de reconhecimento e síntese de voz; começa na velocidade normal.
   const {
     ouvindo,
     falando,
@@ -95,7 +95,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     testarVozDrBeni,
   } = useVoz({
     lingua: 'pt-BR',
-    velocidadeInicial: 1.15, // ⚡ Rápida e natural — Dr. Benny Gonçalves!
+    velocidadeInicial: 1.0,
     onTextoReconhecido: (textoFinal) => {
       if (textoFinal && textoFinal.trim()) {
         setInputTexto(textoFinal);

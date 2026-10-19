@@ -36,14 +36,14 @@ interface UseVozProps {
   onTextoReconhecido?: (texto: string) => void;
   onFalaFinalizada?: () => void;
   lingua?: string;
-  velocidadeInicial?: number; // 1.15: Rápida e natural — Dr. Benny Gonçalves
+  velocidadeInicial?: number;
 }
 
 export function useVoz({
   onTextoReconhecido,
   onFalaFinalizada,
   lingua = 'pt-BR',
-  velocidadeInicial = 1.15, // ⚡ Rápida e natural — Dr. Benny Gonçalves
+  velocidadeInicial = 1.0,
 }: UseVozProps = {}) {
   const [ouvindo, setOuvindo] = useState(false);
   const [falando, setFalando] = useState(false);
@@ -51,7 +51,7 @@ export function useVoz({
   const [transcricaoParcial, setTranscricaoParcial] = useState('');
   const [erroVoz, setErroVoz] = useState<string | null>(null);
 
-  // Controle de velocidade dinâmica configurável (padrão 1.15)
+  // Controle de velocidade dinâmica configurável (padrão normal: 1.0)
   const [velocidade, setVelocidade] = useState<number>(velocidadeInicial);
 
   // Lista de vozes e voz ativa masculina Dr. Benny Gonçalves
@@ -257,7 +257,7 @@ export function useVoz({
     setOuvindo(false);
   }, []);
 
-  // Sintetizar voz MASCULINA — Dr. Beni Gonçalves (rápida, firme e natural: velocidade 1.15x)
+  // Sintetizar voz masculina — velocidade configurada pelo usuário.
   const falarTexto = useCallback((texto: string, callbackFinal?: () => void) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       if (callbackFinal) callbackFinal();
@@ -291,8 +291,8 @@ export function useVoz({
       fala.text = textoLimpo;
       fala.lang = 'pt-BR';
       fala.volume = 1;
-      // ⚡ Rápida e natural — igual a sua! (1.15x)
-      fala.rate = velocidadeRef.current || 1.15;
+      // Usa a velocidade selecionada no controle de voz.
+      fala.rate = velocidadeRef.current || 1.0;
       fala.pitch = 0.96; // Tom masculino firme e seguro (Dr. Beni Gonçalves)
 
       // Selecionar voz masculina no banco de vozes

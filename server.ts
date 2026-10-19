@@ -138,7 +138,7 @@ app.post("/api/voz/sintetizar", async (req, res) => {
     const resposta = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vozId}`, {
       method: 'POST',
       headers: { Accept: 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': apiKey },
-      body: JSON.stringify({ text: texto, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.8 } }),
+      body: JSON.stringify({ text: texto, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.8, speed: 1.0 } }),
       signal: AbortSignal.timeout(20_000),
     });
     if (!resposta.ok) {
@@ -324,7 +324,7 @@ function gerarRespostaTributariaLocal(pergunta: string, isPrimeiraInteracao = fa
 }
 
 async function startServer() {
-  // Servir arquivos estáticos da pasta fiscoia-v1 e ia-fiasco-oficial
+  // Servir arquivos estáticos da versão legada ainda suportada.
   app.use("/fiscoia-v1", express.static(path.join(process.cwd(), "fiscoia-v1")));
 
   // Vite middleware in development
