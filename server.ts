@@ -326,7 +326,6 @@ function gerarRespostaTributariaLocal(pergunta: string, isPrimeiraInteracao = fa
 async function startServer() {
   // Servir arquivos estáticos da pasta fiscoia-v1 e ia-fiasco-oficial
   app.use("/fiscoia-v1", express.static(path.join(process.cwd(), "fiscoia-v1")));
-  app.use("/ia-fiasco-oficial", express.static(path.join(process.cwd(), "ia-fiasco-oficial")));
 
   // Vite middleware in development
   if (process.env.NODE_ENV !== "production") {
