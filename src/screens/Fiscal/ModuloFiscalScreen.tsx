@@ -155,6 +155,11 @@ export function ModuloFiscalScreen({
   const [erroLeituraRadar, setErroLeituraRadar] = useState<string | null>(null);
   const [radarEmpresaId, setRadarEmpresaId] = useState<string | null>(null);
   const [estadoSincronizacaoCentral, setEstadoSincronizacaoCentral] = useState<string | null>(null);
+  const [sincronizandoFiscalCentral, setSincronizandoFiscalCentral] = useState(false);
+  const [cursorSyncFiscal, setCursorSyncFiscal] = useState<string | null>(null);
+  const [versaoDocumentosCentrais, setVersaoDocumentosCentrais] = useState(0);
+  const [periodoSyncDesde, setPeriodoSyncDesde] = useState(() => `${hojeLocalISO().slice(0, 7)}-01`);
+  const [periodoSyncAte, setPeriodoSyncAte] = useState(hojeLocalISO);
   const [filtroRadar, setFiltroRadar] = useState('');
   const [filtroPeriodoRadar, setFiltroPeriodoRadar] = useState('');
   const [mensagemRadar, setMensagemRadar] = useState('');
@@ -384,6 +389,42 @@ export function ModuloFiscalScreen({
     }
   };
 
+  const sincronizarDocumentosMuradeFiscal = async () => {
+    const empresa = empresaAtiva;
+    if (!empresa?.idCentral || !empresa.tenantIdCentral) {
+      setMensagemRadar('Vincule esta empresa a um cadastro central antes de sincronizar com o Murade Fiscal.');
+      return;
+    }
+    if (!periodoSyncDesde || !periodoSyncAte || periodoSyncDesde > periodoSyncAte) {
+      setMensagemRadar('Informe um período válido para a sincronização.');
+      return;
+    }
+    if (!window.confirm(`Consultar no Murade Fiscal os documentos armazenados para o CNPJ ${empresa.cnpj}, de ${periodoSyncDesde} a ${periodoSyncAte}? Os XMLs válidos serão gravados como pendentes de revisão no Fisco IA. Nenhum lançamento ou envio oficial será feito.`)) return;
+
+    setSincronizandoFiscalCentral(true);
+    setMensagemRadar('Consultando o Murade Fiscal e validando documentos completos…');
+    try {
+      const resposta = await fetch(`/api/companies/${encodeURIComponent(empresa.idCentral)}/fiscal-source-sync`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-FiscoIA-Tenant-Id': empresa.tenantIdCentral },
+        body: JSON.stringify({ confirmarSincronizacao: true, desde: periodoSyncDesde, ate: periodoSyncAte, ...(cursorSyncFiscal ? { cursor: cursorSyncFiscal } : {}) }),
+      });
+      const resultado = await resposta.json().catch(() => ({}));
+      if (!resposta.ok || resultado?.sucesso !== true) {
+        throw new Error(resultado?.mensagem || 'A integração não confirmou a sincronização.');
+      }
+      setCursorSyncFiscal(typeof resultado.proximoCursor === 'string' ? resultado.proximoCursor : null);
+      setVersaoDocumentosCentrais(versao => versao + 1);
+      setMensagemRadar(`${resultado.mensagem} Consultados: ${resultado.consultados}; novos: ${resultado.importados}; já existentes: ${resultado.repetidos}; sem XML completo: ${resultado.semXmlCompleto}; recusados: ${resultado.rejeitados}${resultado.podeHaverMais ? '. Há mais documentos no período; repita a sincronização para continuar.' : '.'}${Array.isArray(resultado.avisos) && resultado.avisos.length ? ` Avisos: ${resultado.avisos.join(' ')}` : ''}`);
+      notificarAtualizacaoDadosFiscais();
+    } catch (error) {
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível sincronizar com o Murade Fiscal.');
+    } finally {
+      setSincronizandoFiscalCentral(false);
+    }
+  };
+
   // Reidrata no Radar desta sessão os XMLs já persistidos no PostgreSQL,
   // mantendo a lista local como cache e nunca alterando documentos existentes.
   useEffect(() => {
@@ -463,7 +504,7 @@ export function ModuloFiscalScreen({
     };
     void sincronizar();
     return () => { cancelado = true; };
-  }, [radarPronto, empresaAtiva?.id, empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral, empresaAtiva?.cnpj, erroLeituraRadar]);
+  }, [radarPronto, empresaAtiva?.id, empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral, empresaAtiva?.cnpj, erroLeituraRadar, versaoDocumentosCentrais]);
 
   const recarregarArquivosPendentes = async (empresaId: string) => {
     const arquivos = await listarArquivosFiscaisPendentesEmpresa(empresaId);
@@ -1037,6 +1078,16 @@ export function ModuloFiscalScreen({
               <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2">A Distribuição DF-e pode fornecer documentos e eventos de interesse do CNPJ. O XML completo depende das regras de distribuição e manifestação. Este serviço não entrega, por si só, as notas emitidas pela própria empresa; notas de saída precisam vir do emissor/ERP ou de outra fonte autorizada. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Regras oficiais</a>.</p>
             </div>
             <div className="flex gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 p-1">
+                <label className="sr-only" htmlFor="fiscoia-sync-desde">Data inicial da sincronização</label>
+                <input id="fiscoia-sync-desde" aria-label="Data inicial da sincronização" type="date" value={periodoSyncDesde} onChange={e => { setPeriodoSyncDesde(e.target.value); setCursorSyncFiscal(null); }} className="max-w-32 rounded border border-indigo-200 bg-white px-1.5 py-1 text-[10px]" />
+                <span className="text-[10px] text-indigo-800">até</span>
+                <label className="sr-only" htmlFor="fiscoia-sync-ate">Data final da sincronização</label>
+                <input id="fiscoia-sync-ate" aria-label="Data final da sincronização" type="date" value={periodoSyncAte} onChange={e => { setPeriodoSyncAte(e.target.value); setCursorSyncFiscal(null); }} className="max-w-32 rounded border border-indigo-200 bg-white px-1.5 py-1 text-[10px]" />
+                <button type="button" onClick={() => void sincronizarDocumentosMuradeFiscal()} disabled={!empresaAtiva?.idCentral || !empresaAtiva?.tenantIdCentral || sincronizandoFiscalCentral} className="px-2 py-1.5 rounded-md bg-indigo-700 text-white text-[10px] font-bold disabled:opacity-50">
+                  <RefreshCw className={`w-3 h-3 inline mr-1 ${sincronizandoFiscalCentral ? 'animate-spin' : ''}`} />{sincronizandoFiscalCentral ? 'Sincronizando…' : cursorSyncFiscal ? 'Continuar sincronização' : 'Trazer do Murade Fiscal'}
+                </button>
+              </div>
               <button type="button" onClick={executarConferenciaRadar} className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">Conferir agora</button>
               <input ref={inputXmlRef} type="file" multiple className="hidden" onChange={e => void handleImportarXmlRadar(e.target.files)} />
               <button type="button" onClick={() => inputXmlRef.current?.click()} disabled={!empresaAtiva?.id || !radarPronto || Boolean(erroLeituraRadar)} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold disabled:opacity-50"><Upload className="w-3.5 h-3.5 inline mr-1"/>Importar documentos</button>

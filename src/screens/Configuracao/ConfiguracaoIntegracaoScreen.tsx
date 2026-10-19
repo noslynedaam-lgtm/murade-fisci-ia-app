@@ -61,12 +61,12 @@ interface UsuarioPermissao {
   badgeCor: string;
 }
 
-async function verificarEndpointSaude(urlServico: string): Promise<{ disponivel: boolean; detalhe: string }> {
+async function verificarEndpointSaude(urlServico: string, caminhoSaude: string): Promise<{ disponivel: boolean; detalhe: string }> {
   if (!urlServico) return { disponivel: false, detalhe: 'URL do serviço não configurada.' };
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
   try {
-    const endpoint = new URL('/api/health', urlServico).toString();
+    const endpoint = new URL(caminhoSaude, urlServico).toString();
     const resposta = await fetch(endpoint, {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -248,10 +248,12 @@ export function ConfiguracaoIntegracaoScreen({
   const testarTodasConexoes = async () => {
     setTestando(true);
     setMensagemErro(null);
+    const caminhoDp = MODULOS_MURADE.find(modulo => modulo.id === 'dp')?.healthPath ?? '/api/health';
+    const caminhoFiscal = MODULOS_MURADE.find(modulo => modulo.id === 'fiscal')?.healthPath ?? '/health';
     const [dp, fiscal, fiscoIa] = await Promise.all([
-      verificarEndpointSaude(config.urlDp),
-      verificarEndpointSaude(config.urlFiscal),
-      verificarEndpointSaude(config.urlFiasco)
+      verificarEndpointSaude(config.urlDp, caminhoDp),
+      verificarEndpointSaude(config.urlFiscal, caminhoFiscal),
+      verificarEndpointSaude(config.urlFiasco, '/api/health')
     ]);
     const verificacao = new Date().toLocaleString('pt-BR');
     const resultado: ConfigIntegracao = {
@@ -771,7 +773,7 @@ export function ConfiguracaoIntegracaoScreen({
               className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl border border-slate-300 flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${testando ? 'animate-spin' : ''}`} />
-              <span>{testando ? 'Consultando /api/health nos 3 serviços...' : '🔍 Verificar disponibilidade das APIs'}</span>
+              <span>{testando ? 'Consultando os endpoints de saúde configurados...' : '🔍 Verificar disponibilidade das APIs'}</span>
             </button>
           </section>
 

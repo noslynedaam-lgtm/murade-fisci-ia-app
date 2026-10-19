@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import express, { Router } from 'express';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { criptografarXml, descriptografarXml } from './encryption';
@@ -9,6 +9,8 @@ import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 const router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CNPJ_FORMATADO = /^[A-Z0-9]{12}[0-9]{2}$/;
+// Process-local capability used only by the server-to-server synchronization route.
+export const CHAVE_SYNC_FISCAL_INTERNA = randomBytes(32).toString('base64url');
 const analisarXml = express.text({ type: ['application/xml', 'text/xml'], limit: '25mb' });
 
 function analisarCorpoXml(req: express.Request, res: express.Response, next: express.NextFunction): void {
@@ -187,6 +189,9 @@ router.post(
     if (typeof req.body !== 'string' || !req.body.trim()) return res.status(400).json({ mensagem: 'Envie o XML no corpo da requisição.' });
 
     const xml = req.body;
+    const origemDocumento = req.get('x-fiscoia-internal-sync') === CHAVE_SYNC_FISCAL_INTERNA
+      ? 'MURADE_FISCAL_SYNC'
+      : 'LOCAL_XML_UPLOAD';
     if (Buffer.byteLength(xml, 'utf8') > 25 * 1024 * 1024) return res.status(413).json({ mensagem: 'XML acima do limite de 25 MB; nenhum documento foi salvo.' });
     if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) return res.status(422).json({ mensagem: 'XML com DTD ou entidade não suportada; nenhum documento foi salvo.' });
 
@@ -254,11 +259,11 @@ router.post(
           `INSERT INTO fiscoia.fiscal_documents
              (tenant_id, company_id, access_key, document_type, issued_on, total_amount, status, source,
               xml_ciphertext, xml_nonce, xml_auth_tag, encryption_key_version, xml_sha256, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_REVIEW', 'LOCAL_XML_UPLOAD', $7, $8, $9, $10, $11, $12::jsonb)
+             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_REVIEW', $13, $7, $8, $9, $10, $11, $12::jsonb)
            ON CONFLICT (tenant_id, company_id, access_key) DO NOTHING
            RETURNING id`,
           [tenantId, companyId, inf.chave, documentoTipo, dataEmissao, valorTotal, encrypted.ciphertext,
-            encrypted.nonce, encrypted.authTag, encrypted.keyVersion, xmlHash, JSON.stringify({ direction: direcao })],
+            encrypted.nonce, encrypted.authTag, encrypted.keyVersion, xmlHash, JSON.stringify({ direction: direcao, source: origemDocumento }), origemDocumento],
         );
         if (!inserted.rowCount) {
           const concorrente = await client.query(
@@ -277,7 +282,7 @@ router.post(
         await client.query(
           `INSERT INTO fiscoia.audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id, details)
            VALUES ($1, $2, 'fiscal_document.stored', 'fiscal_document', $3, $4::jsonb)`,
-          [tenantId, user.id, id, JSON.stringify({ accessKey: inf.chave, companyId, direction: direcao, source: 'LOCAL_XML_UPLOAD' })],
+          [tenantId, user.id, id, JSON.stringify({ accessKey: inf.chave, companyId, direction: direcao, source: origemDocumento })],
         );
         return { id, repetido: false as const, direcao };
       }, ['OWNER', 'ADMIN', 'CONTADOR', 'OPERADOR']);
@@ -290,6 +295,7 @@ router.post(
       return res.status(scoped.resultado.repetido ? 200 : 201).json({
         documento: { id: scoped.resultado.id, chave: inf.chave, tipo: documentoTipo, direcao: scoped.resultado.direcao, status: 'PENDING_REVIEW' },
         repetido: scoped.resultado.repetido,
+        origem: origemDocumento,
         xmlCriptografadoNoPostgreSQL: true,
         origemAutenticada: false,
         consultaSefazRealizada: false,

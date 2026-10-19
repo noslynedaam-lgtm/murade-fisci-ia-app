@@ -10,6 +10,7 @@ import { obterUsuarioDaSessao } from "./src/server/auth.routes";
 import authRoutes from "./src/server/auth.routes";
 import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
+import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import serproRoutes from "./src/server/serpro.routes";
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
@@ -35,6 +36,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
 app.use('/api/auth', authRoutes);
 app.use('/api', tenantRoutes);
 app.use('/api', fiscalDocumentRoutes);
+app.use('/api', fiscalSourceSyncRoutes);
 app.use('/api/serpro', serproRoutes);
 app.use('/api', companyCertificateRoutes);
 app.use('/api', sefazDistributionRoutes);
