@@ -34,6 +34,7 @@ import { ehUsuarioAdmin, TIPOS_USUARIO } from './config/Permissoes';
 import { AlertCircle, ShieldCheck, Mail, LogIn, Key, X, ShieldAlert, ClipboardCheck } from 'lucide-react';
 import { NavigationProvider } from './context/NavigationContext';
 import { MonitorPendenciasFiscal } from './components/MonitorPendenciasFiscal';
+import PortalSistemasMurade from './components/PortalSistemasMurade';
 
 export default function App() {
   const [abaAtiva, setAbaAtiva] = useState<string>('dashboard');
@@ -48,6 +49,7 @@ export default function App() {
 
   // Estados de Autenticação & Sessão
   const [usuarioAtual, setUsuarioAtual] = useState<UsuarioAuth | null>(null);
+  const [mostrarPortalSistemas, setMostrarPortalSistemas] = useState(false);
 
   const notificarMudancaSessao = () => {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fiscoia_auth_session_updated'));
@@ -129,6 +131,7 @@ export default function App() {
         setUsuarioAtual(resultado.usuario);
         setPlanoAtivoId(resultado.usuario.idPlano);
         setModoAuth(resultado.usuario.primeiroAcesso ? 'primeiro_acesso' : 'app');
+        setMostrarPortalSistemas(!resultado.usuario.primeiroAcesso);
       } else {
         setUsuarioAtual(null);
         setModoAuth('login');
@@ -214,6 +217,7 @@ export default function App() {
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
     setAbaAtiva('dashboard');
+    setMostrarPortalSistemas(true);
     notificarMudancaSessao();
   };
 
@@ -221,6 +225,7 @@ export default function App() {
     const resultado = await logout();
     setUsuarioAtual(null);
     setModoAuth('login');
+    setMostrarPortalSistemas(false);
     notificarMudancaSessao();
     if (!resultado.sucesso) setMensagemAuthServidor(resultado.mensagem || 'O servidor não confirmou o encerramento da sessão.');
   };
@@ -234,6 +239,7 @@ export default function App() {
     void logout();
     setUsuarioAtual(null);
     setModoAuth('login');
+    setMostrarPortalSistemas(false);
     notificarMudancaSessao();
   };
 
@@ -241,6 +247,7 @@ export default function App() {
     setUsuarioAtual(usuario);
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
+    setMostrarPortalSistemas(true);
     notificarMudancaSessao();
   };
 
@@ -256,6 +263,15 @@ export default function App() {
     setTokenRedefinicao(token);
     setModoAuth('redefinir');
   };
+
+  if (mostrarPortalSistemas && modoAuth === 'app' && usuarioAtual) {
+    return (
+      <PortalSistemasMurade
+        onAbrirFiscoIa={() => setMostrarPortalSistemas(false)}
+        onSair={() => { void handleLogout(); }}
+      />
+    );
+  }
 
   // 🔑 Fluxos de Autenticação Especiais (Acessíveis mesmo sem sessão de usuário ativa)
   if (modoAuth === 'recuperar') {
@@ -392,6 +408,7 @@ export default function App() {
             onMudarPlano={setPlanoAtivoId}
             usuarioAtual={usuarioAtual}
             onLogout={handleLogout}
+            onAbrirPortal={() => setMostrarPortalSistemas(true)}
             onAbrirEmails={() => setModalEmailsAberto(true)}
             adminDesbloqueado={adminDesbloqueado}
             visaoAdminAtiva={visaoAdminAtiva}

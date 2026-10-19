@@ -208,7 +208,15 @@ router.get('/apps', async (req, res) => {
       `SELECT client_id FROM fiscoia.auth_app_grants WHERE user_id = $1 AND revoked_at IS NULL ORDER BY client_id`, [user.id],
     );
     const configured = new Map(clients().map((client) => [client.clientId, { id: client.clientId, nome: client.name }]));
-    return res.json({ sistemas: granted.rows.map((row) => configured.get(String(row.client_id))).filter(Boolean) });
+    const authorized = granted.rows
+      .map((row) => configured.get(String(row.client_id)))
+      .filter((client): client is { id: string; nome: string } => Boolean(client));
+    return res.json({
+      sistemas: [
+        { id: 'murade-fisco-ia', nome: 'Murade Fisco IA', tipo: 'interno', ssoAtivo: true },
+        ...authorized.map((client) => ({ ...client, tipo: 'externo', ssoAtivo: false })),
+      ],
+    });
   } catch { return res.status(503).json({ erro: 'Não foi possível carregar os sistemas autorizados.' }); }
 });
 

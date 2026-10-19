@@ -21,6 +21,7 @@ interface NavbarProps {
   onMudarPlano: (planoId: 'basico' | 'profissional' | 'empresarial') => void;
   usuarioAtual?: UsuarioAuth | null;
   onLogout?: () => void;
+  onAbrirPortal?: () => void;
   onToggleMenuLateral?: () => void;
   onAbrirEmails?: () => void;
   adminDesbloqueado?: boolean;
@@ -37,6 +38,7 @@ export default function Navbar({
   onMudarPlano,
   usuarioAtual,
   onLogout,
+  onAbrirPortal,
   onToggleMenuLateral,
   onAbrirEmails,
   adminDesbloqueado = false,
@@ -198,6 +200,17 @@ export default function Navbar({
                 </p>
               </div>
             </div>
+
+            {onAbrirPortal && (
+              <button
+                type="button"
+                onClick={onAbrirPortal}
+                className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-900 hover:bg-indigo-100"
+                title="Abrir portal com os sistemas liberados para esta conta"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Meus sistemas
+              </button>
+            )}
 
             {/* ✅ OS 3 PONTINHOS — CONFIGURAÇÕES DO SISTEMA */}
             <div className="relative">
