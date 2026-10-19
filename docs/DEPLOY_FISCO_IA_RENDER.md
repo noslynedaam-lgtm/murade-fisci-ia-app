@@ -58,15 +58,17 @@ O cadastro inicial do administrador deve ser feito somente depois das migraçõe
 
 Em 18/10/2026, `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. O usuário já confirmou o primeiro acesso; não executar o bootstrap novamente.
 
-A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) ainda está aberta e contém as migrações 007, 008 e 009. Portanto, o endpoint público de produção ainda comprova somente o schema implantado com seis migrações; não comprova a disponibilidade das novas rotas DF-e, do cofre A1 ou do registro de validação do certificado.
+A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) está aberta e contém as migrações 007–010. Portanto, o endpoint público de produção ainda comprova somente o schema implantado com seis migrações; não comprova a disponibilidade das novas rotas DF-e, do cofre A1, do registro de validação do certificado ou do limitador global por CNPJ.
 
 ### Ordem segura para ativar a PR #3
 
-1. Conferir se o Auto-Deploy do Web Service está ativo. Se estiver, suspendê-lo antes de integrar a PR; a versão nova espera as nove migrações e pode ficar indisponível enquanto o banco ainda estiver em 6/9.
-2. Integrar a PR à branch implantada e garantir que o serviço Web ainda não foi promovido.
-3. Criar/usar um serviço-base privado de migração, com o código já integrado e `FISCOIA_MIGRATION_DATABASE_URL` administrativa somente nesse serviço privado. Executar `npm run db:migrate` uma única vez. O script aplica apenas migrações pendentes e verifica os checksums. Não usar como base o Web Service público se isso exigir colocar a URL administrativa nas variáveis dele.
-4. Confirmar que o job concluiu e que o schema contém as versões 007–009; remover a variável administrativa do serviço privado.
-5. Reativar o Auto-Deploy ou implantar manualmente o serviço Web com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 9/9.
-6. Só então realizar uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela.
+1. Confirmar se o Auto-Deploy do Web Service está ativo. A aplicação nova exige as dez migrações e `/api/ready` deve falhar fechado enquanto o banco estiver em 6/10; planejar a publicação para evitar indisponibilidade prolongada.
+2. Integrar a PR à branch implantada ou preparar um serviço privado de migração a partir do commit da PR. Não promover o novo código do Web Service antes de aplicar as migrações.
+3. Executar `npm run db:migrate` uma única vez em uma tarefa privada com o artefato que contém as migrações 007–010 e `FISCOIA_MIGRATION_DATABASE_URL`. O script aplica somente migrações pendentes e verifica checksums. Nunca adicionar a URL administrativa às variáveis do Web Service público.
+4. Confirmar que o job terminou com sucesso e que as migrações 007–010 foram aplicadas; remover a credencial administrativa do serviço privado após o uso.
+5. Publicar o Web Service com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 10/10.
+6. Só então fazer uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela. Conferir a resposta oficial, a persistência cifrada e a auditoria antes de considerar a integração validada.
+
+O Render informa que um One-Off Job usa o artefato de build mais recente e uma fotografia das variáveis do serviço-base no momento da criação. Assim, use como base um serviço privado de migração que já tenha o artefato correto e apenas o segredo administrativo necessário; não reutilize o Web Service público enquanto isso exigir adicionar nele a URL administrativa. Após alterar o serviço-base, crie um novo job para obter a configuração atualizada. Consulte a [documentação oficial de One-Off Jobs do Render](https://render.com/docs/one-off-jobs).
 
 Não executar migração com o usuário runtime nem manter `FISCOIA_MIGRATION_DATABASE_URL` no serviço web público.
