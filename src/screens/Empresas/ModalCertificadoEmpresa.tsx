@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, KeyRound, ShieldCheck, CheckCircle2, AlertTriangle, UploadCloud, Lock, Loader2, Building2, ExternalLink } from 'lucide-react';
 import { EmpresaDados } from '../../types';
-import { normalizarCnpj } from '../../services/cnpj/cnpjValidation';
+import { salvarCertificadoA1Central } from '../../services/empresas/empresasCentral.service';
 
 interface ModalCertificadoEmpresaProps {
   empresa: EmpresaDados;
   onFechar: () => void;
-  onSalvarCertificado: (empresaAtualizada: EmpresaDados) => void;
+  onSalvarCertificado: (empresaAtualizada: EmpresaDados) => Promise<void>;
   onAbrirCadastroCompleto?: () => void;
 }
 
@@ -22,6 +22,9 @@ export default function ModalCertificadoEmpresa({
   const [nomeArquivo, setNomeArquivo] = useState(certAtual?.nomeArquivo || '');
   const [validade, setValidade] = useState(certAtual?.validade || '');
   const [emissor, setEmissor] = useState(certAtual?.emissor || '');
+  const [arquivoA1, setArquivoA1] = useState<File | null>(null);
+  const [senhaA1, setSenhaA1] = useState('');
+  const [statusServidor, setStatusServidor] = useState<{ carregando: boolean; cadastrado: boolean; mensagem: string }>({ carregando: true, cadastrado: false, mensagem: '' });
 
   const [salvando, setSalvando] = useState(false);
   const [erroSalvar, setErroSalvar] = useState<string | null>(null);
@@ -43,20 +46,46 @@ export default function ModalCertificadoEmpresa({
 
   const diasRestantes = calcularDiasVencimento(validade);
 
+  useEffect(() => {
+    if (!empresa.idCentral || !empresa.tenantIdCentral) {
+      setStatusServidor({ carregando: false, cadastrado: false, mensagem: 'Salve o cadastro completo da empresa no banco permanente antes de vincular o A1.' });
+      return;
+    }
+    let ativo = true;
+    fetch(`/api/companies/${encodeURIComponent(empresa.idCentral)}/fiscal-certificate/status?tenantId=${encodeURIComponent(empresa.tenantIdCentral)}`, {
+      credentials: 'same-origin', cache: 'no-store',
+    }).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.mensagem === 'string' ? data.mensagem : 'Não foi possível consultar o estado salvo do A1.');
+      if (ativo) setStatusServidor({ carregando: false, cadastrado: data.cadastradoNoServidor === true, mensagem: data.cadastradoNoServidor === true
+        ? `A1 cifrado no banco permanente desde ${new Date(data.recebidoEm).toLocaleString('pt-BR')}. Ainda não validado pela SEFAZ.`
+        : 'Nenhum arquivo A1 foi confirmado no cofre do servidor.' });
+    }).catch(error => {
+      if (ativo) setStatusServidor({ carregando: false, cadastrado: false, mensagem: error instanceof Error ? error.message : 'Falha ao verificar o cofre do servidor.' });
+    });
+    return () => { ativo = false; };
+  }, [empresa.idCentral, empresa.tenantIdCentral]);
+
   const handleArquivoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (!/\.p(?:fx|12)$/i.test(file.name)) {
-        setErroSalvar('Selecione um arquivo com extensão .pfx ou .p12. O conteúdo do arquivo não será enviado nem validado.');
+        setErroSalvar('Selecione um arquivo com extensão .pfx ou .p12.');
+        e.target.value = '';
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setErroSalvar('O arquivo A1 excede o limite de 5 MB. Nenhum dado foi enviado.');
         e.target.value = '';
         return;
       }
       setErroSalvar(null);
       setNomeArquivo(file.name);
+      setArquivoA1(file);
     }
   };
 
-  const handleSalvar = (e: React.FormEvent) => {
+  const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (salvando) return;
     setSalvando(true);
@@ -66,26 +95,28 @@ export default function ModalCertificadoEmpresa({
       setSalvando(false);
       return;
     }
-    let valoresAnteriores: { chaveCliente: string; certificadoCliente: string | null } | null = null;
-
     try {
+      if (tipo !== 'A1') throw new Error('O armazenamento seguro de certificado A3/token não está disponível nesta tela. Não vou salvar uma referência como se fosse uma credencial funcional.');
+      if (!empresa.idCentral || !empresa.tenantIdCentral) throw new Error('Salve o cadastro completo da empresa no banco permanente antes de vincular o certificado.');
+      let resultadoA1: { recebidoEm: string; mensagem: string } | null = null;
+      if (arquivoA1 || senhaA1) {
+        if (!arquivoA1 || !senhaA1) throw new Error('Para salvar ou substituir o A1, selecione o arquivo .pfx/.p12 e informe a senha.');
+        resultadoA1 = await salvarCertificadoA1Central(empresa.idCentral, empresa.tenantIdCentral, arquivoA1, senhaA1);
+      } else if (!statusServidor.cadastrado) {
+        throw new Error('Selecione o arquivo A1 e informe sua senha para o primeiro cadastro seguro.');
+      }
+
       const certificadoAtualizado = {
         tipo,
-        nomeArquivo,
+        nomeArquivo: arquivoA1?.name || nomeArquivo,
         validade,
         emissor,
         ativo: false,
         valido: false,
+        servidorCadastrado: true,
+        recebidoEm: resultadoA1?.recebidoEm || certAtual?.recebidoEm,
         dataCadastro: new Date().toLocaleDateString('pt-BR')
       };
-
-      const cnpjLimpo = normalizarCnpj(empresa.cnpj);
-      const chaveCliente = 'fiscoia_certificado_cliente_' + cnpjLimpo;
-      valoresAnteriores = {
-        chaveCliente,
-        certificadoCliente: localStorage.getItem(chaveCliente)
-      };
-      localStorage.setItem(chaveCliente, JSON.stringify(certificadoAtualizado));
 
       const empresaAtualizada: EmpresaDados = {
         ...empresa,
@@ -94,17 +125,13 @@ export default function ModalCertificadoEmpresa({
         procuracaoAtiva: empresa.procuracaoAtiva ?? false
       };
 
-      onSalvarCertificado(empresaAtualizada);
+      await onSalvarCertificado(empresaAtualizada);
+      setSenhaA1('');
+      setArquivoA1(null);
     } catch (error) {
-      try {
-        if (valoresAnteriores) {
-          if (valoresAnteriores.certificadoCliente) localStorage.setItem(valoresAnteriores.chaveCliente, valoresAnteriores.certificadoCliente);
-          else localStorage.removeItem(valoresAnteriores.chaveCliente);
-        }
-      } catch {}
-      setErroSalvar(error instanceof Error ? `Não foi possível salvar a referência local: ${error.message}` : 'Não foi possível salvar a referência local neste navegador.');
-      setSalvando(false);
+      setErroSalvar(error instanceof Error ? error.message : 'Não foi possível confirmar o salvamento protegido do certificado.');
     }
+    setSalvando(false);
   };
 
   return (
@@ -123,11 +150,11 @@ export default function ModalCertificadoEmpresa({
                   Certificado Digital do Cliente
                 </h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Referência local
+                  Cofre do A1
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Registre dados de referência do certificado. Esta tela não faz a conexão oficial.
+                Salva o A1 cifrado no banco permanente. O salvamento não ativa a consulta fiscal oficial.
               </p>
             </div>
           </div>
@@ -163,7 +190,11 @@ export default function ModalCertificadoEmpresa({
           </div>
 
           <div className="shrink-0">
-            {certAtual ? (
+            {statusServidor.cadastrado ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-300">
+                <CheckCircle2 className="w-3 h-3 text-emerald-700" /> A1 no servidor
+              </span>
+            ) : certAtual ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-300">
                 <AlertTriangle className="w-3 h-3 text-amber-700" /> Referência local · não validada
               </span>
@@ -242,16 +273,16 @@ export default function ModalCertificadoEmpresa({
                       📄 {nomeArquivo}
                     </p>
                     <p className="text-[10px] text-emerald-600 font-bold">
-                      Somente o nome será registrado; o conteúdo não será enviado nem armazenado.
+                      O arquivo só será considerado salvo após confirmação do servidor.
                     </p>
                   </div>
                 ) : (
                   <div>
                     <p className="text-xs font-bold text-slate-800">
-                      Clique para selecionar ou arraste o arquivo do certificado (.pfx)
+                      Clique para selecionar o arquivo A1 (.pfx/.p12)
                     </p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      O arquivo não sai do seu dispositivo nesta tela.
+                      Será enviado por HTTPS e cifrado no banco permanente após informar a senha.
                     </p>
                   </div>
                 )}
@@ -270,6 +301,14 @@ export default function ModalCertificadoEmpresa({
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-xs text-slate-800"
               />
             </div>
+          )}
+
+          {tipo === 'A1' && (
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Senha do arquivo A1
+              <input type="password" autoComplete="new-password" value={senhaA1} onChange={e => setSenhaA1(e.target.value)} maxLength={512} placeholder="Necessária para abrir e cifrar o arquivo" className="mt-1.5 w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs normal-case" />
+              <span className="mt-1 block text-[11px] font-normal normal-case text-slate-500">Não é salva no navegador nem incluída nos registros do sistema.</span>
+            </label>
           )}
 
           {/* Validade declarada manualmente */}
@@ -338,7 +377,10 @@ export default function ModalCertificadoEmpresa({
 
           <div role="note" className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-            <span>A conexão com RFB/SERPRO não está implementada. Este formulário salva somente uma referência local; não testa nem envia o certificado.</span>
+            <span>O A1 é cifrado no banco permanente. Isso não testa SEFAZ/RFB/SERPRO nem comprova autenticidade ou autorização.</span>
+          </div>
+          <div role="status" className={`p-3 rounded-xl border text-xs ${statusServidor.cadastrado ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
+            {statusServidor.carregando ? 'Consultando o estado do certificado no servidor…' : statusServidor.mensagem}
           </div>
           {erroSalvar && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs">{erroSalvar}</div>}
 
@@ -352,12 +394,12 @@ export default function ModalCertificadoEmpresa({
               {salvando ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Salvando referência...</span>
+                  <span>Salvando A1 com proteção...</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Salvar dados de referência</span>
+                  <span>Salvar certificado A1</span>
                 </>
               )}
             </button>
@@ -391,7 +433,7 @@ export default function ModalCertificadoEmpresa({
         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-2 text-[11px] text-slate-500">
           <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span>
-            <strong>Referência local:</strong> o arquivo não é enviado nem guardado pelo sistema, e o nome/data informados não validam o certificado. Não informe a senha aqui. A integração oficial ainda não está conectada.
+            <strong>Proteção:</strong> o arquivo e a senha são enviados somente ao servidor por HTTPS; o conteúdo é cifrado no banco. A validade informada e o armazenamento confirmado não equivalem à validação oficial pela SEFAZ.
           </span>
         </div>
 

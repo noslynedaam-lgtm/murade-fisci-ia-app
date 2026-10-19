@@ -4,7 +4,7 @@ import { salvarEmpresa } from '../services/empresas/empresas.service';
 import { buscarCep } from '../services/viaCep';
 import { buscarDadosCNPJ, formatarCnpjString } from '../services/cnpj/receitaFederal.service';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
-import { criarEscritorioCentral, listarEmpresasCentrais, listarEscritoriosCentrais, salvarEmpresaCentral, lerEscritorioAtivo, salvarEscritorioAtivo, EscritorioCentral } from '../services/empresas/empresasCentral.service';
+import { criarEscritorioCentral, listarEmpresasCentrais, listarEscritoriosCentrais, salvarCertificadoA1Central, salvarEmpresaCentral, lerEscritorioAtivo, salvarEscritorioAtivo, EscritorioCentral } from '../services/empresas/empresasCentral.service';
 import { EmpresaDados } from '../types';
 import { 
   Building2, FileText, Phone, MapPin, User, CheckCircle2, 
@@ -38,10 +38,10 @@ export default function CadastroEmpresaScreen({
   empresaParaEditar,
   focoCertificado = false
 }: CadastroEmpresaProps) {
-  const isEdicao = !!empresaParaEditar;
-
   const [empresa, setEmpresa] = useState({
     id: empresaParaEditar?.id || '',
+    idCentral: empresaParaEditar?.idCentral,
+    tenantIdCentral: empresaParaEditar?.tenantIdCentral,
     razaoSocial: empresaParaEditar?.razaoSocial || '',
     nomeFantasia: empresaParaEditar?.nomeFantasia || '',
     cnpj: empresaParaEditar?.cnpj || '',
@@ -65,6 +65,7 @@ export default function CadastroEmpresaScreen({
     telefoneContador: empresaParaEditar?.telefoneContador || '',
     emailContador: empresaParaEditar?.emailContador || ''
   });
+  const isEdicao = Boolean(empresaParaEditar?.id || empresa.idCentral);
 
   // 🔐 Espaço & Barra do Certificado Digital no Cadastro do Cliente
   const certInicial = empresaParaEditar?.certificado;
@@ -73,6 +74,8 @@ export default function CadastroEmpresaScreen({
   const [certNomeArquivo, setCertNomeArquivo] = useState<string>(certInicial?.nomeArquivo || '');
   const [certValidade, setCertValidade] = useState<string>(certInicial?.validade || '');
   const [certEmissor, setCertEmissor] = useState<string>(certInicial?.emissor || '');
+  const [certArquivoA1, setCertArquivoA1] = useState<File | null>(null);
+  const [certSenhaA1, setCertSenhaA1] = useState('');
 
   const [escritoriosCentrais, setEscritoriosCentrais] = useState<EscritorioCentral[]>([]);
   const [escritorioAtivoId, setEscritorioAtivoId] = useState(lerEscritorioAtivo());
@@ -179,6 +182,9 @@ export default function CadastroEmpresaScreen({
     consultaCnpjId.current += 1;
     setConsultandoCNPJ(false);
     setEmpresa({
+      id: '',
+      idCentral: undefined,
+      tenantIdCentral: undefined,
       razaoSocial: '',
       nomeFantasia: '',
       cnpj: '',
@@ -203,6 +209,8 @@ export default function CadastroEmpresaScreen({
       emailContador: ''
     });
     setCertNomeArquivo('');
+    setCertArquivoA1(null);
+    setCertSenhaA1('');
     setCnpjConsultado(false);
     setSituacaoCadastral(null);
     setAlertaInfo({
@@ -384,7 +392,8 @@ export default function CadastroEmpresaScreen({
       return;
     }
 
-    if (!escritorioAtivoId || !escritoriosCentrais.some(item => item.id === escritorioAtivoId)) {
+    const escritorioSelecionado = escritoriosCentrais.find(item => item.id === escritorioAtivoId);
+    if (!escritorioSelecionado) {
       setAlertaInfo({
         tipo: 'erro',
         titulo: 'Selecione o escritório',
@@ -392,8 +401,30 @@ export default function CadastroEmpresaScreen({
       });
       return;
     }
+    if (!['OWNER', 'ADMIN'].includes(escritorioSelecionado.papel)) {
+      setAlertaInfo({ tipo: 'erro', titulo: 'Permissão insuficiente', mensagem: 'O cadastro de empresas e o cofre do certificado exigem perfil Proprietário ou Administrador neste escritório. Peça ao responsável para ajustar sua permissão.' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const precisaEnviarA1 = temCertificado && certTipo === 'A1'
+      && Boolean(certArquivoA1 || certSenhaA1 || !empresaParaEditar?.certificado?.servidorCadastrado);
+    if (precisaEnviarA1 && (!certArquivoA1 || !certSenhaA1)) {
+      setAlertaInfo({
+        tipo: 'erro',
+        titulo: 'A1 incompleto',
+        mensagem: 'Selecione o arquivo .pfx/.p12 e informe a senha para salvar o certificado com proteção no servidor. Nada será marcado como salvo sem a confirmação do servidor.'
+      });
+      return;
+    }
+    if (certArquivoA1 && certArquivoA1.size > 5 * 1024 * 1024) {
+      setAlertaInfo({ tipo: 'erro', titulo: 'Arquivo A1 acima do limite', mensagem: 'O limite seguro é 5 MB. Nenhum arquivo foi enviado.' });
+      return;
+    }
 
     setCarregando(true);
+    let empresaGravadaNoServidor = false;
+    let certificadoGravadoNoServidor = false;
 
     try {
       const empresasCentrais = await listarEmpresasCentrais(escritorioAtivoId);
@@ -404,8 +435,17 @@ export default function CadastroEmpresaScreen({
       const registroCentral = await salvarEmpresaCentral(
         { ...empresa, razaoSocial: empresa.razaoSocial.toUpperCase() },
         escritorioAtivoId,
-        empresaParaEditar?.idCentral || cnpjJaExistente?.id,
+        empresaParaEditar?.idCentral || empresa.idCentral || cnpjJaExistente?.id,
       );
+      empresaGravadaNoServidor = true;
+      setEmpresa(prev => ({ ...prev, idCentral: registroCentral.id, tenantIdCentral: escritorioAtivoId }));
+
+      let certificadoServidor: { recebidoEm: string; mensagem: string } | null = null;
+      if (precisaEnviarA1 && certArquivoA1) {
+        certificadoServidor = await salvarCertificadoA1Central(registroCentral.id, escritorioAtivoId, certArquivoA1, certSenhaA1);
+        certificadoGravadoNoServidor = true;
+      }
+
       const dadosCertificado = temCertificado ? {
         tipo: certTipo,
         nomeArquivo: certNomeArquivo,
@@ -413,6 +453,8 @@ export default function CadastroEmpresaScreen({
         emissor: certEmissor,
         ativo: false,
         valido: false,
+        servidorCadastrado: certificadoServidor !== null || empresaParaEditar?.certificado?.servidorCadastrado === true,
+        recebidoEm: certificadoServidor?.recebidoEm || empresaParaEditar?.certificado?.recebidoEm,
         dataCadastro: new Date().toLocaleDateString('pt-BR')
       } : undefined;
 
@@ -431,12 +473,10 @@ export default function CadastroEmpresaScreen({
       });
 
       if (dadosCertificado) {
-        try {
-          localStorage.setItem('fiscoia_certificado_cliente_' + cnpjLimpo, JSON.stringify(dadosCertificado));
-        } catch {
-          // ignore
-        }
+        try { localStorage.setItem('fiscoia_certificado_cliente_' + cnpjLimpo, JSON.stringify(dadosCertificado)); } catch { /* A cópia principal da empresa já contém a referência não secreta. */ }
       }
+      setCertSenhaA1('');
+      setCertArquivoA1(null);
 
       // Aviso baseado na data declarada pelo usuário, não na leitura do certificado.
       let avisoCert = '';
@@ -453,23 +493,31 @@ export default function CadastroEmpresaScreen({
         tipo: 'sucesso',
         titulo: '✅ Empresa salva no servidor',
         mensagem: avisoCert
-          ? `${empresa.razaoSocial} foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''} e espelhada neste navegador. A validade do certificado é apenas a data informada pelo usuário. ${avisoCert}`
-          : `${empresa.razaoSocial} (CNPJ: ${empresa.cnpj}) foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''} e espelhada neste navegador.${dadosCertificado ? ' Os dados do certificado são apenas uma referência; arquivo, validade e acesso não foram enviados nem validados.' : ''}`
+          ? `${empresa.razaoSocial} foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''}.${certificadoServidor ? ' O A1 foi cifrado e confirmado no banco permanente; isso não valida o certificado na SEFAZ.' : dadosCertificado?.tipo === 'A3' ? ' O A3 está apenas identificado como referência; o token não foi armazenado nem conectado.' : ''} A validade é a data informada, não verificada. ${avisoCert}`
+          : `${empresa.razaoSocial} (CNPJ: ${empresa.cnpj}) foi gravada no escritório ${escritoriosCentrais.find(item => item.id === escritorioAtivoId)?.nome || ''}.${certificadoServidor ? ' O A1 foi cifrado e confirmado no banco permanente; isso não valida o certificado na SEFAZ.' : dadosCertificado?.tipo === 'A3' ? ' O A3 está apenas identificado como referência; o token não foi armazenado nem conectado.' : ''}`
       });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
 
       window.setTimeout(() => {
         if (onEmpresaSalva) onEmpresaSalva(empresaSalva);
         executarVoltar();
-      }, 1300);
+      }, 2500);
     } catch (error) {
       setCarregando(false);
       setAlertaInfo({
         tipo: 'erro',
-        titulo: 'Erro ao Salvar',
-        mensagem: error instanceof Error
-          ? error.message
-          : 'Ocorreu uma falha ao gravar os dados localmente. Tente novamente.'
+        titulo: empresaGravadaNoServidor && certificadoGravadoNoServidor
+          ? 'Empresa e A1 salvos; atualização local pendente'
+          : empresaGravadaNoServidor
+            ? 'Empresa salva; certificado pendente'
+            : 'Não foi possível confirmar o salvamento',
+        mensagem: `${error instanceof Error ? error.message : 'Falha inesperada ao salvar.'}${empresaGravadaNoServidor && certificadoGravadoNoServidor
+          ? ' O A1 foi confirmado cifrado no banco permanente. Atualize a tela para recarregar o cadastro; o arquivo não precisa ser enviado novamente.'
+          : empresaGravadaNoServidor
+            ? ' Os dados da empresa já foram gravados no banco permanente e foram mantidos no formulário para você corrigir o certificado e tentar novamente.'
+            : ' Os campos foram mantidos. Confira a mensagem e tente novamente; o sistema só confirma após resposta positiva do servidor.'}`
       });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -1250,7 +1298,7 @@ export default function CadastroEmpresaScreen({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Registre os dados de referência do certificado. Consultas ao SERPRO, DCTFWeb, e-CAC e procurações ainda não estão conectadas.
+                  O A1 pode ser enviado ao cofre criptografado do servidor após salvar a empresa. Isso não ativa nem comprova consulta oficial.
                 </p>
               </div>
             </div>
@@ -1322,7 +1370,7 @@ export default function CadastroEmpresaScreen({
               {certTipo === 'A1' ? (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Nome do arquivo do certificado (.pfx ou .p12) — não será enviado
+                    Arquivo do certificado A1 (.pfx ou .p12)
                   </label>
                   <div className="relative border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 rounded-2xl p-5 text-center transition-colors">
                     <input
@@ -1330,9 +1378,15 @@ export default function CadastroEmpresaScreen({
                       accept=".pfx,.p12"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          setCertNomeArquivo(file.name);
+                        if (file && !/\.p(?:fx|12)$/i.test(file.name)) {
+                          setCertArquivoA1(null);
+                          setCertNomeArquivo('');
+                          setAlertaInfo({ tipo: 'erro', titulo: 'Formato de arquivo inválido', mensagem: 'Selecione um arquivo .pfx ou .p12.' });
+                          e.target.value = '';
+                          return;
                         }
+                        setCertArquivoA1(file || null);
+                        setCertNomeArquivo(file?.name || '');
                       }}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     />
@@ -1344,7 +1398,7 @@ export default function CadastroEmpresaScreen({
                           {certNomeArquivo}
                         </span>
                         <p className="text-xs text-slate-500 mt-1">
-                          Somente o nome foi selecionado; o conteúdo não foi carregado.
+                          O arquivo será enviado por HTTPS e cifrado no servidor após salvar a empresa.
                         </p>
                       </div>
                     ) : (
@@ -1353,11 +1407,24 @@ export default function CadastroEmpresaScreen({
                           Clique aqui para selecionar o arquivo .PFX ou .P12
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Selecione para registrar o nome. O arquivo não é lido nem transmitido.
+                          O arquivo não será guardado neste navegador.
                         </p>
                       </div>
                     )}
                   </div>
+                  <label className="mt-3 block text-xs font-bold text-slate-700">
+                    Senha do arquivo A1
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={certSenhaA1}
+                      onChange={e => setCertSenhaA1(e.target.value)}
+                      maxLength={512}
+                      placeholder="Usada apenas para abrir e cifrar o A1 no servidor"
+                      className="mt-1 w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1a237e]"
+                    />
+                    <span className="mt-1 block text-[11px] font-normal text-slate-500">A senha não é gravada no cadastro local nem incluída nos registros de auditoria.</span>
+                  </label>
                 </div>
               ) : (
                 <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-2xl text-xs text-indigo-900 space-y-1">
@@ -1409,7 +1476,7 @@ export default function CadastroEmpresaScreen({
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
                   <span className="text-xs font-bold block">Certificado e consulta oficial não validados</span>
-                  <span className="text-[11px]">Este ambiente não envia o certificado nem testa acesso à Receita/SERPRO. A validade informada é apenas uma referência local.</span>
+                  <span className="text-[11px]">O arquivo A1 é armazenado cifrado no banco permanente e sua senha não é guardada em texto. Isso não valida o titular na SEFAZ, não testa acesso à Receita/SERPRO e não ativa consultas oficiais.</span>
                 </div>
               </div>
             </div>
@@ -1423,7 +1490,7 @@ export default function CadastroEmpresaScreen({
           <div className="pt-2 border-t border-slate-100 flex items-center gap-2 text-[11px] text-slate-500">
             <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
             <span>
-              <strong>Referência local:</strong> o arquivo e a senha não são enviados nem armazenados aqui. O nome, emissor e vencimento não provam validade; integração oficial ainda não configurada.
+              <strong>Segurança:</strong> somente o A1 é enviado ao servidor para armazenamento cifrado. Nome, emissor e validade informados não comprovam autenticidade; nenhum acesso oficial é ativado por este cadastro.
             </span>
           </div>
         </div>

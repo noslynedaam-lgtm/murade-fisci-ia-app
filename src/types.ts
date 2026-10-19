@@ -66,6 +66,8 @@ export interface EmpresaDados {
     emissor?: string;
     ativo?: boolean;
     valido?: boolean;
+    servidorCadastrado?: boolean;
+    recebidoEm?: string;
     dataCadastro?: string;
   };
 }
