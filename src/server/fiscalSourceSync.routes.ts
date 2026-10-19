@@ -7,8 +7,10 @@ import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 const router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
-const DOCUMENTOS_POR_EXECUCAO = 100;
-const MAX_PAGINAS = 20;
+const DOCUMENTOS_POR_EXECUCAO = 20;
+const DOCUMENTOS_POR_PAGINA = 2;
+const MAX_PAGINAS = 10;
+const MAX_BYTES_RESPOSTA_FISCAL = 20 * 1024 * 1024;
 const FISCAL_URL_PADRAO = 'https://murade-fiscal-1.onrender.com';
 
 function dataValida(value: unknown): value is string {
@@ -29,6 +31,31 @@ function obterUrlFiscal(): URL | null {
   }
 }
 
+async function lerJsonFiscalLimitado(response: Response): Promise<unknown> {
+  if (!response.body) throw new Error('Resposta sem corpo.');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_BYTES_RESPOSTA_FISCAL) {
+        await reader.cancel();
+        throw new Error('Resposta acima do limite seguro.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder().decode(body));
+}
+
 router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const pool = obterPoolBanco();
@@ -43,6 +70,9 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
   const ate = req.body?.ate;
   if (!dataValida(desde) || !dataValida(ate) || desde > ate) {
     return res.status(400).json({ mensagem: 'Informe um período válido, com datas inicial e final no formato AAAA-MM-DD.' });
+  }
+  if (req.body?.cursor !== undefined && (typeof req.body.cursor !== 'string' || req.body.cursor.length > 2048)) {
+    return res.status(400).json({ mensagem: 'Cursor de continuação inválido; reinicie a sincronização pelo início do período.' });
   }
   if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) {
     return res.status(503).json({ mensagem: 'Integração com o Murade Fiscal ainda não foi configurada no servidor.' });
@@ -81,7 +111,7 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
       sourceUrl.searchParams.set('cnpj', cnpj);
       sourceUrl.searchParams.set('desde', desde);
       sourceUrl.searchParams.set('ate', ate);
-      sourceUrl.searchParams.set('limite', String(Math.min(50, DOCUMENTOS_POR_EXECUCAO - consultados)));
+      sourceUrl.searchParams.set('limite', String(Math.min(DOCUMENTOS_POR_PAGINA, DOCUMENTOS_POR_EXECUCAO - consultados)));
       if (cursor) sourceUrl.searchParams.set('cursor', cursor);
       const sourceResponse = await fetch(sourceUrl, {
         headers: { Authorization: `Bearer ${integrationToken}`, Accept: 'application/json' },
@@ -97,7 +127,7 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
           repetidos,
         });
       }
-      const payload = await sourceResponse.json() as {
+      const payload = await lerJsonFiscalLimitado(sourceResponse) as {
         sucesso?: boolean; cnpj?: string; documentos?: Array<Record<string, unknown>>;
         proximoCursor?: string | null; truncado?: boolean; avisos?: string[];
       };
@@ -106,6 +136,9 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
       }
       if (Array.isArray(payload.avisos)) avisos.push(...payload.avisos.filter((item): item is string => typeof item === 'string').slice(0, 10));
       const documentos = payload.documentos;
+      if (documentos.length > DOCUMENTOS_POR_PAGINA) {
+        return res.status(502).json({ mensagem: 'Murade Fiscal devolveu mais documentos que o limite solicitado; a página foi recusada.', paginasProcessadas: paginas, importados, repetidos });
+      }
       consultados += documentos.length;
       for (const documento of documentos) {
         if (normalizarCnpj(String(documento.cnpjEmpresa || '')) !== cnpj) { rejeitados += 1; continue; }

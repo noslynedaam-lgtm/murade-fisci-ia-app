@@ -30,7 +30,7 @@ Configure no ambiente do serviço, sem prefixo `VITE_` para segredos:
 - `MURADE_INTEGRATION_TOKEN`: segredo servidor-servidor igual ao configurado no Murade Fiscal. Usado somente pela sincronização autenticada de documentos fiscais; nunca exponha com prefixo `VITE_`.
 - `MURADE_FISCAL_SERVER_URL`: URL HTTPS do serviço Murade Fiscal. O sincronizador aceita apenas `https://murade-fiscal-1.onrender.com`.
 
-A sincronização Fiscal → Fisco IA é iniciada por usuário autenticado, empresa e período, com confirmação na tela. Ela importa somente XMLs completos entregues pelo contrato servidor-servidor, valida CNPJ/chave/modelo novamente, cifra o XML no PostgreSQL e deixa os documentos como `PENDING_REVIEW`. Cada execução limita-se a 100 documentos e pode continuar pela paginação. Metadados sem XML completo são reportados, sem gerar XML fictício. Não cria lançamentos nem transmite declarações ou guias.
+A sincronização Fiscal → Fisco IA é iniciada por usuário autenticado, empresa e período, com confirmação na tela. Ela importa somente XMLs completos entregues pelo contrato servidor-servidor, valida CNPJ/chave/modelo novamente, cifra o XML no PostgreSQL e deixa os documentos como `PENDING_REVIEW`. Cada execução limita-se a 20 documentos, busca no máximo dois XMLs por página e pode continuar pela paginação. Metadados sem XML completo são reportados, sem gerar XML fictício. Não cria lançamentos nem transmite declarações ou guias.
 
 O estado e o alcance do teste SERPRO estão descritos em [`INTEGRACAO_SERPRO.md`](./INTEGRACAO_SERPRO.md). A autenticação OAuth do gateway não substitui contrato nem valida acesso a APIs de produto.
 
