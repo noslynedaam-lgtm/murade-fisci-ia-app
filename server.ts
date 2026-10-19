@@ -15,6 +15,7 @@ import serproRoutes from "./src/server/serpro.routes";
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
 import reformaRoutes from "./src/server/reforma.routes";
+import ssoRoutes from "./src/server/sso.routes";
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ const PORT = Number(process.env.PORT || 3000);
 // O limite cobre um A1 PKCS#12 de até 5 MB codificado em Base64 e seu formulário,
 // sem ampliar para uploads arbitrariamente grandes.
 app.use(express.json({ limit: '7mb' }));
+app.use(express.urlencoded({ extended: false, limit: '16kb' }));
 app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.parse.failed') {
     return res.status(400).json({ erro: 'Corpo JSON inválido.' });
@@ -34,6 +36,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
   return next(error);
 });
 app.use('/api/auth', authRoutes);
+app.use('/api/sso', ssoRoutes);
 app.use('/api', tenantRoutes);
 app.use('/api', fiscalDocumentRoutes);
 app.use('/api', fiscalSourceSyncRoutes);
