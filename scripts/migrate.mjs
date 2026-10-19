@@ -73,6 +73,14 @@ try {
     await client.query('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fiscoia TO fiscoia_runtime');
     await client.query('REVOKE INSERT, UPDATE, DELETE ON fiscoia.schema_migrations FROM fiscoia_runtime');
     await client.query('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA fiscoia TO fiscoia_runtime');
+    // The CNPJ-wide SEFAZ quota crosses tenant boundaries by design. Keep its
+    // raw request tables private; runtime may use only the guarded DB functions.
+    await client.query('REVOKE ALL ON TABLE fiscoia.sefaz_dfe_global_request_attempts FROM PUBLIC, fiscoia_runtime');
+    await client.query('REVOKE ALL ON TABLE fiscoia.sefaz_dfe_global_request_state FROM PUBLIC, fiscoia_runtime');
+    await client.query('REVOKE ALL ON FUNCTION fiscoia.reserve_sefaz_dfe_request(text, uuid, uuid) FROM PUBLIC');
+    await client.query('REVOKE ALL ON FUNCTION fiscoia.block_sefaz_dfe_cnpj(text, uuid, uuid, timestamptz) FROM PUBLIC');
+    await client.query('GRANT EXECUTE ON FUNCTION fiscoia.reserve_sefaz_dfe_request(text, uuid, uuid) TO fiscoia_runtime');
+    await client.query('GRANT EXECUTE ON FUNCTION fiscoia.block_sefaz_dfe_cnpj(text, uuid, uuid, timestamptz) TO fiscoia_runtime');
     await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA fiscoia
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fiscoia_runtime`);
     await client.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA fiscoia

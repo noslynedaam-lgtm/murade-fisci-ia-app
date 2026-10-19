@@ -53,17 +53,17 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
     setEmpresaCertificadoModal(emp);
   };
 
-  const handleSalvarCertificadoModal = (empresaAtualizada: EmpresaDados) => {
+  const handleSalvarCertificadoModal = async (empresaAtualizada: EmpresaDados) => {
     const salva = salvarNovaEmpresa(empresaAtualizada);
     if (!salva) {
       mostrarToast('Não foi possível salvar as alterações. Os dados anteriores foram preservados.');
-      return;
+      throw new Error('O A1 foi confirmado no cofre do servidor, mas a referência local não pôde ser sincronizada. Atualize a tela; o certificado permanece salvo no servidor.');
     }
     if (empresaAtiva?.id === empresaAtualizada.id) {
       selecionarEmpresa(salva);
     }
     setEmpresaCertificadoModal(null);
-    mostrarToast(`Referência local do certificado de "${empresaAtualizada.razaoSocial}" salva. Validade e conexão oficial não foram verificadas.`);
+    mostrarToast(`A1 cifrado no servidor para "${empresaAtualizada.razaoSocial}". Validade e acesso oficial não foram verificados.`);
   };
 
   const confirmarExclusao = async () => {
@@ -344,6 +344,13 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
 
                     {/* Referência local de validade; não indica validação do arquivo nem conexão. */}
                     {(() => {
+                      if (emp.certificado?.servidorCadastrado === true) {
+                        return (
+                          <button type="button" onClick={() => handleAbrirModalCertificado(emp)} className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-300" title="A1 armazenado cifrado no servidor; validade e acesso oficial não foram verificados.">
+                            <ShieldCheck className="w-3.5 h-3.5" /> A1 cifrado no servidor
+                          </button>
+                        );
+                      }
                       const validade = emp.certificado?.validade;
                       if (!validade) {
                         return (

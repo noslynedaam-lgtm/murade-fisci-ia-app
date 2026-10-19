@@ -22,7 +22,6 @@ import {
   Trash2,
   Eye,
   EyeOff,
-  Save,
   Check,
   Loader2,
   X,
@@ -70,6 +69,14 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
     servicos: Array<{ nome: string; status: 'ONLINE' | 'OFFLINE'; latenciaMs: number; versao: string }>;
     detalhes: string;
   } | null>(null);
+  const [statusCredenciaisRender, setStatusCredenciaisRender] = useState<{
+    carregando: boolean;
+    dados: {
+      validacao: { consumerKeyConfigurada: boolean; consumerSecretConfigurado: boolean; prontoParaTeste: boolean };
+      producao: { consumerKeyConfigurada: boolean; consumerSecretConfigurado: boolean; prontoParaTeste: boolean };
+    } | null;
+    mensagem: string;
+  }>({ carregando: true, dados: null, mensagem: '' });
 
   const [abaInterna, setAbaInterna] = useState<'sincronizacao' | 'passo_a_passo' | 'pagamento_planos' | 'credenciais' | 'logs'>('sincronizacao');
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
@@ -92,10 +99,9 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
 
   // Certificado Digital A1 states (habilitado para digitação)
   const [certNomeArquivo, setCertNomeArquivo] = useState(config.certificadoA1?.nomeArquivo || '');
-  const [certEmissor, setCertEmissor] = useState(config.certificadoA1?.emissor || '');
-  const [certValidade, setCertValidade] = useState(config.certificadoA1?.validade || '');
-  const [certSenha, setCertSenha] = useState(config.certificadoA1?.senha || '');
-  const [certCnpj, setCertCnpj] = useState(empresaAtiva ? empresaAtiva.cnpj : (config.certificadoA1?.cnpj || ''));
+  const [certSenha, setCertSenha] = useState('');
+  const [arquivoA1, setArquivoA1] = useState<File | null>(null);
+  const [statusA1Servidor, setStatusA1Servidor] = useState<{ carregando: boolean; cadastrado: boolean; mensagem: string }>({ carregando: false, cadastrado: false, mensagem: '' });
   const [mostrarSenhaCert, setMostrarSenhaCert] = useState(false);
 
   const [toastNotificacao, setToastNotificacao] = useState<{
@@ -109,28 +115,96 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
     setConsumerSecret('');
     setTokenBearer('');
     setCertSenha('');
-    setMensagemSucesso('Por segurança, chaves, tokens e senhas não são gravados no navegador. Configure a autenticação no servidor antes de testar o SERPRO.');
+    setMensagemSucesso('As credenciais não foram armazenadas nesta tela. Configure o par OAuth como segredos no Render; o teste disponível verifica apenas a autenticação do gateway SERPRO.');
     setToastNotificacao({
       titulo: 'Credenciais não armazenadas',
-      mensagem: 'Esta versão não possui armazenamento seguro no servidor nem autenticação SERPRO implementada. Nenhuma chave ou senha foi salva.',
+      mensagem: 'Nenhuma chave ou senha foi salva pelo formulário. Configure os segredos no Render; o teste de gateway não valida acesso a APIs de produto.',
       tipo: 'info'
     });
   };
 
-  const handleSalvarCertificado = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setCertSenha('');
-    setMensagemSucesso('O certificado não foi enviado nem salvo. Configure um cofre seguro no servidor para habilitar esse fluxo.');
-    setToastNotificacao({
-      titulo: 'Certificado não enviado',
-      mensagem: 'O sistema ainda não recebe ou valida o arquivo A1. A senha foi removida do formulário e nada foi gravado no navegador.',
-      tipo: 'info'
-    });
-  };
+  const idsEmpresaFiscal = empresaAtiva?.idCentral && empresaAtiva?.tenantIdCentral
+    ? { companyId: empresaAtiva.idCentral, tenantId: empresaAtiva.tenantIdCentral }
+    : null;
 
-  const handleSalvarTudo = () => {
-    handleSalvarCredenciais();
-    handleSalvarCertificado();
+  useEffect(() => {
+    let cancelado = false;
+    fetch('/api/serpro/config-status', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof data.mensagem === 'string' ? data.mensagem : 'Não foi possível consultar a configuração SERPRO no servidor.');
+        if (!cancelado) setStatusCredenciaisRender({ carregando: false, dados: data, mensagem: '' });
+      })
+      .catch(error => {
+        if (!cancelado) setStatusCredenciaisRender({
+          carregando: false,
+          dados: null,
+          mensagem: error instanceof Error ? error.message : 'Falha ao consultar a configuração SERPRO no servidor.',
+        });
+      });
+    return () => { cancelado = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!idsEmpresaFiscal) {
+      setStatusA1Servidor({ carregando: false, cadastrado: false, mensagem: 'Selecione uma empresa cadastrada no banco para vincular o certificado.' });
+      return;
+    }
+    let cancelado = false;
+    setStatusA1Servidor(atual => ({ ...atual, carregando: true, mensagem: '' }));
+    fetch(`/api/companies/${encodeURIComponent(idsEmpresaFiscal.companyId)}/fiscal-certificate/status?tenantId=${encodeURIComponent(idsEmpresaFiscal.tenantId)}`, {
+      credentials: 'same-origin', cache: 'no-store',
+    }).then(async response => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.mensagem === 'string' ? data.mensagem : 'Não foi possível consultar o certificado no servidor.');
+      if (!cancelado) setStatusA1Servidor({ carregando: false, cadastrado: data.cadastradoNoServidor === true, mensagem: data.cadastradoNoServidor === true ? `A1 cifrado no servidor desde ${new Date(data.recebidoEm).toLocaleString('pt-BR')}. Ainda não validado pela SEFAZ.` : 'Nenhum A1 cadastrado no servidor para esta empresa.' });
+    }).catch(error => {
+      if (!cancelado) setStatusA1Servidor({ carregando: false, cadastrado: false, mensagem: error instanceof Error ? error.message : 'Falha ao consultar o estado do certificado.' });
+    });
+    return () => { cancelado = true; };
+  }, [empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral]);
+
+  const handleSalvarCertificado = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!idsEmpresaFiscal || !arquivoA1 || !certSenha) {
+      setMensagemSucesso('Selecione uma empresa, o arquivo A1 e informe a senha para continuar.');
+      return;
+    }
+    if (arquivoA1.size > 5 * 1024 * 1024) {
+      setMensagemSucesso('O arquivo A1 excede o limite de 5 MB. Nenhum dado foi enviado.');
+      return;
+    }
+    setTestando(true);
+    try {
+      const pfxBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Não foi possível ler o arquivo A1.'));
+        reader.onload = () => {
+          if (!(reader.result instanceof ArrayBuffer)) return reject(new Error('Formato do arquivo A1 inválido.'));
+          const bytes = new Uint8Array(reader.result);
+          let binary = '';
+          for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+          resolve(btoa(binary));
+        };
+        reader.readAsArrayBuffer(arquivoA1);
+      });
+      const response = await fetch(`/api/companies/${encodeURIComponent(idsEmpresaFiscal.companyId)}/fiscal-certificate`, {
+        method: 'PUT', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: idsEmpresaFiscal.tenantId, pfxBase64, passphrase: certSenha }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.mensagem === 'string' ? data.mensagem : 'O servidor não confirmou o cadastro do A1.');
+      setCertSenha('');
+      setArquivoA1(null);
+      setCertNomeArquivo('');
+      setStatusA1Servidor({ carregando: false, cadastrado: true, mensagem: `${data.mensagem} Recebido em ${new Date(data.recebidoEm).toLocaleString('pt-BR')}.` });
+      setToastNotificacao({ titulo: 'A1 salvo com proteção por empresa', mensagem: data.mensagem, tipo: 'sucesso' });
+    } catch (error) {
+      setToastNotificacao({ titulo: 'Certificado não confirmado', mensagem: error instanceof Error ? error.message : 'Falha ao enviar o A1 com segurança.', tipo: 'info' });
+    } finally {
+      setTestando(false);
+    }
   };
 
   const handleVerificarConfiguracaoIntegracao = () => {
@@ -174,13 +248,12 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
     const file = e.target.files?.[0];
     e.target.value = '';
     if (file) {
-      setCertNomeArquivo('');
-      setCertSenha('');
-      setToastNotificacao({
-        titulo: 'Upload de certificado indisponível',
-        mensagem: 'O servidor não possui cofre seguro para receber o A1. O arquivo não foi lido, enviado ou armazenado.',
-        tipo: 'info'
-      });
+      if (!/\.(pfx|p12)$/i.test(file.name) || file.size > 5 * 1024 * 1024) {
+        setToastNotificacao({ titulo: 'Arquivo não aceito', mensagem: 'Selecione um arquivo .pfx/.p12 de até 5 MB.', tipo: 'info' });
+        return;
+      }
+      setArquivoA1(file);
+      setCertNomeArquivo(file.name);
     }
   };
 
@@ -225,6 +298,11 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
   };
 
   const handleExecutarTesteConectividade = async () => {
+    const ambienteTeste = config.ambiente === 'producao' ? 'produção' : 'homologação';
+    const autorizado = window.confirm(
+      `O servidor fará uma requisição OAuth ao gateway SERPRO de ${ambienteTeste}, usando as credenciais já configuradas como segredos no Render. Isso testa somente a autenticação do gateway; não consulta CNPJ, notas, guias nem outro serviço fiscal. Continuar?`,
+    );
+    if (!autorizado) return;
     setTestando(true);
     setResultadoTeste(null);
     try {
@@ -381,7 +459,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-500 font-mono">
                   <span>Gateway: <strong>{resultadoTeste.gateway}</strong></span>
                   {resultadoTeste.testado && <span>Latência: <strong>{resultadoTeste.tempoMs}ms</strong></span>}
-                  <span>Protocolo necessário: <strong>mTLS / OAuth2</strong></span>
+                  <span>Etapa testada: <strong>OAuth do gateway</strong> (não valida acesso às APIs de produto)</span>
                 </div>
               </div>
             </div>
@@ -504,7 +582,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                     INTEGRAÇÃO NÃO CONFIGURADA
                   </span>
                   <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 text-xs font-bold px-3 py-1 rounded-full">
-                    Autenticação mTLS não configurada
+                    OAuth do gateway não confirmado
                   </span>
                   <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-bold px-3 py-1 rounded-full">
                     {config.ambiente === 'producao' ? 'Produção Oficial RFB' : 'Sandbox SERPRO'}
@@ -828,12 +906,12 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                       Testes no Ambiente Sandbox de Homologação SERPRO
                       {config.etapasHomologacao.passo4_testeSandbox && (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-                          Marcado por você; teste não realizado pelo Murade
+                          Checklist local; não comprova homologação oficial
                         </span>
                       )}
                     </h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      Nenhuma chamada de teste é enviada pelo Murade. Quando o SERPRO liberar o sandbox e a integração do servidor estiver configurada, o teste poderá ser executado por aqui.
+                      O botão de verificação abaixo envia uma requisição OAuth ao gateway SERPRO do ambiente escolhido. Ele não chama APIs de CNPJ, notas, guias ou outros serviços fiscais. A resposta confirma apenas a autenticação do gateway; contrato e permissões do produto precisam ser conferidos separadamente.
                     </p>
                   </div>
                 </div>
@@ -844,7 +922,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                     onClick={handleExecutarTesteConectividade}
                     className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    Verificar configuração <Radio className="w-3 h-3 text-indigo-500" />
+                    Testar OAuth do gateway <Radio className="w-3 h-3 text-indigo-500" />
                   </button>
                   <button
                     type="button"
@@ -1028,8 +1106,36 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
       {abaInterna === 'credenciais' && (
         <div className="space-y-6">
           <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-            <strong>Não cole chaves, tokens, senha ou arquivo A1 nesta tela.</strong>
-            <p className="mt-1">Estes campos são apenas uma maquete e não fazem chamadas ao SERPRO. A configuração real será feita no ambiente privado do servidor depois de confirmar o produto contratado, os endpoints e o cofre do certificado por empresa.</p>
+            <strong>Não cole chaves ou tokens SERPRO aqui nem envie segredos pelo chat.</strong>
+            <p className="mt-1">As chaves de produto SERPRO ficam somente como segredos no Render. O A1 pode ser enviado no campo próprio abaixo e salvo cifrado por empresa; isso, por si só, ainda não conecta nem consulta um órgão público.</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-800">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <strong>Estado dos segredos no servidor</strong>
+                <p className="mt-1 text-xs text-slate-600">A tela consulta apenas se as variáveis existem; nunca recebe os valores.</p>
+              </div>
+              {statusCredenciaisRender.carregando && <span className="text-xs text-slate-500">Consultando…</span>}
+            </div>
+            {statusCredenciaisRender.mensagem && (
+              <p role="status" className="mt-2 text-xs text-amber-800">{statusCredenciaisRender.mensagem}</p>
+            )}
+            {statusCredenciaisRender.dados && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {([
+                  ['Homologação', statusCredenciaisRender.dados.validacao],
+                  ['Produção', statusCredenciaisRender.dados.producao],
+                ] as const).map(([ambiente, status]) => (
+                  <div key={ambiente} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+                    <strong>{ambiente}: {status.prontoParaTeste ? 'par de segredos presente' : status.consumerKeyConfigurada || status.consumerSecretConfigurado ? 'configuração parcial' : 'segredos ausentes'}</strong>
+                    <p className="mt-1 text-slate-600">Consumer Key: {status.consumerKeyConfigurada ? 'presente' : 'ausente'} · Consumer Secret: {status.consumerSecretConfigurado ? 'presente' : 'ausente'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-600">
+              Configure no Render: <code>SERPRO_VALIDACAO_CONSUMER_KEY</code>, <code>SERPRO_VALIDACAO_CONSUMER_SECRET</code> e, se houver contrato de produção, <code>SERPRO_PRODUCAO_CONSUMER_KEY</code> e <code>SERPRO_PRODUCAO_CONSUMER_SECRET</code>. Presença das variáveis não confirma autenticação nem acesso ao produto Consulta NF-e.
+            </p>
           </div>
           <fieldset disabled className="space-y-6 opacity-60">
           <form onSubmit={handleSalvarCredenciais} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-xs">
@@ -1040,7 +1146,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                   Credenciais OAuth 2.0 (SERPRO API Gateway)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Campos temporários. A autenticação oficial ainda precisa ser implementada no servidor.
+                  Não digite credenciais aqui. O servidor usa somente os segredos configurados no Render; o teste abaixo verifica apenas o token OAuth do gateway.
                 </p>
               </div>
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700">
@@ -1191,6 +1297,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               </button>
             </div>
           </form>
+          </fieldset>
 
           {/* CERTIFICADO DIGITAL A1 - TOTALMENTE EDITÁVEL COM FEEDBACK VISUAL */}
           <div className="rounded-2xl p-6 space-y-5 bg-white border border-slate-200 shadow-xs">
@@ -1203,13 +1310,12 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Necessário para autenticação mTLS mútua em chamadas protegidas da DCTFWeb e Procurações e-CAC.
-                  Os campos são apenas rascunho nesta tela. O certificado não é enviado nem salvo.
+                  Necessário para chamadas oficiais que aceitem certificado digital. O A1 será cifrado no banco e vinculado à empresa selecionada.
                 </p>
               </div>
 
-              <span className="text-xs font-bold px-3.5 py-2 rounded-full border bg-amber-50 text-amber-800 border-amber-300">
-                Certificado não carregado ou validado
+              <span className={`text-xs font-bold px-3.5 py-2 rounded-full border ${statusA1Servidor.cadastrado ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-amber-50 text-amber-800 border-amber-300'}`}>
+                {statusA1Servidor.carregando ? 'Consultando servidor…' : statusA1Servidor.cadastrado ? 'A1 salvo · SEFAZ não validada' : 'A1 não cadastrado no servidor'}
               </span>
             </div>
 
@@ -1239,24 +1345,16 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 <input
                   type="text"
                   value={certNomeArquivo}
-                  onChange={(e) => setCertNomeArquivo(e.target.value)}
-                  placeholder="e-CNPJ_EMPRESA_A1_2026.pfx"
+                  readOnly
+                  placeholder="Selecione um arquivo .pfx ou .p12"
                   className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
 
               {/* Autoridade Certificadora */}
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                <label className="text-[11px] text-slate-500 font-bold uppercase block">
-                  Autoridade Certificadora (Emissor)
-                </label>
-                <input
-                  type="text"
-                  value={certEmissor}
-                  onChange={(e) => setCertEmissor(e.target.value)}
-                  placeholder="Ex: Autoridade Certificadora SERPRO Final SSL, Certisign, Soluti..."
-                  className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-500"
-                />
+                <label className="text-[11px] text-slate-500 font-bold uppercase block">Empresa selecionada</label>
+                <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5 font-semibold text-slate-700">{empresaAtiva?.razaoSocial || 'Nenhuma empresa ativa'}</div>
               </div>
 
               {/* Validade do Certificado */}
@@ -1264,13 +1362,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 <label className="text-[11px] text-slate-500 font-bold uppercase block">
                   Validade do Certificado
                 </label>
-                <input
-                  type="text"
-                  value={certValidade}
-                  onChange={(e) => setCertValidade(e.target.value)}
-                  placeholder="Ex: 31/12/2026"
-                  className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-500 text-emerald-700 font-bold"
-                />
+                <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5 font-semibold text-slate-500">Será verificada numa conexão TLS; ainda não extraída do arquivo</div>
               </div>
 
               {/* CNPJ Vinculado */}
@@ -1280,10 +1372,10 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 </label>
                 <input
                   type="text"
-                  value={certCnpj}
-                  onChange={(e) => setCertCnpj(e.target.value)}
-                  placeholder="00.000.000/0000-00"
-                  className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-500"
+                  value={empresaAtiva?.cnpj || ''}
+                  readOnly
+                  placeholder="Selecione uma empresa"
+                  className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-300 bg-slate-100 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
 
@@ -1316,42 +1408,33 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                   Status Operacional
                 </label>
                 <select
-                  value="pendente"
+                  value={statusA1Servidor.cadastrado ? 'armazenado' : 'pendente'}
                   disabled
                   className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:border-indigo-500 font-semibold"
                 >
-                  <option value="pendente">Não carregado nem validado</option>
+                  <option value="armazenado">Armazenado cifrado · não validado pela SEFAZ</option>
+                  <option value="pendente">Pendente</option>
                 </select>
               </div>
             </div>
 
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100">
-              <span className="text-[11px] text-slate-500">
-                O certificado não é armazenado neste navegador; será necessário implementar cofre seguro no servidor.
-              </span>
+              <span className="text-[11px] text-slate-500 max-w-xl">{statusA1Servidor.mensagem || 'Escolha a empresa, selecione o A1 e informe a senha. O sistema não guarda o arquivo no navegador e não consulta a SEFAZ ao salvar.'}</span>
               <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
                 <button
                   type="button"
                   onClick={handleSalvarCertificado}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white"
+                  disabled={testando || !idsEmpresaFiscal || !arquivoA1 || !certSenha}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2 bg-indigo-700 hover:bg-indigo-800 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>Ver status do armazenamento A1</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSalvarTudo}
-                  className="px-4 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-2"
-                  title="Limpa os campos sensíveis e informa se existe armazenamento seguro configurado. Não salva credenciais nem certificado."
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Conferir e limpar campos</span>
+                  {testando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                  <span>{testando ? 'Salvando A1 cifrado…' : 'Salvar A1 nesta empresa'}</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleVerificarConfiguracaoIntegracao}
                   className="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-black transition-all cursor-pointer shadow-md flex items-center gap-2"
-                  title="Mostra se a integração está configurada localmente. Não salva credenciais, não envia certificado e não consulta a Receita Federal."
+                  title="Mostra as etapas de integração. Não consulta SEFAZ nem SERPRO."
                 >
                   <AlertTriangle className="w-4 h-4" />
                   <span>Mostrar status da integração</span>
@@ -1359,7 +1442,6 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               </div>
             </div>
           </div>
-          </fieldset>
         </div>
       )}
 

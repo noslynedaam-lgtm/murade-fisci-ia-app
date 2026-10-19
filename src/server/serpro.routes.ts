@@ -7,6 +7,34 @@ const GATEWAY_BY_ENVIRONMENT = {
   producao: 'https://gateway.apiserpro.serpro.gov.br',
 } as const;
 
+router.get('/config-status', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora pode consultar o estado das credenciais SERPRO.' });
+
+    const statusDoAmbiente = (prefixo: 'SERPRO_VALIDACAO' | 'SERPRO_PRODUCAO') => {
+      const consumerKeyConfigurada = Boolean(process.env[`${prefixo}_CONSUMER_KEY`]?.trim());
+      const consumerSecretConfigurado = Boolean(process.env[`${prefixo}_CONSUMER_SECRET`]?.trim());
+      return {
+        consumerKeyConfigurada,
+        consumerSecretConfigurado,
+        prontoParaTeste: consumerKeyConfigurada && consumerSecretConfigurado,
+      };
+    };
+
+    return res.json({
+      validacao: statusDoAmbiente('SERPRO_VALIDACAO'),
+      producao: statusDoAmbiente('SERPRO_PRODUCAO'),
+      observacao: 'O estado indica somente se os segredos existem no servidor. Não confirma autenticação, contrato, escopos ou acesso a uma API de produto.',
+    });
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível consultar o estado das credenciais SERPRO.' });
+  }
+});
+
 router.post('/token-check', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Pragma', 'no-cache');

@@ -35,8 +35,9 @@ import {
   registrarPagamentoInformado
 } from '../../services/fiscal/fiscoiaFiscal.service';
 import { ModalCalculadoraFiscal } from '../../components/ModalCalculadoraFiscal';
+import { ConsultaSefazDfePanel } from '../../components/ConsultaSefazDfePanel';
 import { useEmpresa } from '../../context/EmpresaContext';
-import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
+import { conferirNotasRadar, exportarRelatorioRadarCsv, importarXmlNfe, mesclarRevisaoEstrutural, NotaRadar, validarListaNotasRadar } from '../../services/fiscal/radarFiscal.service';
 import {
   apagarArquivoFiscalPendenteLocal,
   apagarXmlFiscalLocal,
@@ -154,6 +155,11 @@ export function ModuloFiscalScreen({
   const [erroLeituraRadar, setErroLeituraRadar] = useState<string | null>(null);
   const [radarEmpresaId, setRadarEmpresaId] = useState<string | null>(null);
   const [estadoSincronizacaoCentral, setEstadoSincronizacaoCentral] = useState<string | null>(null);
+  const [sincronizandoFiscalCentral, setSincronizandoFiscalCentral] = useState(false);
+  const [cursorSyncFiscal, setCursorSyncFiscal] = useState<string | null>(null);
+  const [versaoDocumentosCentrais, setVersaoDocumentosCentrais] = useState(0);
+  const [periodoSyncDesde, setPeriodoSyncDesde] = useState(() => `${hojeLocalISO().slice(0, 7)}-01`);
+  const [periodoSyncAte, setPeriodoSyncAte] = useState(hojeLocalISO);
   const [filtroRadar, setFiltroRadar] = useState('');
   const [filtroPeriodoRadar, setFiltroPeriodoRadar] = useState('');
   const [mensagemRadar, setMensagemRadar] = useState('');
@@ -383,6 +389,42 @@ export function ModuloFiscalScreen({
     }
   };
 
+  const sincronizarDocumentosMuradeFiscal = async () => {
+    const empresa = empresaAtiva;
+    if (!empresa?.idCentral || !empresa.tenantIdCentral) {
+      setMensagemRadar('Vincule esta empresa a um cadastro central antes de sincronizar com o Murade Fiscal.');
+      return;
+    }
+    if (!periodoSyncDesde || !periodoSyncAte || periodoSyncDesde > periodoSyncAte) {
+      setMensagemRadar('Informe um período válido para a sincronização.');
+      return;
+    }
+    if (!window.confirm(`Consultar no Murade Fiscal os documentos armazenados para o CNPJ ${empresa.cnpj}, de ${periodoSyncDesde} a ${periodoSyncAte}? Os XMLs válidos serão gravados como pendentes de revisão no Fisco IA. Nenhum lançamento ou envio oficial será feito.`)) return;
+
+    setSincronizandoFiscalCentral(true);
+    setMensagemRadar('Consultando o Murade Fiscal e validando documentos completos…');
+    try {
+      const resposta = await fetch(`/api/companies/${encodeURIComponent(empresa.idCentral)}/fiscal-source-sync`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-FiscoIA-Tenant-Id': empresa.tenantIdCentral },
+        body: JSON.stringify({ confirmarSincronizacao: true, desde: periodoSyncDesde, ate: periodoSyncAte, ...(cursorSyncFiscal ? { cursor: cursorSyncFiscal } : {}) }),
+      });
+      const resultado = await resposta.json().catch(() => ({}));
+      if (!resposta.ok || resultado?.sucesso !== true) {
+        throw new Error(resultado?.mensagem || 'A integração não confirmou a sincronização.');
+      }
+      setCursorSyncFiscal(typeof resultado.proximoCursor === 'string' ? resultado.proximoCursor : null);
+      setVersaoDocumentosCentrais(versao => versao + 1);
+      setMensagemRadar(`${resultado.mensagem} Consultados: ${resultado.consultados}; novos: ${resultado.importados}; já existentes: ${resultado.repetidos}; sem XML completo: ${resultado.semXmlCompleto}; recusados: ${resultado.rejeitados}${resultado.podeHaverMais ? '. Há mais documentos no período; repita a sincronização para continuar.' : '.'}${Array.isArray(resultado.avisos) && resultado.avisos.length ? ` Avisos: ${resultado.avisos.join(' ')}` : ''}`);
+      notificarAtualizacaoDadosFiscais();
+    } catch (error) {
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível sincronizar com o Murade Fiscal.');
+    } finally {
+      setSincronizandoFiscalCentral(false);
+    }
+  };
+
   // Reidrata no Radar desta sessão os XMLs já persistidos no PostgreSQL,
   // mantendo a lista local como cache e nunca alterando documentos existentes.
   useEffect(() => {
@@ -411,10 +453,22 @@ export function ModuloFiscalScreen({
         const porChave = new Map(leitura.notas.map(nota => [nota.chave, nota]));
         let recuperadas = 0;
         let semLeitor = 0;
-        for (const documento of resultado.documentos as Array<{ id: string; chave: string; tipo: string; direcao: string | null; xmlDisponivel: boolean }>) {
+        let revisoesMescladas = 0;
+        for (const documento of resultado.documentos as Array<{
+          id: string; chave: string; tipo: string; direcao: string | null; xmlDisponivel: boolean;
+          revisaoEstrutural?: { findings?: Array<{ code?: unknown; severity?: unknown; message?: unknown }> } | null;
+        }>) {
           if (!atual()) return;
           if (!documento.xmlDisponivel) continue;
           if (documento.tipo !== 'NFE' && documento.tipo !== 'NFCE') { semLeitor += 1; continue; }
+          const notaExistente = porChave.get(documento.chave);
+          if (notaExistente && documento.revisaoEstrutural) {
+            const notaAtualizada = mesclarRevisaoEstrutural(notaExistente, documento.revisaoEstrutural);
+            if (notaAtualizada !== notaExistente) {
+              porChave.set(documento.chave, notaAtualizada);
+              revisoesMescladas += 1;
+            }
+          }
           const xmlLocalExistente = await obterXmlFiscalPorChaveEmpresa(empresa.id, documento.chave);
           if (xmlLocalExistente) continue;
           const url = `/api/companies/${encodeURIComponent(empresa.idCentral!)}/fiscal-documents/${encodeURIComponent(documento.id)}/xml?tenantId=${encodeURIComponent(empresa.tenantIdCentral!)}`;
@@ -428,27 +482,29 @@ export function ModuloFiscalScreen({
           const xmlLocalId = await salvarXmlFiscalLocal({ empresaId: empresa.id, chave: nota.chave, nomeArquivo: `${nota.chave}.xml`, conteudo: xml });
           const existente = porChave.get(nota.chave);
           if (existente) {
-            porChave.set(nota.chave, { ...existente, xmlLocalId });
+            const preservada = mesclarRevisaoEstrutural({ ...existente, xmlLocalId }, documento.revisaoEstrutural);
+            porChave.set(nota.chave, preservada);
+            if (preservada !== existente) revisoesMescladas += 1;
           } else {
             nota.xmlLocalId = xmlLocalId;
-            porChave.set(nota.chave, nota);
+            porChave.set(nota.chave, mesclarRevisaoEstrutural(nota, documento.revisaoEstrutural));
           }
           recuperadas += 1;
         }
         if (!atual()) return;
-        if (recuperadas) {
+        if (recuperadas || revisoesMescladas) {
           const merge = validarListaNotasRadar([...porChave.values()]);
           if (!salvarNotasRadar(merge)) throw new Error('o Radar não pôde salvar as cópias recuperadas neste navegador');
         }
         const quantidade = (resultado.documentos as unknown[]).length;
-        setEstadoSincronizacaoCentral(`Armazenamento central consultado: ${quantidade} documento(s), ${recuperadas} XML(s) recuperado(s) para este navegador${semLeitor ? `; ${semLeitor} documento(s) sem leitor neste Radar` : ''}. Todos continuam pendentes de revisão; consulta/autorização SEFAZ não foi realizada.`);
+        setEstadoSincronizacaoCentral(`Armazenamento central consultado: ${quantidade} documento(s), ${recuperadas} XML(s) recuperado(s), ${revisoesMescladas} revisão(ões) estrutural(is) atualizada(s) neste Radar${semLeitor ? `; ${semLeitor} documento(s) sem leitor neste Radar` : ''}. Todos continuam pendentes de revisão; consulta/autorização SEFAZ não foi realizada.`);
       } catch (error) {
         if (atual()) setEstadoSincronizacaoCentral(`Não foi possível concluir a leitura do armazenamento central. Os dados locais foram preservados. ${error instanceof Error ? error.message : ''}`.trim());
       }
     };
     void sincronizar();
     return () => { cancelado = true; };
-  }, [radarPronto, empresaAtiva?.id, empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral, empresaAtiva?.cnpj, erroLeituraRadar]);
+  }, [radarPronto, empresaAtiva?.id, empresaAtiva?.idCentral, empresaAtiva?.tenantIdCentral, empresaAtiva?.cnpj, erroLeituraRadar, versaoDocumentosCentrais]);
 
   const recarregarArquivosPendentes = async (empresaId: string) => {
     const arquivos = await listarArquivosFiscaisPendentesEmpresa(empresaId);
@@ -1018,10 +1074,20 @@ export function ModuloFiscalScreen({
             <div>
               <h2 className="text-base font-black text-[#0F2B5B]">Radar fiscal — conferência de documentos</h2>
               <p className="text-xs text-slate-600 mt-1 max-w-3xl">O Radar interpreta XML de NF-e modelo 55 e NFC-e modelo 65. Outros arquivos selecionados ficam guardados nesta fila local, separados por empresa, até existir um leitor compatível.</p>
-              <p className="text-[11px] text-amber-800 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">A conferência deste módulo analisa os arquivos importados. Ela não consulta a SEFAZ, não prova autorização e não substitui manifestação, escrituração ou revisão do contador.</p>
-              <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2"><strong>Automação de busca ainda não conectada:</strong> a Distribuição DF-e pode disponibilizar documentos de interesse do CNPJ após integração oficial com certificado e autorização; o conteúdo disponível depende do papel do CNPJ e das regras de manifestação. Ela não entrega a NF-e ao próprio emitente nesse fluxo. Para notas de saída, será necessária integração com o emissor/ERP da empresa ou outra fonte autorizada. Este Radar não baixa notas automaticamente. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Ver regras oficiais de distribuição</a>.</p>
+              <p className="text-[11px] text-amber-800 mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2">A conferência do Radar local analisa os arquivos importados. A consulta oficial, quando configurada, aparece no painel azul abaixo e precisa de confirmação explícita. Uma resposta da distribuição não substitui manifestação, escrituração ou revisão do contador.</p>
+              <p className="text-[11px] text-slate-700 mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2">A Distribuição DF-e pode fornecer documentos e eventos de interesse do CNPJ. O XML completo depende das regras de distribuição e manifestação. Este serviço não entrega, por si só, as notas emitidas pela própria empresa; notas de saída precisam vir do emissor/ERP ou de outra fonte autorizada. <a href="https://www.nfe.fazenda.gov.br/Portal/exibirArquivo.aspx?AspxAutoDetectCookieSupport=1&amp;conteudo=Enkznb1F1SM%3D" target="_blank" rel="noreferrer" className="font-semibold underline">Regras oficiais</a>.</p>
             </div>
             <div className="flex gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 p-1">
+                <label className="sr-only" htmlFor="fiscoia-sync-desde">Data inicial da sincronização</label>
+                <input id="fiscoia-sync-desde" aria-label="Data inicial da sincronização" type="date" value={periodoSyncDesde} onChange={e => { setPeriodoSyncDesde(e.target.value); setCursorSyncFiscal(null); }} className="max-w-32 rounded border border-indigo-200 bg-white px-1.5 py-1 text-[10px]" />
+                <span className="text-[10px] text-indigo-800">até</span>
+                <label className="sr-only" htmlFor="fiscoia-sync-ate">Data final da sincronização</label>
+                <input id="fiscoia-sync-ate" aria-label="Data final da sincronização" type="date" value={periodoSyncAte} onChange={e => { setPeriodoSyncAte(e.target.value); setCursorSyncFiscal(null); }} className="max-w-32 rounded border border-indigo-200 bg-white px-1.5 py-1 text-[10px]" />
+                <button type="button" onClick={() => void sincronizarDocumentosMuradeFiscal()} disabled={!empresaAtiva?.idCentral || !empresaAtiva?.tenantIdCentral || sincronizandoFiscalCentral} className="px-2 py-1.5 rounded-md bg-indigo-700 text-white text-[10px] font-bold disabled:opacity-50">
+                  <RefreshCw className={`w-3 h-3 inline mr-1 ${sincronizandoFiscalCentral ? 'animate-spin' : ''}`} />{sincronizandoFiscalCentral ? 'Sincronizando…' : cursorSyncFiscal ? 'Continuar sincronização' : 'Trazer do Murade Fiscal'}
+                </button>
+              </div>
               <button type="button" onClick={executarConferenciaRadar} className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">Conferir agora</button>
               <input ref={inputXmlRef} type="file" multiple className="hidden" onChange={e => void handleImportarXmlRadar(e.target.files)} />
               <button type="button" onClick={() => inputXmlRef.current?.click()} disabled={!empresaAtiva?.id || !radarPronto || Boolean(erroLeituraRadar)} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold disabled:opacity-50"><Upload className="w-3.5 h-3.5 inline mr-1"/>Importar documentos</button>
@@ -1031,6 +1097,7 @@ export function ModuloFiscalScreen({
               }} disabled={!listaRadarFiltrada.length} className="px-3 py-2 rounded-lg bg-slate-100 text-slate-800 text-xs font-bold disabled:opacity-50"><Download className="w-3.5 h-3.5 inline mr-1"/>Exportar CSV</button>
             </div>
           </div>
+          <ConsultaSefazDfePanel companyId={empresaAtiva?.idCentral} tenantId={empresaAtiva?.tenantIdCentral} cnpj={empresaAtiva?.cnpj} />
           {!radarPronto && empresaAtiva?.id && <div role="status" className="text-xs bg-slate-50 text-slate-700 border border-slate-200 p-3 rounded-lg">Carregando o Radar da empresa selecionada. As listas de outras empresas ficam ocultas até a leitura terminar.</div>}
           {radarPronto && erroLeituraRadar && <div role="alert" className="text-xs bg-rose-50 text-rose-900 border border-rose-200 p-3 rounded-lg"><strong>Radar local indisponível:</strong> {erroLeituraRadar}. Os registros não foram substituídos. Importe novamente somente depois de corrigir ou limpar explicitamente esta lista.</div>}
           {radarPronto && estadoSincronizacaoCentral && <div role="status" className={`text-xs border p-3 rounded-lg ${estadoSincronizacaoCentral.startsWith('Não foi possível') ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-sky-50 text-sky-950 border-sky-200'}`}>{estadoSincronizacaoCentral}</div>}
@@ -1042,7 +1109,7 @@ export function ModuloFiscalScreen({
           </section>}
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 border rounded-lg p-3">
             <div><strong className="text-slate-800">Monitor automático da carteira</strong><span className="text-slate-500"> · a verificação automática e as notificações são centralizadas no aviso fixo inferior; rodam a cada 5 minutos enquanto o Murade estiver aberto e analisam somente dados locais</span><div className="text-slate-500 mt-0.5">Última conferência manual desta empresa: {ultimaConferenciaRadar ?? 'ainda não executada com sucesso'}</div></div>
-            <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial não conectada</span>
+            <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial sob demanda</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="p-3 rounded-xl bg-slate-50 border"><div className="text-[11px] text-slate-500">XML importados</div><strong className="text-xl">{radarResumoDisponivel ? notasRadarVisiveis.length : '—'}</strong></div>

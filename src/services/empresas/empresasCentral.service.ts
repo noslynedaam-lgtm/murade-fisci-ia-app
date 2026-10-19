@@ -117,6 +117,49 @@ export async function salvarEmpresaCentral(
   return result.empresa;
 }
 
+export async function salvarCertificadoA1Central(
+  companyId: string,
+  tenantId: string,
+  arquivo: File,
+  senha: string,
+): Promise<{ recebidoEm: string; mensagem: string }> {
+  if (!companyId || !tenantId) throw new Error('Salve a empresa no banco permanente antes de vincular o A1.');
+  if (!/\.p(?:fx|12)$/i.test(arquivo.name) || arquivo.size <= 0 || arquivo.size > 5 * 1024 * 1024) {
+    throw new Error('Selecione um arquivo A1 .pfx ou .p12 de até 5 MB.');
+  }
+  if (!senha || senha.length > 512) throw new Error('Informe a senha do arquivo A1.');
+
+  const conteudo = await new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo A1 selecionado.'));
+    reader.onload = () => reader.result instanceof ArrayBuffer
+      ? resolve(reader.result)
+      : reject(new Error('O arquivo A1 retornou um formato de leitura inválido.'));
+    reader.readAsArrayBuffer(arquivo);
+  });
+  const bytes = new Uint8Array(conteudo);
+  let binario = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binario += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  const pfxBase64 = btoa(binario);
+  bytes.fill(0);
+  binario = '';
+
+  const result = await requisicao<{
+    cadastradoNoServidor?: boolean;
+    recebidoEm?: string;
+    mensagem?: string;
+  }>(`/api/companies/${encodeURIComponent(companyId)}/fiscal-certificate`, {
+    method: 'PUT',
+    body: JSON.stringify({ tenantId, pfxBase64, passphrase: senha }),
+  });
+  if (result.cadastradoNoServidor !== true || !result.recebidoEm) {
+    throw new Error('O servidor não confirmou a gravação protegida do A1.');
+  }
+  return { recebidoEm: result.recebidoEm, mensagem: result.mensagem || 'A1 cifrado e salvo no banco permanente.' };
+}
+
 export async function arquivarEmpresaCentral(companyId: string, tenantId: string): Promise<void> {
   if (!companyId || !tenantId) throw new Error('Escritório e empresa são necessários para arquivar o cadastro central.');
   const result = await requisicao<{ empresa?: { id: string }; documentosPreservados?: boolean }>(

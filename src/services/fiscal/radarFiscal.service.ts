@@ -22,6 +22,34 @@ export interface NotaRadar extends NotaFiscalItem {
   ocorrencias: OcorrenciaRadar[];
 }
 
+const CODIGOS_CONFERENCIA_ESTRUTURAL = new Set([
+  'SOMA_ITENS_DIVERGENTE', 'SOMA_ITENS_INDISPONIVEL', 'TOTAL_ITENS_INCOMPLETO', 'COMPARACAO_ITENS_INDISPONIVEL'
+]);
+
+/** Merges only server structural findings; preserves all locally entered/classified note fields. */
+export function mesclarRevisaoEstrutural(
+  nota: NotaRadar,
+  revisao: { findings?: Array<{ code?: unknown; severity?: unknown; message?: unknown }> } | null | undefined
+): NotaRadar {
+  if (!revisao || !Array.isArray(revisao.findings)) return nota;
+  const remotos: OcorrenciaRadar[] = revisao.findings.flatMap(item => {
+    if (!item || typeof item.code !== 'string' || typeof item.message !== 'string'
+      || (item.severity !== 'ERRO' && item.severity !== 'ATENCAO')
+      || !CODIGOS_CONFERENCIA_ESTRUTURAL.has(item.code)) return [];
+    const codigo = item.code === 'TOTAL_ITENS_INCOMPLETO' || item.code === 'COMPARACAO_ITENS_INDISPONIVEL'
+      ? 'SOMA_ITENS_INDISPONIVEL' : item.code;
+    return [{ codigo, severidade: item.severity, mensagem: item.message }];
+  });
+  const mescladas = new Map<string, OcorrenciaRadar>();
+  // Preserve older/local findings; this synchronization only adds corroborating server evidence.
+  for (const ocorrencia of [...(nota.ocorrencias ?? []), ...remotos]) {
+    mescladas.set(`${ocorrencia.codigo}:${ocorrencia.mensagem}`, ocorrencia);
+  }
+  const ocorrencias = [...mescladas.values()];
+  if (JSON.stringify(ocorrencias) === JSON.stringify(nota.ocorrencias ?? [])) return nota;
+  return { ...nota, ocorrencias };
+}
+
 /** Valida o mínimo estrutural antes de exibir, auditar ou substituir o Radar local. */
 export function validarListaNotasRadar(dados: unknown): NotaRadar[] {
   if (!Array.isArray(dados)) throw new Error('a lista do Radar não é um vetor');
@@ -96,6 +124,37 @@ const numero = (value: string): number | null => {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
+
+function centavos(raw: string): bigint | null {
+  if (!/^(?:0|[1-9]\d{0,13})(?:\.\d{1,2})?$/.test(raw.trim())) return null;
+  const [inteiro, fracao = ''] = raw.trim().split('.');
+  return BigInt(inteiro) * 100n + BigInt(fracao.padEnd(2, '0'));
+}
+
+function formatarCentavos(valor: bigint): string {
+  const sinal = valor < 0n ? '-' : '';
+  const absoluto = valor < 0n ? -valor : valor;
+  return `${sinal}${absoluto / 100n},${String(absoluto % 100n).padStart(2, '0')}`;
+}
+
+/** Compares invoice product item amounts with the declared product total, using integer cents. */
+export function conferirSomaProdutos(vProdTotal: string, valoresItens: string[]): OcorrenciaRadar[] {
+  const total = centavos(vProdTotal);
+  if (total === null || !valoresItens.length) {
+    return [{ severidade: 'ATENCAO', codigo: 'SOMA_ITENS_INDISPONIVEL', mensagem: 'O XML não trouxe itens e total de produtos suficientes para comparar a soma.' }];
+  }
+  const itens = valoresItens.map(centavos);
+  if (itens.some(valor => valor === null)) {
+    return [{ severidade: 'ATENCAO', codigo: 'SOMA_ITENS_INDISPONIVEL', mensagem: 'Não foi possível ler o vProd de todos os itens para comparar com o total de produtos.' }];
+  }
+  const soma = itens.reduce<bigint>((acumulado, valor) => acumulado + valor!, 0n);
+  if (soma === total) return [];
+  const diferenca = soma - total;
+  return [{
+    severidade: 'ERRO', codigo: 'SOMA_ITENS_DIVERGENTE',
+    mensagem: `A soma de vProd dos ${itens.length} itens diverge do total de produtos do XML: itens R$ ${formatarCentavos(soma)}; total R$ ${formatarCentavos(total)}; diferença R$ ${formatarCentavos(diferenca)}.`
+  }];
+}
 
 function dataIsoValida(valor: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor);
@@ -229,6 +288,7 @@ export function importarXmlNfe(xml: string, nomeArquivo: string, cnpjEmpresa: st
   if (situacaoProtocolo === 'SEM_PROTOCOLO') ocorrencias.push({ severidade: 'ATENCAO', codigo: 'PROTOCOLO_AUSENTE', mensagem: 'XML sem protocolo de autorização; mantido no Radar para revisão e não encaminhado ao livro fiscal.' });
   if (situacaoProtocolo === 'PROTOCOLO_DECLARADO_NO_XML') ocorrencias.push({ severidade: 'ATENCAO', codigo: 'PROTOCOLO_NAO_VERIFICADO', mensagem: `O arquivo declara cStat ${codigoProtocolo} e nProt, mas assinatura e autenticidade não foram verificadas; não encaminhado ao livro fiscal.` });
   if (situacaoProtocolo === 'RESPOSTA_NAO_AUTORIZADA_NO_XML') ocorrencias.push({ severidade: 'ERRO', codigo: 'AUTORIZACAO_NAO_CONFIRMADA_NO_XML', mensagem: `A resposta presente no arquivo não indica autorização (cStat ${codigoProtocolo || 'ausente'}); não encaminhado ao livro fiscal.` });
+  ocorrencias.push(...conferirSomaProdutos(vProdRaw, detalhes.map(det => texto(det, 'vProd'))));
   if (numero(vProdRaw) === null) ocorrencias.push({ severidade: 'ERRO', codigo: 'VPROD_INVALIDO', mensagem: 'Total de produtos ausente ou em formato numérico inválido.' });
   if (numero(vNfRaw) === null) ocorrencias.push({ severidade: 'ERRO', codigo: 'VNF_INVALIDO', mensagem: 'Valor total da NF-e ausente ou em formato numérico inválido.' });
   if (valorProdutos < 0 || valorTotal < 0 || [icms, pis, cofins].some(valor => valor !== null && valor < 0)) ocorrencias.push({ severidade: 'ERRO', codigo: 'VALOR_NEGATIVO', mensagem: 'O XML contém total ou imposto negativo.' });
