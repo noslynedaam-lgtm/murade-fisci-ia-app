@@ -120,7 +120,7 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
   // Verifica PKCS#12 e senha localmente; converte formatos antigos que o OpenSSL 3 recusa.
   const preparado = prepararPfx(pfxOriginal, passphrase);
   pfxOriginal.fill(0);
-  if (!preparado.ok) {
+  if (preparado.ok === false) {
     return res.status(422).json({ mensagem: preparado.motivo === 'senha'
       ? 'A senha do arquivo A1 está incorreta. Nada foi armazenado.'
       : 'Não foi possível ler este arquivo como certificado A1 (.pfx/.p12). Nada foi armazenado.' });
