@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createSecureContext } from 'node:tls';
 import { Router } from 'express';
+import { prepararPfx } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { descriptografarSegredoEmpresa, criptografarSegredoEmpresa } from './encryption';
 import { comContextoTenant, obterPoolBanco } from './persistence';
@@ -111,23 +112,26 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
   if (!pfxBase64 || pfxBase64.length > Math.ceil(MAX_PFX_BYTES * 4 / 3) + 8 || !passphrase || passphrase.length > 512) {
     return res.status(400).json({ mensagem: 'Selecione um A1 PKCS#12 de até 5 MB e informe sua senha. Nada foi armazenado.' });
   }
-  const pfx = Buffer.from(pfxBase64, 'base64');
-  if (!pfx.length || pfx.length > MAX_PFX_BYTES || pfx.toString('base64') !== pfxBase64) {
-    pfx.fill(0);
+  const pfxOriginal = Buffer.from(pfxBase64, 'base64');
+  if (!pfxOriginal.length || pfxOriginal.length > MAX_PFX_BYTES || pfxOriginal.toString('base64') !== pfxBase64) {
+    pfxOriginal.fill(0);
     return res.status(400).json({ mensagem: 'O arquivo A1 não está em Base64 válido ou excede 5 MB. Nada foi armazenado.' });
   }
-  try {
-    // Verifica PKCS#12 e senha localmente no processo; não tenta rede nem afirma validade/identidade.
-    createSecureContext({ pfx, passphrase });
-  } catch {
-    pfx.fill(0);
-    return res.status(422).json({ mensagem: 'Não foi possível abrir o A1 com a senha informada. Confira o arquivo e a senha; nada foi armazenado.' });
+  // Verifica PKCS#12 e senha localmente; converte formatos antigos que o OpenSSL 3 recusa.
+  const preparado = prepararPfx(pfxOriginal, passphrase);
+  pfxOriginal.fill(0);
+  if (!preparado.ok) {
+    return res.status(422).json({ mensagem: preparado.motivo === 'senha'
+      ? 'A senha do arquivo A1 está incorreta. Nada foi armazenado.'
+      : 'Não foi possível ler este arquivo como certificado A1 (.pfx/.p12). Nada foi armazenado.' });
   }
+  const pfx = preparado.pfx;
+  const pfxBase64Final = pfx.toString('base64');
 
   try {
     const user = await obterUsuarioDaSessao(req);
     if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-    const segredo = Buffer.from(JSON.stringify({ pfxBase64, passphrase }), 'utf8');
+    const segredo = Buffer.from(JSON.stringify({ pfxBase64: pfxBase64Final, passphrase }), 'utf8');
     let encrypted: ReturnType<typeof criptografarSegredoEmpresa>;
     try {
       encrypted = criptografarSegredoEmpresa(ids.tenantId, ids.companyId, segredo);
