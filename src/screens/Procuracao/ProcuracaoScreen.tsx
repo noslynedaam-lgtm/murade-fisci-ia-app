@@ -14,6 +14,7 @@ import { DadosProcuracao } from '../../types';
 import BotaoVoltar from '../../components/BotaoVoltar';
 import { useEmpresa } from '../../context/EmpresaContext';
 import SeletorEmpresaGlobal from '../../components/SeletorEmpresaGlobal';
+import { useProntidaoSerpro } from '../../components/useProntidaoSerpro';
 
 interface ProcuracaoScreenProps {
   planoAtivoId: string;
@@ -21,6 +22,7 @@ interface ProcuracaoScreenProps {
 }
 
 export default function ProcuracaoScreen({ planoAtivoId, onIrParaPlanos }: ProcuracaoScreenProps) {
+  const prontidao = useProntidaoSerpro();
   const temPermissao = VERIFICA_PERMISSAO(planoAtivoId, 'procuracao');
   const { empresaAtiva } = useEmpresa();
 
@@ -315,7 +317,7 @@ export default function ProcuracaoScreen({ planoAtivoId, onIrParaPlanos }: Procu
           </h2>
           <div className="flex items-center gap-1.5 text-xs text-amber-800 font-semibold">
             <Shield className="w-4 h-4 text-amber-700" />
-            <span>Certificado não carregado nem validado pelo sistema</span>
+            <span>Certificado desta tela é só referência. O e-CNPJ do escritório para o SERPRO fica no servidor{prontidao ? (prontidao.itens.find(i => i.chave === 'certificado')?.ok ? ': presente (variável preenchida)' : ': ainda não encontrado') : ''}.</span>
           </div>
         </div>
 

@@ -13,6 +13,7 @@ import SeletorEmpresaGlobal from './SeletorEmpresaGlobal';
 import ModalConfiguracoesSistema from './ModalConfiguracoesSistema';
 import ModalAcessoAdmin from './ModalAcessoAdmin';
 import SimboloContabil from './SimboloContabil';
+import { useProntidaoSerpro } from './useProntidaoSerpro';
 
 interface NavbarProps {
   abaAtiva: string;
@@ -47,6 +48,8 @@ export default function Navbar({
   onBloquearAdmin,
   onAlternarVisaoAdmin
 }: NavbarProps) {
+  const prontidaoSerpro = useProntidaoSerpro();
+  const faltamSerpro = prontidaoSerpro ? prontidaoSerpro.itens.filter(i => !i.ok) : null;
   const [dropdownAberto, setDropdownAberto] = useState(false);
   const [menuConfigAberto, setMenuConfigAberto] = useState(false);
   const [modalConfigAberto, setModalConfigAberto] = useState(false);
@@ -149,10 +152,10 @@ export default function Navbar({
             type="button"
             onClick={() => onSelecionarAba('serpro')}
             className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-900 transition-all cursor-pointer shadow-xs"
-            title="A conexão com o SERPRO ainda não foi validada pelo sistema"
+            title={faltamSerpro && faltamSerpro.length > 0 ? `Falta configurar no servidor: ${faltamSerpro.map(i => i.descricao).join('; ')}` : faltamSerpro ? 'Variáveis do SERPRO presentes no servidor. A autenticação é testada na tela Integração SERPRO.' : 'A conexão com o SERPRO ainda não foi validada pelo sistema'}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-            <span className="font-bold text-[10px] tracking-wide">SERPRO: Não validado</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${faltamSerpro && faltamSerpro.length === 0 ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+            <span className="font-bold text-[10px] tracking-wide">{faltamSerpro ? (faltamSerpro.length === 0 ? 'SERPRO: configurado' : `SERPRO: faltam ${faltamSerpro.length} item(ns)`) : 'SERPRO: Não validado'}</span>
           </button>
 
           <button
