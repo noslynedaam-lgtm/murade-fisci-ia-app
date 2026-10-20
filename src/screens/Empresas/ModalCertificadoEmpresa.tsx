@@ -82,11 +82,38 @@ export default function ModalCertificadoEmpresa({
       setErroSalvar(null);
       setNomeArquivo(file.name);
       setArquivoA1(file);
+      // Se a senha já foi digitada, salva e reconhece na hora.
+      if (senhaA1) setTimeout(() => { void salvarAutomatico(file, senhaA1); }, 0);
     }
   };
 
-  const handleSalvar = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Salvamento automático: assim que arquivo + senha estiverem preenchidos, envia e reconhece.
+  const salvarAutomatico = async (arquivo: File | null, senha: string) => {
+    if (salvando || tipo !== 'A1' || !arquivo || !senha) return;
+    setSalvando(true);
+    setErroSalvar(null);
+    try {
+      if (!empresa.idCentral || !empresa.tenantIdCentral) throw new Error('Salve o cadastro completo da empresa no banco permanente antes de vincular o certificado.');
+      const resultado = await salvarCertificadoA1Central(empresa.idCentral, empresa.tenantIdCentral, arquivo, senha);
+      await onSalvarCertificado({
+        ...empresa,
+        certificado: {
+          tipo, nomeArquivo: arquivo.name, validade, emissor, ativo: false, valido: false, servidorCadastrado: true,
+          recebidoEm: resultado.recebidoEm, dataCadastro: new Date().toLocaleDateString('pt-BR'),
+        },
+        statusCND: empresa.statusCND || 'NAO_CONSULTADA',
+        procuracaoAtiva: empresa.procuracaoAtiva ?? false,
+      });
+      setSenhaA1('');
+      setArquivoA1(null);
+    } catch (error) {
+      setErroSalvar(error instanceof Error ? error.message : 'Não foi possível confirmar o salvamento protegido do certificado.');
+    }
+    setSalvando(false);
+  };
+
+  const handleSalvar = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (salvando) return;
     setSalvando(true);
     setErroSalvar(null);
@@ -100,7 +127,8 @@ export default function ModalCertificadoEmpresa({
       if (!empresa.idCentral || !empresa.tenantIdCentral) throw new Error('Salve o cadastro completo da empresa no banco permanente antes de vincular o certificado.');
       let resultadoA1: { recebidoEm: string; mensagem: string } | null = null;
       if (arquivoA1 || senhaA1) {
-        if (!arquivoA1 || !senhaA1) throw new Error('Para salvar ou substituir o A1, selecione o arquivo .pfx/.p12 e informe a senha.');
+        if (!arquivoA1) throw new Error('O arquivo do certificado precisa ser selecionado novamente: clique na área pontilhada e escolha o .pfx/.p12.');
+        if (!senhaA1) throw new Error('Informe a senha do arquivo A1.');
         resultadoA1 = await salvarCertificadoA1Central(empresa.idCentral, empresa.tenantIdCentral, arquivoA1, senhaA1);
       } else if (!statusServidor.cadastrado) {
         throw new Error('Selecione o arquivo A1 e informe sua senha para o primeiro cadastro seguro.');
@@ -306,7 +334,7 @@ export default function ModalCertificadoEmpresa({
           {tipo === 'A1' && (
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
               Senha do arquivo A1
-              <input type="password" autoComplete="new-password" value={senhaA1} onChange={e => setSenhaA1(e.target.value)} maxLength={512} placeholder="Necessária para abrir e cifrar o arquivo" className="mt-1.5 w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs normal-case" />
+              <input type="password" autoComplete="new-password" value={senhaA1} onChange={e => setSenhaA1(e.target.value)} onBlur={e => { if (arquivoA1 && e.target.value) void salvarAutomatico(arquivoA1, e.target.value); }} maxLength={512} placeholder="Necessária para abrir e cifrar o arquivo" className="mt-1.5 w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs normal-case" />
               <span className="mt-1 block text-[11px] font-normal normal-case text-slate-500">Não é salva no navegador nem incluída nos registros do sistema.</span>
             </label>
           )}
