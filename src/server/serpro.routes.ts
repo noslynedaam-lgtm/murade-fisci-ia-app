@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import https from 'node:https';
+import { prepararPfx } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
@@ -65,6 +66,37 @@ router.post('/token-check', async (req, res) => {
         ambiente,
         mensagem: `As variáveis ${prefixo}_CONSUMER_KEY e ${prefixo}_CONSUMER_SECRET ainda não estão configuradas no ambiente privado do serviço.`,
       });
+    }
+
+    // Integra Contador autentica em outro endereço e exige o e-CNPJ do escritório (mTLS).
+    if (ambiente === 'producao' && process.env.SERPRO_CERT_PFX_BASE64?.trim() && process.env.SERPRO_CERT_PFX_SENHA) {
+      try {
+        const pfx = Buffer.from(process.env.SERPRO_CERT_PFX_BASE64.trim(), 'base64');
+        const preparado = prepararPfx(pfx, process.env.SERPRO_CERT_PFX_SENHA);
+        if (preparado.ok === false) {
+          return res.status(502).json({ testado: true, autenticado: false, ambiente, mensagem: preparado.motivo === 'senha'
+            ? 'A senha do certificado do escritório (SERPRO_CERT_PFX_SENHA) não abre o arquivo informado.'
+            : 'O conteúdo de SERPRO_CERT_PFX_BASE64 não é um certificado .pfx/.p12 válido em base64.' });
+        }
+        const basic = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+        const inicio = Date.now();
+        const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
+          method: 'POST', pfx: preparado.pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
+          headers: { Authorization: `Basic ${basic}`, 'Role-Type': 'TERCEIROS', 'Content-Type': 'application/x-www-form-urlencoded' },
+        }, 'grant_type=client_credentials');
+        if (auth.status === 200) {
+          let ok = false;
+          try { const t = JSON.parse(auth.texto); ok = Boolean(t.access_token && t.jwt_token); } catch { /* formato inesperado */ }
+          return ok
+            ? res.json({ testado: true, autenticado: true, ambiente, expiraEmSegundos: 0, mensagem: 'Autenticação do Integra Contador confirmada (chaves + certificado do escritório). Nenhuma consulta paga foi feita.' })
+            : res.status(502).json({ testado: true, autenticado: false, ambiente, mensagem: 'O SERPRO respondeu, mas sem o token esperado.' });
+        }
+        return res.status(502).json({ testado: true, autenticado: false, ambiente, statusGateway: auth.status, latenciaMs: Date.now() - inicio, mensagem: auth.status === 401 || auth.status === 403
+          ? 'O SERPRO recusou a autenticação do Integra Contador. Confira se a Consumer Key/Secret são do contrato Integra Contador em produção (sem espaços) e se o certificado e-CNPJ é o do escritório contratante.'
+          : 'O SERPRO não confirmou a autenticação do Integra Contador. Tente novamente mais tarde.' });
+      } catch {
+        return res.status(502).json({ testado: true, autenticado: false, ambiente, mensagem: 'Não foi possível completar a conexão segura (mTLS) com o SERPRO. Nenhum detalhe de credencial foi registrado.' });
+      }
     }
 
     const controller = new AbortController();
