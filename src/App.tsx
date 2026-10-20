@@ -143,7 +143,8 @@ export default function App() {
         setUsuarioAtual(resultado.usuario);
         setPlanoAtivoId(resultado.usuario.idPlano);
         setModoAuth(resultado.usuario.primeiroAcesso ? 'primeiro_acesso' : 'app');
-        setMostrarPortalSistemas(!resultado.usuario.primeiroAcesso);
+        // Abre o sistema direto; o portal "Meus sistemas" continua no menu superior.
+        setMostrarPortalSistemas(false);
       } else {
         setUsuarioAtual(null);
         setModoAuth('login');
@@ -229,7 +230,7 @@ export default function App() {
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
     setAbaAtiva('dashboard');
-    setMostrarPortalSistemas(true);
+    setMostrarPortalSistemas(false);
     notificarMudancaSessao();
   };
 
@@ -259,7 +260,8 @@ export default function App() {
     setUsuarioAtual(usuario);
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
-    setMostrarPortalSistemas(true);
+    setAbaAtiva('dashboard');
+    setMostrarPortalSistemas(false);
     notificarMudancaSessao();
   };
 

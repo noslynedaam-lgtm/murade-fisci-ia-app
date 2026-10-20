@@ -211,6 +211,14 @@ export function MonitorPendenciasFiscal() {
   const { empresas, erroEmpresas } = useEmpresa();
   const [estado, setEstado] = useState<EstadoMonitor>({ totalEmpresas: 0, empresasComDados: 0, assinaturas: [], documentos: [], totalRadar: 0, totalLivro: 0, arquivosPendentes: 0, guiasAbertas: 0, lembretesAtivos: 0, cndRegistradas: 0, cndVencidas: 0, cndProximas: 0, pendencias: 0, falhasLeitura: [], semDadosLocais: [] });
   const [aviso, setAviso] = useState<string | null>(null);
+  // O painel pode ser recolhido para não ficar preso na tela; a escolha é lembrada neste navegador.
+  const [recolhido, setRecolhido] = useState<boolean>(() => {
+    try { return localStorage.getItem('fiscoia_monitor_recolhido') === '1'; } catch { return false; }
+  });
+  const alternarRecolhido = (valor: boolean) => {
+    setRecolhido(valor);
+    try { localStorage.setItem('fiscoia_monitor_recolhido', valor ? '1' : '0'); } catch { /* sem armazenamento */ }
+  };
   const [ativo, setAtivo] = useState(monitorPendenciasAtivo);
   const [ultimaConferencia, setUltimaConferencia] = useState<Date | null>(null);
   const [saudeModulos, setSaudeModulos] = useState<EstadoServico[]>([]);
@@ -510,6 +518,20 @@ export function MonitorPendenciasFiscal() {
     };
   }, [verificar, verificarSaudeModulos, ativo]);
 
+  if (recolhido) {
+    return (
+      <button
+        type="button"
+        onClick={() => alternarRecolhido(false)}
+        className="fixed bottom-16 right-3 z-[60] inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] font-bold text-amber-950 shadow-md hover:bg-amber-100"
+        aria-label="Abrir o painel do robô de conferência"
+        title="Abrir o painel do robô de conferência"
+      >
+        <Bell className="h-3.5 w-3.5 text-amber-700" /> Robô de conferência
+      </button>
+    );
+  }
+
   return (
     <aside className="fixed bottom-5 right-5 z-[100] max-w-sm rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-xl" role="status" aria-live="polite">
       <div className="flex items-start gap-3">
@@ -535,7 +557,13 @@ export function MonitorPendenciasFiscal() {
                 : <button type="button" onClick={() => void ativarNotificacoes()} className="rounded border border-amber-300 bg-white px-2 py-1 text-[10px] font-bold">Ativar notificações</button>}
           </div>
         </div>
-        {aviso && <button type="button" onClick={() => setAviso(null)} className="rounded p-1 text-amber-800 hover:bg-amber-100" aria-label="Fechar aviso"><X className="h-4 w-4" /></button>}
+        <button
+          type="button"
+          onClick={() => { setAviso(null); alternarRecolhido(true); }}
+          className="rounded p-1 text-amber-800 hover:bg-amber-100"
+          aria-label="Fechar painel do robô de conferência"
+          title="Fechar (você pode reabrir pelo botão no canto da tela)"
+        ><X className="h-4 w-4" /></button>
       </div>
     </aside>
   );
