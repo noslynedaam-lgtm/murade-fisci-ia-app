@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import https from 'node:https';
-import { prepararPfx } from './pfxCompat';
+import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
@@ -71,12 +71,12 @@ router.post('/token-check', async (req, res) => {
     // Integra Contador autentica em outro endereço e exige o e-CNPJ do escritório (mTLS).
     if (ambiente === 'producao' && process.env.SERPRO_CERT_PFX_BASE64?.trim() && process.env.SERPRO_CERT_PFX_SENHA) {
       try {
-        const pfx = Buffer.from(process.env.SERPRO_CERT_PFX_BASE64.trim(), 'base64');
+        const pfx = pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64);
         const preparado = prepararPfx(pfx, process.env.SERPRO_CERT_PFX_SENHA);
         if (preparado.ok === false) {
           return res.status(502).json({ testado: true, autenticado: false, ambiente, mensagem: preparado.motivo === 'senha'
             ? 'A senha do certificado do escritório (SERPRO_CERT_PFX_SENHA) não abre o arquivo informado.'
-            : 'O conteúdo de SERPRO_CERT_PFX_BASE64 não é um certificado .pfx/.p12 válido em base64.' });
+              : `O conteúdo de SERPRO_CERT_PFX_BASE64 não pôde ser lido como certificado .pfx/.p12${preparado.detalhe ? ` (${preparado.detalhe})` : ''}.` });
         }
         const basic = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
         const inicio = Date.now();
@@ -233,7 +233,9 @@ router.post('/consulta', async (req, res) => {
     try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, req.body?.dados ?? {}); }
     catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
 
-    const pfx = Buffer.from(process.env.SERPRO_CERT_PFX_BASE64!, 'base64');
+    const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
+    if (preparadoPfx.ok === false) return res.status(503).json({ consultado: false, mensagem: 'O certificado do escritório no servidor não pôde ser aberto (senha ou formato). Nada foi consultado nem cobrado.' });
+    const pfx = preparadoPfx.pfx;
     const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
     const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
       method: 'POST', pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
