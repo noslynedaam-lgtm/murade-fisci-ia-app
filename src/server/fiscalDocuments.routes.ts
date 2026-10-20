@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import express, { Router } from 'express';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { criptografarXml, descriptografarXml } from './encryption';
@@ -12,6 +12,25 @@ const CNPJ_FORMATADO = /^[A-Z0-9]{12}[0-9]{2}$/;
 // Process-local capability used only by the server-to-server synchronization route.
 export const CHAVE_SYNC_FISCAL_INTERNA = randomBytes(32).toString('base64url');
 const analisarXml = express.text({ type: ['application/xml', 'text/xml'], limit: '25mb' });
+
+/**
+ * Usuário autenticado pela sessão ou, para o robô de sincronização interno,
+ * pelo segredo do processo mais o usuário que o robô representa. O segredo é
+ * gerado a cada inicialização e nunca sai do servidor; a associação ao
+ * escritório continua sendo conferida em comContextoTenant.
+ */
+async function usuarioDaRequisicaoOuRobo(req: express.Request): Promise<{ id: string } | null> {
+  const recebido = req.get('x-fiscoia-internal-sync') || '';
+  const trabalhador = req.get('x-fiscoia-worker-user') || '';
+  const a = Buffer.from(recebido);
+  const b = Buffer.from(CHAVE_SYNC_FISCAL_INTERNA);
+  const origem = req.socket.remoteAddress || '';
+  const loopback = origem === '127.0.0.1' || origem === '::1' || origem === '::ffff:127.0.0.1';
+  if (trabalhador && loopback && a.length === b.length && timingSafeEqual(a, b) && UUID.test(trabalhador)) {
+    return { id: trabalhador };
+  }
+  return obterUsuarioDaSessao(req);
+}
 
 function analisarCorpoXml(req: express.Request, res: express.Response, next: express.NextFunction): void {
   analisarXml(req, res, (error?: any) => {
@@ -222,7 +241,7 @@ router.post(
     const xmlHash = createHash('sha256').update(xml, 'utf8').digest('hex');
 
     try {
-      const user = await obterUsuarioDaSessao(req);
+      const user = await usuarioDaRequisicaoOuRobo(req);
       if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
       const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
         const company = await client.query(

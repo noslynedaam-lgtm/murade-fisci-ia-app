@@ -56,6 +56,134 @@ async function lerJsonFiscalLimitado(response: Response): Promise<unknown> {
   return JSON.parse(new TextDecoder().decode(body));
 }
 
+export interface ParametrosSincronizacaoFiscal {
+  tenantId: string;
+  companyId: string;
+  cnpj: string;
+  desde: string;
+  ate: string;
+  cursor: string;
+  documentosPorExecucao: number;
+  documentosPorPagina: number;
+  maxPaginas: number;
+  /** Sessão do usuário (rota manual) ou usuário interno (robô automático). */
+  autenticacao: { cookie?: string; workerUserId?: string };
+}
+
+export type ResultadoSincronizacaoFiscal =
+  | { ok: true; corpo: Record<string, unknown> & { importados: number; repetidos: number; rejeitados: number; podeHaverMais: boolean; proximoCursor: string | null } }
+  | { ok: false; status: number; corpo: Record<string, unknown> };
+
+/** Lê os documentos do Murade Fiscal e grava cada um pelo mesmo caminho validado do upload manual. */
+export async function sincronizarDocumentosFiscal(p: ParametrosSincronizacaoFiscal): Promise<ResultadoSincronizacaoFiscal> {
+  const { tenantId, companyId, cnpj, desde, ate } = p;
+  const fiscalUrl = obterUrlFiscal();
+  const integrationToken = process.env.MURADE_INTEGRATION_TOKEN;
+  if (!integrationToken?.trim()) return { ok: false, status: 503, corpo: { mensagem: 'Integração com o Murade Fiscal ainda não foi configurada no servidor.' } };
+  if (!fiscalUrl) return { ok: false, status: 503, corpo: { mensagem: 'A URL segura do Murade Fiscal não está configurada corretamente.' } };
+  let cursor = p.cursor;
+  let consultados = 0;
+  let importados = 0;
+  let repetidos = 0;
+  let semXml = 0;
+  let rejeitados = 0;
+  let paginas = 0;
+  let truncado = false;
+  const avisos: string[] = [];
+  for (; paginas < p.maxPaginas && consultados < p.documentosPorExecucao; paginas += 1) {
+    const sourceUrl = new URL('/api/integracao/fiscal/documentos', fiscalUrl);
+    sourceUrl.searchParams.set('cnpj', cnpj);
+    sourceUrl.searchParams.set('desde', desde);
+    sourceUrl.searchParams.set('ate', ate);
+    sourceUrl.searchParams.set('limite', String(Math.min(p.documentosPorPagina, p.documentosPorExecucao - consultados)));
+    if (cursor) sourceUrl.searchParams.set('cursor', cursor);
+    const sourceResponse = await fetch(sourceUrl, {
+      headers: { Authorization: `Bearer ${integrationToken}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!sourceResponse.ok) {
+      return {
+        ok: false,
+        status: sourceResponse.status === 401 || sourceResponse.status === 503 ? 503 : 502,
+        corpo: {
+          mensagem: sourceResponse.status === 401
+            ? 'A credencial entre Fisco IA e Murade Fiscal não foi aceita; nenhum dado desta página foi gravado.'
+            : 'Murade Fiscal não concluiu a consulta; documentos já sincronizados foram preservados.',
+          paginasProcessadas: paginas,
+          importados,
+          repetidos,
+        },
+      };
+    }
+    const payload = await lerJsonFiscalLimitado(sourceResponse) as {
+      sucesso?: boolean; cnpj?: string; documentos?: Array<Record<string, unknown>>;
+      proximoCursor?: string | null; truncado?: boolean; avisos?: string[];
+    };
+    if (payload.sucesso !== true || normalizarCnpj(String(payload.cnpj || '')) !== cnpj || !Array.isArray(payload.documentos)) {
+      return { ok: false, status: 502, corpo: { mensagem: 'Resposta do Murade Fiscal inválida ou de outro CNPJ; esta página não foi importada.', paginasProcessadas: paginas, importados, repetidos } };
+    }
+    if (Array.isArray(payload.avisos)) avisos.push(...payload.avisos.filter((item): item is string => typeof item === 'string').slice(0, 10));
+    const documentos = payload.documentos;
+    if (documentos.length > p.documentosPorPagina) {
+      return { ok: false, status: 502, corpo: { mensagem: 'Murade Fiscal devolveu mais documentos que o limite solicitado; a página foi recusada.', paginasProcessadas: paginas, importados, repetidos } };
+    }
+    consultados += documentos.length;
+    for (const documento of documentos) {
+      if (normalizarCnpj(String(documento.cnpjEmpresa || '')) !== cnpj) { rejeitados += 1; continue; }
+      const xml = typeof documento.xmlOriginal === 'string' ? documento.xmlOriginal : '';
+      if (!xml.trim()) { semXml += 1; continue; }
+      if (Buffer.byteLength(xml, 'utf8') > 25 * 1024 * 1024) { rejeitados += 1; continue; }
+
+      // Reuse the same validated, encrypted, audited ingestion path as a manual XML upload.
+      const appOrigin = `http://127.0.0.1:${Number(process.env.PORT || 3000)}`;
+      const ingestResponse = await fetch(new URL(`/api/companies/${encodeURIComponent(companyId)}/fiscal-documents`, appOrigin), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/xml',
+          'X-FiscoIA-Tenant-Id': tenantId,
+          'X-FiscoIA-Internal-Sync': CHAVE_SYNC_FISCAL_INTERNA,
+          ...(p.autenticacao.workerUserId ? { 'X-FiscoIA-Worker-User': p.autenticacao.workerUserId } : {}),
+          ...(p.autenticacao.cookie ? { Cookie: p.autenticacao.cookie } : {}),
+        },
+        body: xml,
+        signal: AbortSignal.timeout(30_000),
+      });
+      const ingestResult = await ingestResponse.json().catch(() => ({})) as { repetido?: boolean; documento?: unknown };
+      if (ingestResponse.ok && ingestResult.documento) {
+        if (ingestResult.repetido) repetidos += 1;
+        else importados += 1;
+      } else if (ingestResponse.status === 409) {
+        rejeitados += 1;
+      } else {
+        avisos.push(`Um documento foi preservado na origem, mas recusado na validação local (HTTP ${ingestResponse.status}).`);
+        rejeitados += 1;
+      }
+    }
+    cursor = typeof payload.proximoCursor === 'string' ? payload.proximoCursor : '';
+    if (!cursor || documentos.length === 0) { truncado = payload.truncado === true; break; }
+    if (consultados >= p.documentosPorExecucao) { truncado = true; break; }
+  }
+  if (cursor && paginas >= p.maxPaginas) truncado = true;
+  return {
+    ok: true,
+    corpo: {
+      sucesso: true,
+      cnpj,
+      periodo: { desde, ate },
+      consultados,
+      importados,
+      repetidos,
+      semXmlCompleto: semXml,
+      rejeitados,
+      paginas,
+      podeHaverMais: truncado,
+      proximoCursor: truncado ? cursor : null,
+      avisos: [...new Set(avisos)].slice(0, 20),
+      mensagem: 'Documentos completos validados foram armazenados como pendentes de revisão. Nenhum lançamento contábil ou envio oficial foi realizado.',
+    },
+  };
+}
+
 router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const pool = obterPoolBanco();
@@ -95,101 +223,16 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
     const cnpj = scoped.resultado;
     if (!validarCnpj(cnpj)) return res.status(422).json({ mensagem: 'O CNPJ cadastrado para a empresa não é válido; nenhum documento foi consultado.' });
 
-    let cursor = typeof req.body?.cursor === 'string' && req.body.cursor.length <= 2048 ? req.body.cursor : '';
-    let consultados = 0;
-    let importados = 0;
-    let repetidos = 0;
-    let semXml = 0;
-    let rejeitados = 0;
-    let paginas = 0;
-    let truncado = false;
-    const avisos: string[] = [];
-    const integrationToken = process.env.MURADE_INTEGRATION_TOKEN;
-
-    for (; paginas < MAX_PAGINAS && consultados < DOCUMENTOS_POR_EXECUCAO; paginas += 1) {
-      const sourceUrl = new URL('/api/integracao/fiscal/documentos', fiscalUrl);
-      sourceUrl.searchParams.set('cnpj', cnpj);
-      sourceUrl.searchParams.set('desde', desde);
-      sourceUrl.searchParams.set('ate', ate);
-      sourceUrl.searchParams.set('limite', String(Math.min(DOCUMENTOS_POR_PAGINA, DOCUMENTOS_POR_EXECUCAO - consultados)));
-      if (cursor) sourceUrl.searchParams.set('cursor', cursor);
-      const sourceResponse = await fetch(sourceUrl, {
-        headers: { Authorization: `Bearer ${integrationToken}`, Accept: 'application/json' },
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!sourceResponse.ok) {
-        return res.status(sourceResponse.status === 401 || sourceResponse.status === 503 ? 503 : 502).json({
-          mensagem: sourceResponse.status === 401
-            ? 'A credencial entre Fisco IA e Murade Fiscal não foi aceita; nenhum dado desta página foi gravado.'
-            : 'Murade Fiscal não concluiu a consulta; documentos já sincronizados foram preservados.',
-          paginasProcessadas: paginas,
-          importados,
-          repetidos,
-        });
-      }
-      const payload = await lerJsonFiscalLimitado(sourceResponse) as {
-        sucesso?: boolean; cnpj?: string; documentos?: Array<Record<string, unknown>>;
-        proximoCursor?: string | null; truncado?: boolean; avisos?: string[];
-      };
-      if (payload.sucesso !== true || normalizarCnpj(String(payload.cnpj || '')) !== cnpj || !Array.isArray(payload.documentos)) {
-        return res.status(502).json({ mensagem: 'Resposta do Murade Fiscal inválida ou de outro CNPJ; esta página não foi importada.', paginasProcessadas: paginas, importados, repetidos });
-      }
-      if (Array.isArray(payload.avisos)) avisos.push(...payload.avisos.filter((item): item is string => typeof item === 'string').slice(0, 10));
-      const documentos = payload.documentos;
-      if (documentos.length > DOCUMENTOS_POR_PAGINA) {
-        return res.status(502).json({ mensagem: 'Murade Fiscal devolveu mais documentos que o limite solicitado; a página foi recusada.', paginasProcessadas: paginas, importados, repetidos });
-      }
-      consultados += documentos.length;
-      for (const documento of documentos) {
-        if (normalizarCnpj(String(documento.cnpjEmpresa || '')) !== cnpj) { rejeitados += 1; continue; }
-        const xml = typeof documento.xmlOriginal === 'string' ? documento.xmlOriginal : '';
-        if (!xml.trim()) { semXml += 1; continue; }
-        if (Buffer.byteLength(xml, 'utf8') > 25 * 1024 * 1024) { rejeitados += 1; continue; }
-
-        // Reuse the same validated, encrypted, audited ingestion path as a manual XML upload.
-        const appOrigin = `http://127.0.0.1:${Number(process.env.PORT || 3000)}`;
-        const ingestResponse = await fetch(new URL(`/api/companies/${encodeURIComponent(companyId)}/fiscal-documents`, appOrigin), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/xml',
-            'X-FiscoIA-Tenant-Id': tenantId,
-            'X-FiscoIA-Internal-Sync': CHAVE_SYNC_FISCAL_INTERNA,
-            ...(req.get('cookie') ? { Cookie: req.get('cookie')! } : {}),
-          },
-          body: xml,
-          signal: AbortSignal.timeout(30_000),
-        });
-        const ingestResult = await ingestResponse.json().catch(() => ({})) as { repetido?: boolean; documento?: unknown };
-        if (ingestResponse.ok && ingestResult.documento) {
-          if (ingestResult.repetido) repetidos += 1;
-          else importados += 1;
-        } else if (ingestResponse.status === 409) {
-          rejeitados += 1;
-        } else {
-          avisos.push(`Um documento foi preservado na origem, mas recusado na validação local (HTTP ${ingestResponse.status}).`);
-          rejeitados += 1;
-        }
-      }
-      cursor = typeof payload.proximoCursor === 'string' ? payload.proximoCursor : '';
-      if (!cursor || documentos.length === 0) { truncado = payload.truncado === true; break; }
-      if (consultados >= DOCUMENTOS_POR_EXECUCAO) { truncado = true; break; }
-    }
-    if (cursor && paginas >= MAX_PAGINAS) truncado = true;
-    return res.json({
-      sucesso: true,
-      cnpj,
-      periodo: { desde, ate },
-      consultados,
-      importados,
-      repetidos,
-      semXmlCompleto: semXml,
-      rejeitados,
-      paginas,
-      podeHaverMais: truncado,
-      proximoCursor: truncado ? cursor : null,
-      avisos: [...new Set(avisos)].slice(0, 20),
-      mensagem: 'Documentos completos validados foram armazenados como pendentes de revisão. Nenhum lançamento contábil ou envio oficial foi realizado.',
+    const resultado = await sincronizarDocumentosFiscal({
+      tenantId, companyId, cnpj, desde, ate,
+      cursor: typeof req.body?.cursor === 'string' && req.body.cursor.length <= 2048 ? req.body.cursor : '',
+      documentosPorExecucao: DOCUMENTOS_POR_EXECUCAO,
+      documentosPorPagina: DOCUMENTOS_POR_PAGINA,
+      maxPaginas: MAX_PAGINAS,
+      autenticacao: { cookie: req.get('cookie') || undefined },
     });
+    if (resultado.ok === false) return res.status(resultado.status).json(resultado.corpo);
+    return res.json(resultado.corpo);
   } catch {
     return res.status(502).json({ mensagem: 'Não foi possível concluir a sincronização com o Murade Fiscal. Os documentos já gravados foram preservados.' });
   }

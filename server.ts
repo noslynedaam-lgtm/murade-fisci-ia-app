@@ -12,6 +12,7 @@ import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import conferenciaRoutes from "./src/server/conferencia.routes";
+import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
 import serproRoutes from "./src/server/serpro.routes";
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
@@ -357,6 +358,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor Murade Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
+    iniciarSincronizacaoAutomatica();
   });
 }
 
