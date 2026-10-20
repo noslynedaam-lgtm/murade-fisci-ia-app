@@ -10,6 +10,8 @@ import { PLANOS } from '../config/planos';
 import { UsuarioAuth } from '../types';
 import { ehUsuarioAdmin } from '../config/Permissoes';
 import SeletorEmpresaGlobal from './SeletorEmpresaGlobal';
+import LicencaBadge from './LicencaBadge';
+import { useEmpresa } from '../context/EmpresaContext';
 import ModalConfiguracoesSistema from './ModalConfiguracoesSistema';
 import ModalAcessoAdmin from './ModalAcessoAdmin';
 import SimboloContabil from './SimboloContabil';
@@ -48,6 +50,7 @@ export default function Navbar({
   onBloquearAdmin,
   onAlternarVisaoAdmin
 }: NavbarProps) {
+  const { empresaAtiva: empresaAtivaLicenca } = useEmpresa();
   const prontidaoSerpro = useProntidaoSerpro();
   const faltamSerpro = prontidaoSerpro ? prontidaoSerpro.itens.filter(i => !i.ok) : null;
   const [dropdownAberto, setDropdownAberto] = useState(false);
@@ -337,6 +340,7 @@ export default function Navbar({
           <div className="flex items-center gap-2">
             {/* 🏢 Seletor de Empresa Selecionada em TODAS as partes */}
             <SeletorEmpresaGlobal onCadastrarNova={() => onSelecionarAba('cadastro-empresa')} />
+            <LicencaBadge cnpj={empresaAtivaLicenca?.cnpj} />
 
             {/* Seletor de Nível / Visualizador de Plano */}
             <div className="relative">
