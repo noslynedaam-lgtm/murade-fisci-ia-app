@@ -295,13 +295,22 @@ export default function ModalCertificadoEmpresa({
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                 />
                 <UploadCloud className="w-7 h-7 text-indigo-600 mx-auto mb-1.5" />
-                {nomeArquivo ? (
+                {arquivoA1 ? (
                   <div className="space-y-0.5">
                     <p className="text-xs font-bold text-slate-900 truncate max-w-sm mx-auto">
-                      📄 {nomeArquivo}
+                      📄 {arquivoA1.name}
                     </p>
                     <p className="text-[10px] text-emerald-600 font-bold">
-                      O arquivo só será considerado salvo após confirmação do servidor.
+                      Arquivo carregado. {senhaA1 ? (salvando ? 'Enviando…' : 'Salvando ao sair do campo da senha.') : 'Agora digite a senha abaixo.'}
+                    </p>
+                  </div>
+                ) : nomeArquivo ? (
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-slate-500 truncate max-w-sm mx-auto">
+                      Cadastro anterior: {nomeArquivo}
+                    </p>
+                    <p className="text-[11px] text-amber-700 font-bold">
+                      Clique aqui e escolha o arquivo .pfx/.p12 para enviar (o nome acima é só do registro antigo).
                     </p>
                   </div>
                 ) : (
