@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, KeyRound, ShieldCheck, CheckCircle2, AlertTriangle, UploadCloud, Lock, Loader2, Building2, ExternalLink } from 'lucide-react';
 import { EmpresaDados } from '../../types';
+import CotaConsultasSerpro from '../../components/CotaConsultasSerpro';
 import { salvarCertificadoA1Central } from '../../services/empresas/empresasCentral.service';
 
 interface ModalCertificadoEmpresaProps {
@@ -196,6 +197,8 @@ export default function ModalCertificadoEmpresa({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        <CotaConsultasSerpro companyId={empresa.idCentral} tenantId={empresa.tenantIdCentral} />
 
         {/* Informações da Empresa Selecionada */}
         <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-start justify-between gap-2">

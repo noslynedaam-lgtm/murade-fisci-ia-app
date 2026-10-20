@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import https from 'node:https';
 import { obterUsuarioDaSessao } from './auth.routes';
-import { CATALOGO_SERVICOS, ControleCusto, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
+import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
+import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
+import { comContextoTenant } from './persistence';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PAPEIS_CONSULTA = ['OWNER', 'ADMIN'];
 
 const router = Router();
 const GATEWAY_BY_ENVIRONMENT = {
@@ -125,11 +130,6 @@ router.post('/token-check', async (req, res) => {
   }
 });
 
-const controleCusto = new ControleCusto(
-  Math.max(1, Number(process.env.SERPRO_LIMITE_DIARIO_POR_EMPRESA) || 3),
-  process.env.SERPRO_CONSULTAS_HABILITADAS === 'true',
-);
-
 function chamarHttps(url: string, opcoes: https.RequestOptions, corpo: string): Promise<{ status: number; texto: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(url, { ...opcoes, timeout: 20_000 }, resposta => {
@@ -152,6 +152,26 @@ router.get('/prontidao', async (req, res) => {
   return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao })) });
 });
 
+// Quantas consultas a empresa já fez, limite e aviso (regra: 1 gratuita/semana por empresa, sem acúmulo).
+router.get('/consultas/:companyId', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const tenantId = String(req.query.tenantId ?? '');
+  if (!UUID.test(req.params.companyId) || !UUID.test(tenantId)) return res.status(400).json({ mensagem: 'Escritório ou empresa inválidos.' });
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const r = await comContextoTenant(user.id, tenantId, async client => {
+      const q = await client.query('SELECT metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL', [req.params.companyId, tenantId]);
+      return q.rows[0] ? (q.rows[0].metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] } : null;
+    });
+    if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!('resultado' in r) || r.resultado === null || r.resultado === undefined) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
+    return res.json(avaliarCota(r.resultado));
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível consultar o controle de consultas.' });
+  }
+});
+
 // Consulta paga (Integra Contador). Recusa tudo enquanto a prontidão não estiver completa.
 router.post('/consulta', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -161,13 +181,26 @@ router.post('/consulta', async (req, res) => {
     if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora.' });
     const servico = CATALOGO_SERVICOS[String(req.body?.servico ?? '')];
     if (!servico) return res.status(400).json({ mensagem: 'Serviço desconhecido.' });
+    const tenantId = String(req.body?.tenantId ?? '');
+    const companyId = String(req.body?.companyId ?? '');
+    if (!UUID.test(tenantId) || !UUID.test(companyId)) return res.status(400).json({ mensagem: 'Escritório ou empresa inválidos.' });
     const prontidao = avaliarProntidao(process.env);
     if (!prontidao.pronto) return res.status(503).json({ consultado: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi consultado nem cobrado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
+    const confirmouCusto = req.body?.confirmarCusto === true;
+
+    // 1) Confere a cota da empresa sem gastar nada.
+    const previa = await comContextoTenant(user.id, tenantId, async client => {
+      const q = await client.query('SELECT cnpj, metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL', [companyId, tenantId]);
+      return q.rows[0] ? { cnpj: String(q.rows[0].cnpj), cota: (q.rows[0].metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] } } : null;
+    }, PAPEIS_CONSULTA);
+    if (!previa.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!('resultado' in previa)) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador pode fazer consultas oficiais.' });
+    if (!previa.resultado) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
+    const decisao = decidirConsulta(previa.resultado.cota, confirmouCusto);
+    if (decisao.liberada === false) return res.status(402).json({ consultado: false, exigeConfirmacao: true, cota: avaliarCota(previa.resultado.cota), mensagem: decisao.mensagem });
     let pedido;
-    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, String(req.body?.cnpj ?? ''), req.body?.dados ?? {}); }
+    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, req.body?.dados ?? {}); }
     catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
-    const custo = controleCusto.verificar(pedido.contribuinte.numero);
-    if (!custo.pode) return res.status(429).json({ consultado: false, mensagem: custo.motivo });
 
     const pfx = Buffer.from(process.env.SERPRO_CERT_PFX_BASE64!, 'base64');
     const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
@@ -180,7 +213,18 @@ router.post('/consulta', async (req, res) => {
     if (!tokens.access_token || !tokens.jwt_token) return res.status(502).json({ consultado: false, mensagem: 'Resposta de autenticação inesperada.' });
 
     const corpo = JSON.stringify(pedido);
-    controleCusto.registrar(pedido.contribuinte.numero); // conta antes: a tentativa pode ser cobrada
+    // 2) Reserva a consulta (com trava de linha) imediatamente antes da chamada: a tentativa pode ser cobrada.
+    const reserva = await comContextoTenant(user.id, tenantId, async client => {
+      const q = await client.query('SELECT metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [companyId, tenantId]);
+      const atual = (q.rows[0]?.metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] };
+      const dec = decidirConsulta(atual, confirmouCusto);
+      if (dec.liberada === false) return { ok: false as const, cota: avaliarCota(atual) };
+      const nova = registrarConsulta(atual, dec.cobrada, servico.chave);
+      await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproCota}', $3::jsonb, true), updated_at = now() WHERE id = $1 AND tenant_id = $2`, [companyId, tenantId, JSON.stringify(nova)]);
+      return { ok: true as const, cobrada: dec.cobrada, cota: avaliarCota(nova) };
+    }, PAPEIS_CONSULTA);
+    if (!reserva.autorizado || !('resultado' in reserva) || !reserva.resultado) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a consulta. Nada foi cobrado.' });
+    if (reserva.resultado.ok === false) return res.status(402).json({ consultado: false, exigeConfirmacao: true, cota: reserva.resultado.cota, mensagem: 'Limite gratuito da semana atingido. Confirme o custo para prosseguir.' });
     const r = await chamarHttps(`${GATEWAY_BY_ENVIRONMENT.producao}/integra-contador/v1/${servico.operacao}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo) },
@@ -188,7 +232,7 @@ router.post('/consulta', async (req, res) => {
     let bruto: unknown = r.texto;
     try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
     if (r.status < 200 || r.status >= 300) return res.status(502).json({ consultado: true, statusGateway: r.status, mensagem: 'SERPRO respondeu com erro (verifique procuração do cliente no e-CAC).', bruto });
-    return res.json({ consultado: true, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
+    return res.json({ consultado: true, cobradaAparte: reserva.resultado.cobrada, cota: reserva.resultado.cota, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
   } catch {
     return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' });
   }
