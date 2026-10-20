@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import https from 'node:https';
 import { obterUsuarioDaSessao } from './auth.routes';
+import { CATALOGO_SERVICOS, ControleCusto, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
 
 const router = Router();
 const GATEWAY_BY_ENVIRONMENT = {
@@ -120,6 +122,75 @@ router.post('/token-check', async (req, res) => {
     });
   } catch {
     return res.status(503).json({ testado: false, autenticado: false, ambiente, mensagem: 'Não foi possível verificar a configuração SERPRO.' });
+  }
+});
+
+const controleCusto = new ControleCusto(
+  Math.max(1, Number(process.env.SERPRO_LIMITE_DIARIO_POR_EMPRESA) || 3),
+  process.env.SERPRO_CONSULTAS_HABILITADAS === 'true',
+);
+
+function chamarHttps(url: string, opcoes: https.RequestOptions, corpo: string): Promise<{ status: number; texto: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { ...opcoes, timeout: 20_000 }, resposta => {
+      const partes: Buffer[] = [];
+      resposta.on('data', c => partes.push(c));
+      resposta.on('end', () => resolve({ status: resposta.statusCode ?? 0, texto: Buffer.concat(partes).toString('utf8') }));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end(corpo);
+  });
+}
+
+// Estado das credenciais para o painel: só diz o que falta, nunca devolve valores.
+router.get('/prontidao', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const user = await obterUsuarioDaSessao(req).catch(() => null);
+  if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+  if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora.' });
+  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao })) });
+});
+
+// Consulta paga (Integra Contador). Recusa tudo enquanto a prontidão não estiver completa.
+router.post('/consulta', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora.' });
+    const servico = CATALOGO_SERVICOS[String(req.body?.servico ?? '')];
+    if (!servico) return res.status(400).json({ mensagem: 'Serviço desconhecido.' });
+    const prontidao = avaliarProntidao(process.env);
+    if (!prontidao.pronto) return res.status(503).json({ consultado: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi consultado nem cobrado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
+    let pedido;
+    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, String(req.body?.cnpj ?? ''), req.body?.dados ?? {}); }
+    catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
+    const custo = controleCusto.verificar(pedido.contribuinte.numero);
+    if (!custo.pode) return res.status(429).json({ consultado: false, mensagem: custo.motivo });
+
+    const pfx = Buffer.from(process.env.SERPRO_CERT_PFX_BASE64!, 'base64');
+    const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
+    const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
+      method: 'POST', pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
+      headers: { Authorization: `Basic ${basic}`, 'Role-Type': 'TERCEIROS', 'Content-Type': 'application/x-www-form-urlencoded' },
+    }, 'grant_type=client_credentials');
+    if (auth.status !== 200) return res.status(502).json({ consultado: false, mensagem: 'SERPRO recusou a autenticação do escritório (chaves ou certificado). Nada foi cobrado.', statusGateway: auth.status });
+    const tokens = JSON.parse(auth.texto) as { access_token?: string; jwt_token?: string };
+    if (!tokens.access_token || !tokens.jwt_token) return res.status(502).json({ consultado: false, mensagem: 'Resposta de autenticação inesperada.' });
+
+    const corpo = JSON.stringify(pedido);
+    controleCusto.registrar(pedido.contribuinte.numero); // conta antes: a tentativa pode ser cobrada
+    const r = await chamarHttps(`${GATEWAY_BY_ENVIRONMENT.producao}/integra-contador/v1/${servico.operacao}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo) },
+    }, corpo);
+    let bruto: unknown = r.texto;
+    try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
+    if (r.status < 200 || r.status >= 300) return res.status(502).json({ consultado: true, statusGateway: r.status, mensagem: 'SERPRO respondeu com erro (verifique procuração do cliente no e-CAC).', bruto });
+    return res.json({ consultado: true, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
+  } catch {
+    return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' });
   }
 });
 
