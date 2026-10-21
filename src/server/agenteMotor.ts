@@ -174,6 +174,12 @@ async function auditar(ctx: ContextoAgente, evento: EventoAuditoria): Promise<vo
 export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = []): Promise<ResultadoConversa> {
   const porNome = new Map(ctx.kit.ferramentas.map((f) => [f.declaracao.name, f]));
   const declaracoes = ctx.kit.ferramentas.map((f) => f.declaracao);
+  // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
+  let instrucao = ctx.kit.instrucao;
+  try {
+    const abertos = ctx.central ? (await ctx.central.caixaDeEntrada(true)).filter((p) => p.estado === 'recebido').length : 0;
+    if (abertos > 0) instrucao += `\n\nAVISO: há ${abertos} pedido(s) recebido(s) de outros sistemas aguardando resposta. Na sua resposta, diga isso ao usuário em uma frase e ofereça mostrar (ver_pedidos_entre_sistemas).`;
+  } catch { /* a caixa indisponível não impede a conversa */ }
   const conteudos: any[] = historico.slice(-10).filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
     role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 1500) }],
   }));
@@ -183,7 +189,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   const whatsapp: MensagemWhatsAppParaTela[] = [];
 
   for (let passo = 0; passo < MAX_PASSOS_MODELO; passo += 1) {
-    const r = await modelo({ instrucao: ctx.kit.instrucao, conteudos, declaracoes });
+    const r = await modelo({ instrucao, conteudos, declaracoes });
     if (!r.chamadas.length) {
       return { resposta: r.texto.trim() || 'Não consegui montar uma resposta. Pode repetir o pedido?', acoes, whatsapp };
     }
