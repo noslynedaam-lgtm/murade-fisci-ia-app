@@ -42,7 +42,7 @@ try {
 
   const rolesResult = await pool.query(`
     SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
-           rolinherit, rolreplication, rolconfig
+           rolinherit, rolreplication, rolbypassrls, rolconfig
     FROM pg_roles
     WHERE rolname IN ('fiscoia_runtime', 'fiscoia_schema_owner')
     ORDER BY rolname
@@ -54,11 +54,18 @@ try {
       console.log(`Papel ${name}: não existe.`);
       continue;
     }
-    console.log(`Papel ${name}: existe; login=${role.rolcanlogin}; superuser=${role.rolsuper}; createdb=${role.rolcreatedb}; createrole=${role.rolcreaterole}; inherit=${role.rolinherit}; replication=${role.rolreplication}; config=${JSON.stringify(role.rolconfig || [])}.`);
+    console.log(`Papel ${name}: existe; login=${role.rolcanlogin}; superuser=${role.rolsuper}; createdb=${role.rolcreatedb}; createrole=${role.rolcreaterole}; inherit=${role.rolinherit}; replication=${role.rolreplication}; bypassrls=${role.rolbypassrls}; config=${JSON.stringify(role.rolconfig || [])}.`);
   }
 
   const runtime = roles.get('fiscoia_runtime');
   if (runtime) {
+    const elevatedAttributes = ['rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolreplication', 'rolbypassrls']
+      .filter((attribute) => runtime[attribute] === true);
+    if (!runtime.rolcanlogin || elevatedAttributes.length) {
+      console.log(`ATENÇÃO: papel runtime incompatível com uso seguro: login=${runtime.rolcanlogin}; atributos elevados=${elevatedAttributes.join(', ') || 'nenhum'}.`);
+      process.exitCode = 1;
+    }
+
     const memberships = await pool.query(`
       SELECT parent.rolname
       FROM pg_auth_members m
@@ -68,6 +75,18 @@ try {
       ORDER BY parent.rolname
     `);
     console.log(`Associações de papel do runtime: ${memberships.rows.length ? memberships.rows.map((row) => row.rolname).join(', ') : 'nenhuma'}.`);
+    if (memberships.rows.length) {
+      console.log('ATENÇÃO: o runtime tem associação a outro papel. Revise e remova associações antes de conectá-lo à aplicação, pois podem permitir SET ROLE ou privilégios herdados.');
+      process.exitCode = 1;
+    }
+
+    const databasePrivileges = await pool.query(`
+      SELECT has_database_privilege('fiscoia_runtime', current_database(), 'CREATE') AS can_create_schema
+    `);
+    if (databasePrivileges.rows[0]?.can_create_schema) {
+      console.log('ATENÇÃO: o runtime pode criar schemas no banco. Remova esse privilégio antes de usar o papel na aplicação.');
+      process.exitCode = 1;
+    }
 
     const schemaPrivileges = await pool.query(`
       SELECT n.nspname,
@@ -112,6 +131,29 @@ try {
       }
       process.exitCode = 1;
     }
+    const externalSequencePrivileges = await pool.query(`
+      SELECT n.nspname, c.relname,
+             has_sequence_privilege('fiscoia_runtime', c.oid, 'USAGE') AS can_use,
+             has_sequence_privilege('fiscoia_runtime', c.oid, 'SELECT') AS can_select,
+             has_sequence_privilege('fiscoia_runtime', c.oid, 'UPDATE') AS can_update
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname <> 'fiscoia'
+        AND n.nspname <> 'information_schema'
+        AND n.nspname NOT LIKE 'pg_%'
+        AND c.relkind = 'S'
+        AND (has_sequence_privilege('fiscoia_runtime', c.oid, 'USAGE')
+          OR has_sequence_privilege('fiscoia_runtime', c.oid, 'SELECT')
+          OR has_sequence_privilege('fiscoia_runtime', c.oid, 'UPDATE'))
+      ORDER BY n.nspname, c.relname
+    `);
+    if (externalSequencePrivileges.rows.length) {
+      console.log('ATENÇÃO: privilégios efetivos em sequências fora do schema fiscoia (inclui grants via PUBLIC):');
+      for (const privilege of externalSequencePrivileges.rows) {
+        console.log(`  ${privilege.nspname}.${privilege.relname}: USAGE=${privilege.can_use}; SELECT=${privilege.can_select}; UPDATE=${privilege.can_update}.`);
+      }
+      process.exitCode = 1;
+    }
     const externalCreate = schemaPrivileges.rows.filter((row) => row.nspname !== 'fiscoia' && row.can_create === true);
     if (externalCreate.length) {
       console.log('ATENÇÃO: o runtime pode criar objetos fora do schema fiscoia. Não use esse papel na aplicação até corrigir o privilégio efetivo ou isolar o banco.');
@@ -130,6 +172,10 @@ try {
       `);
       const access = dml.rows[0];
       console.log(`Ledger de migrações: leitura=${access.can_select}; inserir=${access.can_insert}; atualizar=${access.can_update}; excluir=${access.can_delete}.`);
+      if (access.can_insert || access.can_update || access.can_delete) {
+        console.log('ATENÇÃO: o runtime pode alterar o ledger de migrações. Revogue os privilégios de escrita antes de usar esse papel na aplicação.');
+        process.exitCode = 1;
+      }
     } else {
       console.log('Ledger de migrações: ainda não existe.');
     }

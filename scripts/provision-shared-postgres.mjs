@@ -46,7 +46,7 @@ try {
 
     const createRole = await client.query(
       `SELECT format(
-         'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION PASSWORD %L',
+         'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
          'fiscoia_runtime', $1::text
        ) AS statement`,
       [runtimePassword],
