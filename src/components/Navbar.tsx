@@ -50,7 +50,7 @@ export default function Navbar({
   onBloquearAdmin,
   onAlternarVisaoAdmin
 }: NavbarProps) {
-  const { empresaAtiva: empresaAtivaLicenca } = useEmpresa();
+  const { empresaAtiva: empresaAtivaLicenca, empresas: empresasDoContexto } = useEmpresa() as any;
   const prontidaoSerpro = useProntidaoSerpro();
   const faltamSerpro = prontidaoSerpro ? prontidaoSerpro.itens.filter(i => !i.ok) : null;
   const [dropdownAberto, setDropdownAberto] = useState(false);
@@ -119,6 +119,15 @@ export default function Navbar({
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+      {usuarioAtual && (
+        <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1 text-xs text-white">
+          <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>
+            {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
+          </div>
+        </div>
+      )}
       {/* Barra de Status do Sistema */}
       <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 flex items-center justify-between border-b border-slate-800">
         <div className="flex items-center gap-2">
