@@ -38,6 +38,14 @@ Nunca coloque credenciais em `VITE_*`, no código, no Git ou no navegador.
 
 ## Migração do banco
 
+### Conferir antes de alterar o banco
+
+Use `npm run db:status` em um job privado com `FISCOIA_MIGRATION_DATABASE_URL`. O comando é somente leitura: compara o ledger `fiscoia.schema_migrations` com os arquivos locais, incluindo SHA-256, e aponta migrações pendentes, checksums divergentes ou versões desconhecidas. Não imprime a URL nem altera o banco. Repita a conferência depois de cada job de migração.
+
+Antes de provisionar o papel e o schema, confira o estado existente no PostgreSQL. `npm run db:provision-shared-role` aborta intencionalmente se `fiscoia`, `fiscoia_runtime` ou `fiscoia_schema_owner` já existir. Nesse caso, não apague nem recrie objetos: inspecione os papéis e permissões existentes e só então escolha o próximo passo. Se o schema ainda não existir, faça o provisionamento autorizado uma única vez; depois execute `npm run db:migrate` em job privado e confirme `npm run db:status` sem pendências ou divergências.
+
+Não execute o bootstrap administrativo sem confirmar primeiro se já existe uma conta. O procedimento histórico abaixo registra que o primeiro acesso já foi concluído.
+
 ### PostgreSQL compartilhado com schema restrito (configuração inicial autorizada)
 
 O serviço web não deve receber a URL administrativa do Murade Fiscal. O schema `fiscoia` foi provisionado com o papel administrativo do banco como proprietário e uma credencial de runtime separada para `fiscoia_runtime`. Não reutiliza nem altera tabelas de outro schema.
@@ -60,7 +68,7 @@ O cadastro inicial do administrador deve ser feito somente depois das migraçõe
 
 ## Estado observado em produção
 
-Em 18/10/2026, `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. O usuário já confirmou o primeiro acesso; não executar o bootstrap novamente.
+Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Esse resultado não confirma o estado atual após novas implantações; refaça a conferência com `/api/ready` e `npm run db:status`. O usuário já confirmou o primeiro acesso; não executar o bootstrap novamente.
 
 A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) está aberta e contém as migrações 007–010. Portanto, o endpoint público de produção ainda comprova somente o schema implantado com seis migrações; não comprova a disponibilidade das novas rotas DF-e, do cofre A1, do registro de validação do certificado ou do limitador global por CNPJ.
 
@@ -68,9 +76,9 @@ A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) está
 
 1. Confirmar se o Auto-Deploy do Web Service está ativo. A aplicação nova exige as dez migrações e `/api/ready` deve falhar fechado enquanto o banco estiver em 6/10; planejar a publicação para evitar indisponibilidade prolongada.
 2. Integrar a PR à branch implantada ou preparar um serviço privado de migração a partir do commit da PR. Não promover o novo código do Web Service antes de aplicar as migrações.
-3. Executar `npm run db:migrate` uma única vez em uma tarefa privada com o artefato que contém as migrações 007–010 e `FISCOIA_MIGRATION_DATABASE_URL`. O script aplica somente migrações pendentes e verifica checksums. Nunca adicionar a URL administrativa às variáveis do Web Service público.
-4. Confirmar que o job terminou com sucesso e que as migrações 007–010 foram aplicadas; remover a credencial administrativa do serviço privado após o uso.
-5. Publicar o Web Service com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 10/10.
+3. Executar `npm run db:migrate` uma única vez em uma tarefa privada com o artefato que contém as migrações 007–012 e `FISCOIA_MIGRATION_DATABASE_URL`. O script aplica somente migrações pendentes e verifica checksums. Nunca adicionar a URL administrativa às variáveis do Web Service público.
+4. Confirmar que o job terminou com sucesso e que as migrações pendentes até 012 foram aplicadas; remover a credencial administrativa do serviço privado após o uso.
+5. Publicar o Web Service com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 12/12, e `npm run db:status` sem divergências.
 6. Só então fazer uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela. Conferir a resposta oficial, a persistência cifrada e a auditoria antes de considerar a integração validada.
 
 O Render informa que um One-Off Job usa o artefato de build mais recente e uma fotografia das variáveis do serviço-base no momento da criação. Assim, use como base um serviço privado de migração que já tenha o artefato correto e apenas o segredo administrativo necessário; não reutilize o Web Service público enquanto isso exigir adicionar nele a URL administrativa. Após alterar o serviço-base, crie um novo job para obter a configuração atualizada. Consulte a [documentação oficial de One-Off Jobs do Render](https://render.com/docs/one-off-jobs).

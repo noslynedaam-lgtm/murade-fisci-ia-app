@@ -100,7 +100,7 @@ app.get("/api/health", async (_req, res) => {
     // de uma chave não prova que o provedor ou a pesquisa web estão operantes.
     credencialIaConfigurada: Boolean(process.env.GEMINI_API_KEY),
     pesquisaWeb: "nao_verificada",
-    integracoesFiscais: "nao_configuradas",
+    integracoesFiscais: "nao_verificadas",
     bancoPermanente,
     chaveCriptografiaDados: estadoChaveDados(),
     timestamp: new Date().toISOString(),
@@ -121,7 +121,7 @@ app.get('/api/ready', async (_req, res) => {
     chaveCriptografiaDados,
     mensagem: pronto
       ? 'PostgreSQL respondeu, as migrações obrigatórias estão aplicadas e a chave de criptografia é válida.'
-      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 010 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
+      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 012 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
   });
 });
 
