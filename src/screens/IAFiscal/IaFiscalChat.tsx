@@ -15,7 +15,18 @@ import EmissaoNotaFiscalModulo from './EmissaoNotaFiscalModulo';
 import { CertificadoDigitalDados } from './typesCertificado';
 import { lerReferenciaCertificadoEmpresa } from '../../services/serpro/certificadoReferencia.service';
 
+interface AcaoAgenteCartao {
+  id: string;
+  titulo: string;
+  descricao: string[];
+  aviso: string | null;
+  irreversivel: boolean;
+  estado: 'pendente' | 'executando' | 'confirmada' | 'falhou' | 'recusada';
+  resultado?: string;
+}
+
 interface MensagemChat {
+  acoes?: AcaoAgenteCartao[];
   id: string;
   autor: 'usuario' | 'ia';
   texto: string;
@@ -199,6 +210,27 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     setPensando(true);
 
     try {
+      // Primeiro a Agente (consulta o sistema e conversa com os outros); se estiver indisponível, segue a consulta de sempre.
+      try {
+        const respAgente = await fetch('/api/ai/agente', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+          body: JSON.stringify({ message: texto, historico: historicoAtual.slice(-10).map((h) => ({ papel: h.autor, texto: h.texto })) }),
+        });
+        const dadosAgente = await respAgente.json().catch(() => ({}));
+        if (respAgente.ok && typeof dadosAgente.resposta === 'string' && dadosAgente.resposta.trim()) {
+          const acoes: AcaoAgenteCartao[] = Array.isArray(dadosAgente.acoes)
+            ? dadosAgente.acoes.filter((a: any) => a && typeof a.id === 'string' && typeof a.titulo === 'string')
+                .map((a: any) => ({ id: a.id, titulo: a.titulo, descricao: Array.isArray(a.descricao) ? a.descricao.map(String) : [], aviso: typeof a.aviso === 'string' ? a.aviso : null, irreversivel: a.irreversivel === true, estado: 'pendente' as const }))
+            : [];
+          setMensagens((prev) => [...prev, {
+            id: `ia-${Date.now()}`, autor: 'ia', texto: dadosAgente.resposta,
+            timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            referencia: 'Agente IA: dados do próprio sistema', origem: 'AGENTE_IA', acoes,
+          }]);
+          if (respostaAudioAtiva) falarTexto(dadosAgente.resposta);
+          return;
+        }
+      } catch { /* cai na consulta de sempre */ }
       const res = await consultarIAFiscal(texto, historicoAtual);
 
       const novaMsgIA: MensagemChat = {
@@ -233,6 +265,34 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     } finally {
       setPensando(false);
     }
+  };
+
+  const atualizarAcao = (acaoId: string, mudanca: Partial<AcaoAgenteCartao>) => {
+    setMensagens((prev) => prev.map((m) => (m.acoes ? { ...m, acoes: m.acoes.map((a) => (a.id === acaoId ? { ...a, ...mudanca } : a)) } : m)));
+  };
+  const responderComoIA = (texto: string) => {
+    setMensagens((prev) => [...prev, { id: `ia-${Date.now()}`, autor: 'ia', texto, timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), origem: 'AGENTE_IA' }]);
+    if (respostaAudioAtiva) falarTexto(texto);
+  };
+  const confirmarAcaoAgente = async (acaoId: string) => {
+    atualizarAcao(acaoId, { estado: 'executando' });
+    try {
+      const response = await fetch('/api/ai/agente/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id: acaoId }) });
+      const data = await response.json().catch(() => ({}));
+      const mensagem = typeof data.mensagem === 'string' && data.mensagem ? data.mensagem : `O sistema respondeu com erro (HTTP ${response.status}).`;
+      const deuCerto = response.ok && data.sucesso === true;
+      atualizarAcao(acaoId, { estado: deuCerto ? 'confirmada' : 'falhou', resultado: mensagem });
+      responderComoIA(deuCerto ? `Feito. ${mensagem}` : `Não foi feito. ${mensagem}`);
+    } catch {
+      atualizarAcao(acaoId, { estado: 'falhou', resultado: 'Sem resposta do servidor.' });
+      responderComoIA('Não consegui falar com o servidor. Tente de novo.');
+    }
+  };
+  const recusarAcaoAgente = async (acaoId: string) => {
+    atualizarAcao(acaoId, { estado: 'recusada' });
+    try {
+      await fetch('/api/ai/agente/recusar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ id: acaoId }) });
+    } catch { /* a ação expira sozinha em 15 minutos */ }
   };
 
   // Alternar microfone pelo botão
@@ -720,6 +780,24 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 <div className="leading-relaxed whitespace-pre-wrap font-sans text-[12px] space-y-1">
                   {msg.texto}
                 </div>
+
+                {!!msg.acoes?.length && msg.acoes.map((a) => (
+                  <div key={a.id} className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-slate-800">
+                    <div className="text-[12px] font-bold">{a.titulo}</div>
+                    {a.descricao.map((d, i) => <div key={i} className="text-[11px] mt-0.5">{d}</div>)}
+                    {a.aviso && <div className="text-[11px] mt-1 font-semibold text-amber-800">{a.aviso}</div>}
+                    {a.estado === 'pendente' && (
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" onClick={() => confirmarAcaoAgente(a.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1 rounded cursor-pointer">Confirmar</button>
+                        <button type="button" onClick={() => recusarAcaoAgente(a.id)} className="bg-white border border-slate-300 text-slate-700 text-[11px] font-semibold px-3 py-1 rounded cursor-pointer">Cancelar</button>
+                      </div>
+                    )}
+                    {a.estado === 'executando' && <div className="mt-2 text-[11px] font-semibold">Executando…</div>}
+                    {a.estado === 'confirmada' && <div className="mt-2 text-[11px] font-bold text-emerald-700">Confirmada: {a.resultado}</div>}
+                    {a.estado === 'falhou' && <div className="mt-2 text-[11px] font-bold text-rose-700">Não foi feito: {a.resultado}</div>}
+                    {a.estado === 'recusada' && <div className="mt-2 text-[11px] font-semibold text-slate-500">Cancelada.</div>}
+                  </div>
+                ))}
 
                 {/* Registro da consulta e fontes que a API realmente retornou */}
                 {msg.autor === 'ia' && (

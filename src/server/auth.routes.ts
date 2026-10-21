@@ -147,6 +147,12 @@ async function obterSessao(req: Request): Promise<{ tokenHash: string; user: Pub
   return { tokenHash: String(row.token_sha256), user: usuarioPublico(row), passwordHash: String(row.password_hash) };
 }
 
+/** Identificador não reversível da sessão e dados mínimos do usuário, para a Agente IA. */
+export async function obterIdentidadeAgente(req: Request): Promise<{ sessaoHash: string; userId: string; nome: string } | null> {
+  const session = await obterSessao(req);
+  return session ? { sessaoHash: session.tokenHash.slice(0, 32), userId: session.user.id, nome: session.user.nome } : null;
+}
+
 /** Identidade pública da sessão, compartilhada com rotas protegidas por tenant. */
 export async function obterUsuarioDaSessao(req: Request): Promise<PublicUser | null> {
   const session = await obterSessao(req);

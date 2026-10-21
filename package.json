@@ -10,6 +10,7 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:bootstrap-admin": "node scripts/bootstrap-admin.mjs",
     "db:provision-shared-role": "node scripts/provision-shared-postgres.mjs",
+    "test:agentes": "tsx --test src/server/agentesEntreSistemas.test.ts src/server/agenteFiscoIA.test.ts",
     "test:protocol": "tsx --test src/server/sefazDistribution.protocol.test.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

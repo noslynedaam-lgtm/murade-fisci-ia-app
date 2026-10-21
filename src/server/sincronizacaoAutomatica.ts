@@ -1,4 +1,5 @@
 import { comContextoTenant, obterPoolBanco } from './persistence';
+import { executarRobo } from './robosStatus';
 import { sincronizarDocumentosFiscal } from './fiscalSourceSync.routes';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 
@@ -175,9 +176,9 @@ export function iniciarSincronizacaoAutomatica(): void {
     console.warn('Sincronização automática Fiscal → Fisco IA desabilitada: banco permanente não configurado.');
     return;
   }
-  const primeira = setTimeout(() => void executarSincronizacaoAutomatica(), 90_000);
+  const primeira = setTimeout(() => void executarRobo('sincronizador', executarSincronizacaoAutomatica).catch(() => undefined), 90_000);
   primeira.unref();
-  const repeticao = setInterval(() => void executarSincronizacaoAutomatica(), INTERVALO_TICK_MS);
+  const repeticao = setInterval(() => void executarRobo('sincronizador', executarSincronizacaoAutomatica).catch(() => undefined), INTERVALO_TICK_MS);
   repeticao.unref();
   console.log('Robô de sincronização Fiscal → Fisco IA habilitado: confere a cada minuto e sincroniza cada empresa a cada 61 minutos.');
 }

@@ -6,7 +6,12 @@ import dotenv from "dotenv";
 import { perguntaExigeFonteOficial } from "./src/services/iaFiscalPesquisa.service";
 import { verificarBancoPermanente, verificarSchema } from "./src/server/persistence";
 import { estadoChaveDados } from "./src/server/encryption";
-import { obterUsuarioDaSessao } from "./src/server/auth.routes";
+import { obterUsuarioDaSessao, obterIdentidadeAgente } from "./src/server/auth.routes";
+import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
+import { kitFiscoIA } from "./src/server/agenteFiscoIA";
+import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido, type ArmazemPedidos, type PedidoEntreAgentes } from "./src/server/agentesEntreSistemas";
+import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { obterPoolBanco } from "./src/server/persistence";
 import authRoutes from "./src/server/auth.routes";
 import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
@@ -169,6 +174,161 @@ app.post("/api/voz/sintetizar", async (req, res) => {
     res.status(502).json({ erro: 'Não foi possível obter áudio do provedor de voz.' });
   }
 });
+
+// ==================================================
+// AGENTE IA DO FISCO IA — consulta e conversa com os outros sistemas (somente leitura aqui)
+// ==================================================
+const acoesPendentesAgenteIA = new ArmazemAcoesPendentes();
+const usoAgenteIAPorSessao = new Map<string, number[]>();
+
+// O usuário do banco do Fisco IA pode não ter permissão de criar tabela. Se o banco recusar, a caixa de pedidos
+// continua funcionando em memória (perde-se ao reiniciar) e o motivo vai para o log.
+class ArmazemPedidosComReserva implements ArmazemPedidos {
+  private memoria = new ArmazemPedidosMemoria();
+  private pg: ArmazemPedidosPg | null;
+  private avisou = false;
+  constructor() {
+    const pool = obterPoolBanco();
+    this.pg = pool ? new ArmazemPedidosPg((sql, params) => pool.query(sql, params as any[])) : null;
+  }
+  private async tentar<T>(op: (a: ArmazemPedidos) => Promise<T>): Promise<T> {
+    if (this.pg) {
+      try { return await op(this.pg); }
+      catch (erro: any) { if (!this.avisou) { this.avisou = true; console.warn('Caixa de pedidos entre agentes sem banco; usando memória:', erro?.message || erro); } }
+    }
+    return op(this.memoria);
+  }
+  salvar(p: PedidoEntreAgentes) { return this.tentar((a) => a.salvar(p)); }
+  obter(id: string, d: 'enviado' | 'recebido') { return this.tentar((a) => a.obter(id, d)); }
+  listar(d: 'enviado' | 'recebido', abertos: boolean, limite: number) { return this.tentar((a) => a.listar(d, abertos, limite)); }
+}
+
+const centralDePedidos = new CentralDePedidos(
+  'fiscoia',
+  new ArmazemPedidosComReserva(),
+  {
+    robos: async () => statusRobos(),
+    resumo: async () => ({ sistema: 'Fisco IA', robos: statusRobos().robos.map((r) => ({ nome: r.nome, estado: r.estado, ultimoErro: r.ultimoErro })) }),
+  },
+);
+
+function chamarApiComoUsuario(req: express.Request): ChamarApi {
+  const cookie = req.headers.cookie || '';
+  return async (metodo, caminho, corpo) => {
+    if (!/^\/api\/[A-Za-z0-9/_\-.?=&%:]*$/.test(caminho)) throw new Error('Caminho interno inválido.');
+    const resposta = await fetch(`http://127.0.0.1:${PORT}${caminho}`, {
+      method: metodo,
+      headers: { cookie, 'Content-Type': 'application/json', Accept: 'application/json', Origin: `http://127.0.0.1:${PORT}` },
+      body: corpo === undefined ? undefined : JSON.stringify(corpo),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const texto = await resposta.text();
+    let json: any = {};
+    try { json = JSON.parse(texto); } catch { /* resposta não JSON: o status basta */ }
+    return { status: resposta.status, corpo: json };
+  };
+}
+
+async function contextoAgenteIA(req: express.Request): Promise<ContextoAgente | null> {
+  const id = await obterIdentidadeAgente(req);
+  if (!id) return null;
+  return {
+    sessaoHash: id.sessaoHash,
+    login: id.userId,
+    hoje: new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }),
+    chamarApi: chamarApiComoUsuario(req),
+    registrar: (e) => { console.log(`[Agente IA] ${e.evento} ${e.ferramenta} ${e.resumo}`.slice(0, 300)); },
+    pendentes: acoesPendentesAgenteIA,
+    kit: kitFiscoIA,
+    central: centralDePedidos,
+  };
+}
+
+function limiteUsoAgenteIA(sessaoHash: string): boolean {
+  const agora = Date.now();
+  const recentes = (usoAgenteIAPorSessao.get(sessaoHash) || []).filter((t) => agora - t < 10 * 60_000);
+  if (recentes.length >= 40) { usoAgenteIAPorSessao.set(sessaoHash, recentes); return false; }
+  recentes.push(agora);
+  usoAgenteIAPorSessao.set(sessaoHash, recentes);
+  if (usoAgenteIAPorSessao.size > 500) for (const [chave, lista] of usoAgenteIAPorSessao) if (!lista.some((t) => agora - t < 10 * 60_000)) usoAgenteIAPorSessao.delete(chave);
+  return true;
+}
+
+const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes }) => {
+  const ai = getGenAI();
+  if (!ai) throw new Error('GEMINI_API_KEY não configurada.');
+  const response = await ai.models.generateContent({
+    model: "gemini-3.8-flash",
+    contents: conteudos as any,
+    config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 },
+  });
+  const turno: any = response.candidates?.[0]?.content;
+  const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];
+  return {
+    texto: partes.filter((p) => typeof p?.text === 'string' && !p.thought).map((p) => p.text).join(''),
+    chamadas: partes.filter((p) => p?.functionCall?.name).map((p) => ({ nome: String(p.functionCall.name), args: (p.functionCall.args || {}) as Record<string, any> })),
+    turnoModelo: turno,
+  };
+};
+
+function mesmaOrigem(req: express.Request): boolean {
+  const origin = req.get('origin');
+  if (!origin) return false;
+  try { return new URL(origin).host === req.get('host'); } catch { return false; }
+}
+
+app.post('/api/ai/agente', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ error: 'Origem da requisição não autorizada.' });
+  const ctx = await contextoAgenteIA(req);
+  if (!ctx) return res.status(401).json({ error: 'Entre no Fisco IA para usar a agente.' });
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  if (!message) return res.status(400).json({ error: 'Digite seu pedido.' });
+  if (message.length > 4000) return res.status(413).json({ error: 'O pedido deve ter até 4.000 caracteres.' });
+  if (!getGenAI()) return res.status(503).json({ error: 'Agente indisponível: configure GEMINI_API_KEY no servidor.' });
+  if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: 'Muitos pedidos em pouco tempo. Aguarde alguns minutos.' });
+  const historico = Array.isArray(req.body?.historico)
+    ? req.body.historico.filter((t: any) => t && (t.papel === 'usuario' || t.papel === 'ia') && typeof t.texto === 'string').slice(-10)
+    : [];
+  try {
+    return res.json({ sucesso: true, ...(await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico)) });
+  } catch (error) {
+    console.error('Falha na Agente IA do Fisco IA:', error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: 'Não foi possível falar com o serviço de IA agora. Tente novamente.' });
+  }
+});
+app.post('/api/ai/agente/confirmar', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false, mensagem: 'Origem da requisição não autorizada.' });
+  const ctx = await contextoAgenteIA(req);
+  if (!ctx) return res.status(401).json({ sucesso: false, mensagem: 'Entre novamente para continuar.' });
+  const resultado = await confirmarAcaoAgenteIA(ctx, String(req.body?.id || ''));
+  return res.status(resultado.sucesso ? 200 : 422).json(resultado);
+});
+app.post('/api/ai/agente/recusar', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false });
+  const ctx = await contextoAgenteIA(req);
+  if (!ctx) return res.status(401).json({ sucesso: false });
+  return res.json(await recusarAcaoAgenteIA(ctx, String(req.body?.id || '')));
+});
+app.get('/api/robos/status', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!(await obterUsuarioDaSessao(req))) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
+  return res.json({ sucesso: true, ...statusRobos() });
+});
+// Mensagens entre Agentes IA dos sistemas Murade (token de integração).
+app.post('/api/integracao/agente/mensagem', async (req, res) => {
+  const token = process.env.MURADE_INTEGRATION_TOKEN;
+  if (!token) return res.status(503).json({ ok: false, erro: 'Integração não configurada.' });
+  if (!tokenValido(req.header('authorization'), token)) return res.status(401).json({ ok: false, erro: 'Credencial de integração inválida.' });
+  try { const r = await centralDePedidos.receber(req.body); return res.status(r.status).json(r.corpo); }
+  catch { return res.status(503).json({ ok: false, erro: 'Não foi possível registrar agora.' }); }
+});
+registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Ler do Murade Fiscal as notas já guardadas e levá-las ao Fisco IA, uma empresa por vez. Não consulta a SEFAZ.', intervaloMs: 60_000 });
+registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.', intervaloMs: 60_000 });
+const timerMensageiro = setInterval(() => { executarRobo('mensageiro', () => centralDePedidos.reenviarPendentes()).catch(() => undefined); }, 60_000);
+timerMensageiro.unref();
 
 const limitesIA = new Map<string, { total: number; reiniciaEm: number }>();
 app.set('trust proxy', 1);
