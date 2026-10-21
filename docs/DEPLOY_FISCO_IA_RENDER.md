@@ -2,7 +2,7 @@
 
 ## Situação verificada
 
-O serviço `murade-fisco-ia` está publicado no Render. A implantação inicial usa temporariamente o PostgreSQL existente do Murade Fiscal, com credencial de runtime restrita ao schema `fiscoia`; depois deverá ser migrada para um PostgreSQL dedicado.
+O nome `murade-fisco-ia` e o endereço público mencionados abaixo são registros históricos. A existência, URL pública, commit implantado e banco vinculado precisam ser confirmados no painel do Render antes de executar tarefas contra o serviço.
 
 ## Serviço esperado
 
@@ -74,7 +74,7 @@ O cadastro inicial do administrador deve ser feito somente depois das migraçõe
 
 ## Estado conhecido de produção
 
-Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Esse resultado não confirma o estado atual. O código deste repositório espera 12 migrações; confira o serviço e o banco atuais antes de assumir qualquer versão implantada. O primeiro acesso administrativo já havia sido confirmado; não execute bootstrap sem verificar novamente a existência da conta.
+Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Em 21/10/2026, o mesmo hostname não resolveu DNS a partir do ambiente de verificação; não foi possível confirmar se o serviço foi renomeado, removido ou está temporariamente indisponível. O código deste repositório espera 12 migrações; confira o serviço e o banco atuais antes de assumir qualquer versão implantada. O primeiro acesso administrativo já havia sido confirmado; não execute bootstrap sem verificar novamente a existência da conta.
 
 ### Sequência segura para preparar o serviço atual
 
