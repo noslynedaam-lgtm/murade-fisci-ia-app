@@ -29,6 +29,9 @@ Configure no ambiente do serviço, sem prefixo `VITE_` para segredos:
 - `SERPRO_PRODUCAO_CONSUMER_KEY` e `SERPRO_PRODUCAO_CONSUMER_SECRET`: opcional, credenciais de produção.
 - `MURADE_INTEGRATION_TOKEN`: segredo servidor-servidor igual ao configurado no Murade Fiscal. Usado somente pela sincronização autenticada de documentos fiscais; nunca exponha com prefixo `VITE_`.
 - `MURADE_FISCAL_SERVER_URL`: URL HTTPS do serviço Murade Fiscal. O sincronizador aceita apenas `https://murade-fiscal-1.onrender.com`.
+- `FISCOIA_SEFAZ_AUTO_DOWNLOAD`: opcional; `0` desliga globalmente o agendador de consultas DF-e à SEFAZ. Por padrão, o agendador atende apenas empresas cujo administrador ativou a opção na tela e que tenham certificado A1 cadastrado.
+
+O agendador DF-e verifica a fila a cada minuto, processa no máximo uma empresa por execução e, em banco compartilhado entre instâncias, a migração 013 permite no máximo uma consulta a cada minuto no serviço inteiro e uma por CNPJ a cada 61 minutos. Isso escalona empresas diferentes e impede consultas paralelas entre instâncias. Falhas de rede também contam nos intervalos. Ele consulta somente a distribuição de documentos recebidos e não envia eventos de manifestação. A SEFAZ pode disponibilizar apenas o resumo até que o destinatário pratique a manifestação aplicável; nenhuma manifestação é feita automaticamente.
 
 A sincronização Fiscal → Fisco IA é iniciada por usuário autenticado, empresa e período, com confirmação na tela. Ela importa somente XMLs completos entregues pelo contrato servidor-servidor, valida CNPJ/chave/modelo novamente, cifra o XML no PostgreSQL e deixa os documentos como `PENDING_REVIEW`. Cada execução limita-se a 20 documentos, busca no máximo dois XMLs por página e pode continuar pela paginação. Metadados sem XML completo são reportados, sem gerar XML fictício. Não cria lançamentos nem transmite declarações ou guias.
 
@@ -74,15 +77,15 @@ O cadastro inicial do administrador deve ser feito somente depois das migraçõe
 
 ## Estado conhecido de produção
 
-Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Em 21/10/2026, o mesmo hostname não resolveu DNS a partir do ambiente de verificação; não foi possível confirmar se o serviço foi renomeado, removido ou está temporariamente indisponível. O código deste repositório espera 12 migrações; confira o serviço e o banco atuais antes de assumir qualquer versão implantada. O primeiro acesso administrativo já havia sido confirmado; não execute bootstrap sem verificar novamente a existência da conta.
+Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Em 21/10/2026, o mesmo hostname não resolveu DNS a partir do ambiente de verificação; não foi possível confirmar se o serviço foi renomeado, removido ou está temporariamente indisponível. O código deste repositório espera 13 migrações; confira o serviço e o banco atuais antes de assumir qualquer versão implantada. O primeiro acesso administrativo já havia sido confirmado; não execute bootstrap sem verificar novamente a existência da conta.
 
 ### Sequência segura para preparar o serviço atual
 
-1. Confirme qual serviço Render usa este repositório e commit. A checagem `/api/ready` deve considerar 12 migrações esperadas; não promova o Web Service antes de preparar o banco correspondente.
+1. Confirme qual serviço Render usa este repositório e commit. A checagem `/api/ready` deve considerar 13 migrações esperadas; não promova o Web Service antes de preparar o banco correspondente.
 2. Em um job privado, configure temporariamente `DATABASE_URL` administrativa e rode `npm run db:provision-status`. Se o schema ou algum papel reservado existir, não rode o provisionador; inspecione a configuração encontrada. Se não existir nenhum deles, confirme privilégios de criação e privilégios efetivos antes de decidir sobre `npm run db:provision-shared-role`.
 3. Depois de provisionar, rode novamente `npm run db:provision-status`. Verifique o proprietário do schema e confirme que o runtime não tem `CREATE` nem acesso de leitura/escrita a objetos fora de `fiscoia`. Grants herdados de `PUBLIC` contam; em um banco compartilhado, mudar grants globais pode afetar o Murade Fiscal.
 4. Em job privado com `FISCOIA_MIGRATION_DATABASE_URL`, execute `npm run db:migrate`. A tarefa aplica as migrações pendentes em transação e valida checksums; não configure a URL administrativa no Web Service público.
-5. Rode `npm run db:status` no mesmo job privado. Prossiga somente com 12/12 aplicadas, sem checksums divergentes, pendências ou versões desconhecidas. Remova as credenciais administrativas temporárias após as tarefas.
+5. Rode `npm run db:status` no mesmo job privado. Prossiga somente com 13/13 aplicadas, sem checksums divergentes, pendências ou versões desconhecidas. Remova as credenciais administrativas temporárias após as tarefas.
 6. Configure no Web Service somente as variáveis de runtime `FISCOIA_PG*` e a chave persistente `FISCOIA_DATA_ENCRYPTION_KEY`; não troque uma chave já usada para cifrar dados. Confira `/api/ready` em HTTP 200 e `schema.desconhecidas` igual a zero.
 7. Não execute `npm run db:bootstrap-admin` se já houver uma conta. O registro histórico diz que o primeiro acesso foi concluído; confirme isso antes de qualquer bootstrap.
 8. Depois da prontidão do banco e do serviço, faça uma consulta SEFAZ real sob demanda, com A1 da empresa e confirmação explícita. Confira a resposta oficial, a persistência cifrada e a auditoria.

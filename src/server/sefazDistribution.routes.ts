@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { request as httpsRequest } from 'node:https';
 import { gunzipSync } from 'node:zlib';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { obterCertificadoFiscalDaEmpresa } from './companyCertificate.routes';
 import { criptografarSegredoEmpresa, descriptografarSegredoEmpresa, criptografarXml } from './encryption';
@@ -22,7 +22,7 @@ const MAX_SOAP_BYTES = 20 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024;
 const MAX_BATCH_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
 const MAX_SEFAZ_REQUEST_MS = 45_000;
-const MIN_SEFAZ_REQUEST_GAP_MS = 60_000;
+const MIN_SEFAZ_REQUEST_GAP_MS = 61 * 60_000;
 
 router.use((_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -284,7 +284,7 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
     if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
       const [company, certificate, cursor, count] = await Promise.all([
-        client.query('SELECT id FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]),
+        client.query("SELECT id, metadata->>'sefazDfeAutomatica' AS sefaz_dfe_automatica FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1", [companyId, tenantId]),
         client.query('SELECT uploaded_at, pfx_sha256 FROM fiscoia.company_fiscal_certificates WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
         client.query('SELECT last_nsu, max_nsu, last_status, last_message, last_request_at, last_response_at, blocked_until, validated_certificate_sha256, certificate_validated_at FROM fiscoia.fiscal_dfe_cursors WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
         client.query('SELECT count(*)::text AS total FROM fiscoia.fiscal_dfe_items WHERE tenant_id=$1 AND company_id=$2', [tenantId, companyId]),
@@ -293,6 +293,7 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
       const row = cursor.rows[0];
       return {
         certificadoCadastrado: Boolean(certificate.rows[0]),
+        consultaAutomaticaAtiva: company.rows[0].sefaz_dfe_automatica === 'true',
         certificadoValidadoPelaSefaz: Boolean(row?.validated_certificate_sha256 && certificate.rows[0]
           && String(row.validated_certificate_sha256).trim() === String(certificate.rows[0].pfx_sha256).trim()),
         certificadoValidadoEm: row?.certificate_validated_at ?? null,
@@ -311,14 +312,49 @@ router.get('/companies/:companyId/sefaz-dfe/status', async (req, res) => {
     });
     if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!scoped.resultado) return res.status(404).json({ mensagem: 'Empresa ativa não encontrada neste escritório.' });
-    return res.json(scoped.resultado);
+    return res.json({ ...scoped.resultado, podeConfigurarConsultaAutomatica: ['OWNER', 'ADMIN'].includes(scoped.papel) });
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível consultar o estado da integração SEFAZ.' });
   }
 });
 
+router.post('/companies/:companyId/sefaz-dfe/automatic', async (req, res) => {
+  const tenantId = req.body?.tenantId;
+  const companyId = req.params.companyId;
+  const ativa = req.body?.ativa;
+  if (!idsValidos(tenantId, companyId) || typeof ativa !== 'boolean') {
+    return res.status(400).json({ mensagem: 'Escritório, empresa ou estado da consulta automática inválido.' });
+  }
+  if (ativa && req.body?.confirmarAtivacao !== true) {
+    return res.status(428).json({ mensagem: 'Confirme a ativação da consulta automática. Nenhuma consulta foi iniciada.' });
+  }
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
+      const company = await client.query('SELECT id FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]);
+      if (!company.rows[0]) return null;
+      await client.query(
+        `UPDATE fiscoia.companies
+            SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{sefazDfeAutomatica}', to_jsonb($3::boolean), true), updated_at=now()
+          WHERE id=$1 AND tenant_id=$2`,
+        [companyId, tenantId, ativa],
+      );
+      return true;
+    }, ['OWNER', 'ADMIN']);
+    if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!('resultado' in scoped)) return res.status(403).json({ mensagem: 'Seu perfil não pode configurar a consulta automática.' });
+    if (!scoped.resultado) return res.status(404).json({ mensagem: 'Empresa ativa não encontrada.' });
+    return res.json({ sucesso: true, consultaAutomaticaAtiva: ativa });
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível salvar a configuração de consulta automática.' });
+  }
+});
+
 /** Consulta um lote oficial por ação confirmada; não existe envio automático ao portal. */
-router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
+async function executarConsultaDfe(req: Request, res: Response, workerUserId?: string) {
   res.setHeader('Cache-Control', 'no-store');
   const tenantId = req.body?.tenantId;
   const companyId = req.params.companyId;
@@ -328,7 +364,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   let pfx: Buffer | null = null;
   try {
-    const user = await obterUsuarioDaSessao(req);
+    const user = workerUserId ? { id: workerUserId } : await obterUsuarioDaSessao(req);
     if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     const membership = await comContextoTenant(user.id, tenantId, async () => true, ['OWNER', 'ADMIN', 'CONTADOR']);
     if (!membership.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
@@ -343,8 +379,9 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
     // O lock da posição NSU serializa consultas concorrentes desta empresa. A transação
     // é curta e nunca atualiza NSU sem resposta oficial parseável e persistência completa.
     const scoped = await comContextoTenant(user.id, tenantId, async (client) => {
-      const company = await client.query('SELECT cnpj FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1', [companyId, tenantId]);
+      const company = await client.query("SELECT cnpj, metadata->>'sefazDfeAutomatica' AS sefaz_dfe_automatica FROM fiscoia.companies WHERE id=$1 AND tenant_id=$2 AND archived_at IS NULL LIMIT 1", [companyId, tenantId]);
       if (!company.rows[0]) return { kind: 'erro' as const, erro: 'Empresa ativa não encontrada neste escritório.' };
+      if (workerUserId && company.rows[0].sefaz_dfe_automatica !== 'true') return { kind: 'erro' as const, erro: 'A consulta automática desta empresa está desativada.' };
       if (normalizarCnpj(String(company.rows[0].cnpj)) !== cnpjConsulta) return { kind: 'erro' as const, erro: 'O CNPJ da credencial mudou; nenhum documento foi consultado.' };
       await client.query(
         `INSERT INTO fiscoia.fiscal_dfe_cursors (tenant_id, company_id) VALUES ($1,$2)
@@ -358,7 +395,9 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
       const blockedUntil = cursor.blocked_until ? new Date(cursor.blocked_until).getTime() : 0;
       if (blockedUntil > Date.now()) return { kind: 'bloqueado' as const, ate: cursor.blocked_until };
       const lastRequest = cursor.last_request_at ? new Date(cursor.last_request_at).getTime() : 0;
-      if (Date.now() - lastRequest < MIN_SEFAZ_REQUEST_GAP_MS) return { kind: 'ocupado' as const };
+      if (Date.now() - lastRequest < MIN_SEFAZ_REQUEST_GAP_MS) {
+        return { kind: 'bloqueado' as const, ate: new Date(lastRequest + MIN_SEFAZ_REQUEST_GAP_MS).toISOString() };
+      }
 
       // A cota e o bloqueio oficial são por CNPJ, inclusive se ele estiver
       // cadastrado em mais de um tenant. A função serializa e grava a reserva
@@ -547,7 +586,7 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
     if (!('resultado' in scoped)) return res.status(403).json({ mensagem: 'Seu perfil não pode iniciar uma consulta oficial da SEFAZ.' });
     if (!scoped.resultado) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
     if (scoped.resultado.kind === 'erro') return res.status(404).json({ mensagem: scoped.resultado.erro });
-    if (scoped.resultado.kind === 'bloqueado') return res.status(429).json({ mensagem: 'Consulta suspensa até cumprir o intervalo indicado pela SEFAZ.', bloqueadoAte: scoped.resultado.ate });
+    if (scoped.resultado.kind === 'bloqueado') return res.status(429).json({ mensagem: 'Aguarde o intervalo mínimo de 61 minutos entre consultas deste CNPJ.', bloqueadoAte: scoped.resultado.ate });
     if (scoped.resultado.kind === 'ocupado') return res.status(429).json({ mensagem: 'Já há uma consulta recente em processamento. Aguarde antes de tentar novamente.' });
     return res.json({ sucesso: true, ...scoped.resultado,
       observacao: 'A resposta oficial foi persistida. Validação do certificado significa apenas que este A1 recebeu resposta válida da SEFAZ nesta consulta; não confirma autorização para outros serviços.' });
@@ -557,7 +596,23 @@ router.post('/companies/:companyId/sefaz-dfe/consult', async (req, res) => {
   } finally {
     pfx?.fill(0);
   }
-});
+}
+
+router.post('/companies/:companyId/sefaz-dfe/consult', (req, res) => executarConsultaDfe(req, res));
+
+/** Entrada interna do worker; a associação e o consentimento por empresa são verificados novamente. */
+export async function consultarDfePeloWorker(userId: string, tenantId: string, companyId: string): Promise<{ status: number; corpo: unknown }> {
+  let status = 200;
+  let corpo: unknown;
+  const req = { body: { tenantId, confirmarConsulta: true }, params: { companyId } } as unknown as Request;
+  const res = {
+    setHeader: () => undefined,
+    status: (value: number) => { status = value; return res; },
+    json: (value: unknown) => { corpo = value; return res; },
+  } as unknown as Response;
+  await executarConsultaDfe(req, res, userId);
+  return { status, corpo };
+}
 
 router.get('/companies/:companyId/sefaz-dfe/items', async (req, res) => {
   const tenantId = req.query.tenantId;

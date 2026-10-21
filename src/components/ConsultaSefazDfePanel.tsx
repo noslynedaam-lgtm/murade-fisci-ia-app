@@ -3,6 +3,8 @@ import { AlertTriangle, Download, RefreshCw, ShieldCheck } from 'lucide-react';
 
 type DfeStatus = {
   certificadoCadastrado: boolean;
+  consultaAutomaticaAtiva: boolean;
+  podeConfigurarConsultaAutomatica: boolean;
   certificadoValidadoPelaSefaz: boolean;
   certificadoValidadoEm: string | null;
   ambienteConfigurado: 'producao' | 'homologacao';
@@ -98,6 +100,30 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
     } finally { setBusy(false); }
   };
 
+  const configurarConsultaAutomatica = async () => {
+    if (!companyId || !tenantId || !status?.podeConfigurarConsultaAutomatica) return;
+    const ativa = !status.consultaAutomaticaAtiva;
+    if (ativa && !window.confirm(
+      `Ativar consultas automáticas da Distribuição DF-e para ${cnpj || 'esta empresa'}? O sistema fará no máximo uma consulta por CNPJ a cada 61 minutos, usando o A1 cadastrado. A SEFAZ pode devolver apenas resumo; o sistema não manifesta ciência/confirmação nem envia eventos em seu nome.`,
+    )) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/sefaz-dfe/automatic`, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ tenantId, ativa, confirmarAtivacao: ativa }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.mensagem || 'Não foi possível salvar a configuração automática.');
+      await carregar();
+      setMensagem(ativa
+        ? 'Consultas automáticas ativadas. A primeira tentativa ocorre após a próxima execução do agendador; cada CNPJ respeita intervalo mínimo de 61 minutos.'
+        : 'Consultas automáticas desativadas para esta empresa.');
+    } catch (error) {
+      setMensagem(error instanceof Error ? error.message : 'Não foi possível alterar a consulta automática.');
+    } finally { setBusy(false); }
+  };
+
   const baixar = async (item: DfeItem) => {
     if (!companyId || !tenantId) return;
     try {
@@ -126,12 +152,13 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-64 flex-1">
         <h3 className="text-sm font-black text-blue-950"><ShieldCheck className="mr-1 inline h-4 w-4"/>Distribuição DF-e oficial da SEFAZ</h3>
-        <p className="mt-1 text-[11px] text-blue-900">Consulta sob demanda com A1 no servidor. Cada chamada exige sua confirmação; documentos e eventos recebidos são guardados cifrados por empresa. A disponibilidade do XML completo depende das regras oficiais e do papel do CNPJ.</p>
+        <p className="mt-1 text-[11px] text-blue-900">Consulta manual autenticada com A1 no servidor; cada chamada manual exige sua confirmação. Administradores também podem ativar consultas automáticas por empresa. Documentos e eventos recebidos são guardados cifrados; a disponibilidade do XML completo depende das regras oficiais e do papel do CNPJ.</p>
         <p className="mt-1 text-[11px] font-semibold text-blue-900">Isto não busca as notas emitidas pela própria empresa: a saída do emitente precisa vir do sistema emissor ou de outra fonte autorizada.</p>
       </div>
       <div className="flex shrink-0 gap-2">
         <button type="button" onClick={() => void carregar()} disabled={!pronto || busy} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-xs font-bold text-blue-900 disabled:opacity-50"><RefreshCw className={`mr-1 inline h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`}/>Atualizar estado</button>
         <button type="button" onClick={() => void consultar()} disabled={!pronto || !status?.certificadoCadastrado || busy} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Consultar agora (com confirmação)</button>
+        {status?.podeConfigurarConsultaAutomatica && <button type="button" onClick={() => void configurarConsultaAutomatica()} disabled={!status.certificadoCadastrado || busy} className={`rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-50 ${status.consultaAutomaticaAtiva ? 'bg-emerald-700' : 'bg-slate-700'}`}>{status.consultaAutomaticaAtiva ? 'Desativar automático' : 'Ativar automático'}</button>}
       </div>
     </div>
     {!pronto && <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">Selecione uma empresa cadastrada na carteira central para consultar o estado oficial.</p>}
@@ -141,7 +168,12 @@ export function ConsultaSefazDfePanel({ companyId, tenantId, cnpj }: { companyId
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Última resposta oficial</span><div className="font-bold">{status.ultimoStatusSefaz ? `cStat ${status.ultimoStatusSefaz}` : 'Ainda não consultada'}</div><div className="text-[10px] text-slate-500">{status.consultadoEm ? new Date(status.consultadoEm).toLocaleString('pt-BR') : 'Sem resposta registrada'}</div><div className="mt-1 text-[10px] text-slate-500">Última tentativa: {status.ultimaTentativaEm ? new Date(status.ultimaTentativaEm).toLocaleString('pt-BR') : 'nenhuma registrada'}{status.ultimaTentativaEm && !status.consultadoEm ? ' (ainda sem resposta oficial)' : ''}</div></div>
       <div className="rounded-lg border bg-white p-2"><span className="text-slate-500">Arquivados neste sistema</span><div className="font-bold">{status.documentosPersistidos} DF-e / eventos</div><div className="text-[10px] text-slate-500">Ambiente: {status.ambienteConfigurado}</div></div>
     </div>}
-    {status?.bloqueadoAte && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4"/>A SEFAZ exige aguardar até {new Date(status.bloqueadoAte).toLocaleString('pt-BR')} antes de consultar novamente.</p>}
+    {status && <p className={`rounded-lg border p-2 text-xs ${status.consultaAutomaticaAtiva ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-slate-200 bg-white text-slate-700'}`}>
+      {status.consultaAutomaticaAtiva
+        ? 'Consulta automática ativada para esta empresa. O servidor verifica a fila a cada minuto e faz no máximo uma requisição por CNPJ a cada 61 minutos; chamadas contam mesmo quando há falha de rede. A automação busca documentos recebidos e não envia manifestação à SEFAZ.'
+        : 'Consulta automática desativada. Um administrador pode ativá-la após conferir o certificado A1 desta empresa.'}
+    </p>}
+    {status?.bloqueadoAte && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4"/>Nova consulta liberada após {new Date(status.bloqueadoAte).toLocaleString('pt-BR')}.</p>}
     {status?.ultimoStatusSefaz && status?.mensagemSefaz && <p className="text-xs text-slate-700">Último motivo informado pela SEFAZ: {status.mensagemSefaz}</p>}
     {mensagem && <p role="status" className="rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">{mensagem}</p>}
     {items.length > 0 && <div className="overflow-x-auto rounded-lg border border-blue-200 bg-white">

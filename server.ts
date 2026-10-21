@@ -13,6 +13,7 @@ import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import conferenciaRoutes from "./src/server/conferencia.routes";
 import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
+import { iniciarConsultaAutomaticaSefaz } from "./src/server/sefazDfeScheduler";
 import serproRoutes from "./src/server/serpro.routes";
 import licencaRoutes from './src/server/licenca.routes';
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
@@ -121,7 +122,7 @@ app.get('/api/ready', async (_req, res) => {
     chaveCriptografiaDados,
     mensagem: pronto
       ? 'PostgreSQL respondeu, as migrações obrigatórias estão aplicadas e a chave de criptografia é válida.'
-      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 012 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
+      : 'Persistência segura indisponível; confira a credencial restrita do PostgreSQL, migrações 001 a 013 e FISCOIA_DATA_ENCRYPTION_KEY no serviço.',
   });
 });
 
@@ -361,6 +362,7 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor Murade Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
     iniciarSincronizacaoAutomatica();
+    iniciarConsultaAutomaticaSefaz();
   });
 }
 
