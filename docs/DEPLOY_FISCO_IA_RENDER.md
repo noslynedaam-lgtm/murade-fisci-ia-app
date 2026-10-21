@@ -6,7 +6,7 @@ O serviço `murade-fisco-ia` está publicado no Render. A implantação inicial 
 
 ## Serviço esperado
 
-- Repositório: `noslynedamurad-maker/murade-fisco-ia`
+- Repositório: `noslynedaam-lgtm/murade-fisci-ia-app`
 - Build command: `npm ci && npm run build`
 - Start command: `npm start`
 - Health check path: `/api/health`
@@ -72,20 +72,20 @@ Os resumos e links oficiais ficam em `src/data/reformaTributariaRegras.ts`. Uma 
 
 O cadastro inicial do administrador deve ser feito somente depois das migrações, com `FISCOIA_BOOTSTRAP_EMAIL`, `FISCOIA_BOOTSTRAP_NAME` e `FISCOIA_BOOTSTRAP_PASSWORD` temporários em um job privado, executando `npm run db:bootstrap-admin` uma vez. A senha deve ter pelo menos 16 caracteres; a conta exige troca de senha no primeiro login. O script aborta sem alterações se já houver qualquer conta. Remova a URL administrativa e as três variáveis de bootstrap ao terminar.
 
-## Estado observado em produção
+## Estado conhecido de produção
 
-Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Esse resultado não confirma o estado atual após novas implantações; refaça a conferência com `/api/ready` e `npm run db:status`. O usuário já confirmou o primeiro acesso; não executar o bootstrap novamente.
+Registro histórico de 18/10/2026: `GET https://murade-fisco-ia.onrender.com/api/ready` respondeu HTTP 200, com PostgreSQL conectado, seis de seis migrações obrigatórias aplicadas e chave de criptografia válida. Esse resultado não confirma o estado atual. O código deste repositório espera 12 migrações; confira o serviço e o banco atuais antes de assumir qualquer versão implantada. O primeiro acesso administrativo já havia sido confirmado; não execute bootstrap sem verificar novamente a existência da conta.
 
-A PR #3 (`https://github.com/noslynedamurad-maker/murade-fisco-ia/pull/3`) está aberta e contém as migrações 007–010. Portanto, o endpoint público de produção ainda comprova somente o schema implantado com seis migrações; não comprova a disponibilidade das novas rotas DF-e, do cofre A1, do registro de validação do certificado ou do limitador global por CNPJ.
+### Sequência segura para preparar o serviço atual
 
-### Ordem segura para ativar a PR #3
-
-1. Confirmar se o Auto-Deploy do Web Service está ativo. A aplicação nova exige as dez migrações e `/api/ready` deve falhar fechado enquanto o banco estiver em 6/10; planejar a publicação para evitar indisponibilidade prolongada.
-2. Integrar a PR à branch implantada ou preparar um serviço privado de migração a partir do commit da PR. Não promover o novo código do Web Service antes de aplicar as migrações.
-3. Executar `npm run db:migrate` uma única vez em uma tarefa privada com o artefato que contém as migrações 007–012 e `FISCOIA_MIGRATION_DATABASE_URL`. O script aplica somente migrações pendentes e verifica checksums. Nunca adicionar a URL administrativa às variáveis do Web Service público.
-4. Confirmar que o job terminou com sucesso e que as migrações pendentes até 012 foram aplicadas; remover a credencial administrativa do serviço privado após o uso.
-5. Publicar o Web Service com somente as variáveis de runtime `FISCOIA_PG*` e `FISCOIA_DATA_ENCRYPTION_KEY`; conferir `/api/ready` em HTTP 200, schema 12/12, e `npm run db:status` sem divergências.
-6. Só então fazer uma consulta SEFAZ real sob demanda, com A1 da empresa, autorização do usuário e confirmação explícita na tela. Conferir a resposta oficial, a persistência cifrada e a auditoria antes de considerar a integração validada.
+1. Confirme qual serviço Render usa este repositório e commit. A checagem `/api/ready` deve considerar 12 migrações esperadas; não promova o Web Service antes de preparar o banco correspondente.
+2. Em um job privado, configure temporariamente `DATABASE_URL` administrativa e rode `npm run db:provision-status`. Se o schema ou algum papel reservado existir, não rode o provisionador; inspecione a configuração encontrada. Se não existir nenhum deles, confirme privilégios de criação e privilégios efetivos antes de decidir sobre `npm run db:provision-shared-role`.
+3. Depois de provisionar, rode novamente `npm run db:provision-status`. Verifique o proprietário do schema e confirme que o runtime não tem `CREATE` nem acesso de leitura/escrita a objetos fora de `fiscoia`. Grants herdados de `PUBLIC` contam; em um banco compartilhado, mudar grants globais pode afetar o Murade Fiscal.
+4. Em job privado com `FISCOIA_MIGRATION_DATABASE_URL`, execute `npm run db:migrate`. A tarefa aplica as migrações pendentes em transação e valida checksums; não configure a URL administrativa no Web Service público.
+5. Rode `npm run db:status` no mesmo job privado. Prossiga somente com 12/12 aplicadas, sem checksums divergentes, pendências ou versões desconhecidas. Remova as credenciais administrativas temporárias após as tarefas.
+6. Configure no Web Service somente as variáveis de runtime `FISCOIA_PG*` e a chave persistente `FISCOIA_DATA_ENCRYPTION_KEY`; não troque uma chave já usada para cifrar dados. Confira `/api/ready` em HTTP 200 e `schema.desconhecidas` igual a zero.
+7. Não execute `npm run db:bootstrap-admin` se já houver uma conta. O registro histórico diz que o primeiro acesso foi concluído; confirme isso antes de qualquer bootstrap.
+8. Depois da prontidão do banco e do serviço, faça uma consulta SEFAZ real sob demanda, com A1 da empresa e confirmação explícita. Confira a resposta oficial, a persistência cifrada e a auditoria.
 
 O Render informa que um One-Off Job usa o artefato de build mais recente e uma fotografia das variáveis do serviço-base no momento da criação. Assim, use como base um serviço privado de migração que já tenha o artefato correto e apenas o segredo administrativo necessário; não reutilize o Web Service público enquanto isso exigir adicionar nele a URL administrativa. Após alterar o serviço-base, crie um novo job para obter a configuração atualizada. Consulte a [documentação oficial de One-Off Jobs do Render](https://render.com/docs/one-off-jobs).
 

@@ -82,24 +82,27 @@ export async function verificarBancoPermanente(): Promise<EstadoBanco> {
 }
 
 /** Confere a trilha de migrações sem revelar detalhes da conexão. */
-export async function verificarSchema(): Promise<{ estado: EstadoSchema; aplicadas: number; esperadas: number }> {
-  if (!pool) return { estado: 'nao_verificado', aplicadas: 0, esperadas: 0 };
+export async function verificarSchema(): Promise<{ estado: EstadoSchema; aplicadas: number; esperadas: number; desconhecidas: number }> {
+  if (!pool) return { estado: 'nao_verificado', aplicadas: 0, esperadas: 0, desconhecidas: 0 };
   try {
     const table = await pool.query("SELECT to_regclass('fiscoia.schema_migrations') AS migration_table");
     if (!table.rows[0]?.migration_table) {
-      return { estado: 'migracoes_pendentes', aplicadas: 0, esperadas: MIGRACOES_ESPERADAS.length };
+      return { estado: 'migracoes_pendentes', aplicadas: 0, esperadas: MIGRACOES_ESPERADAS.length, desconhecidas: 0 };
     }
     const result = await pool.query("SELECT version FROM fiscoia.schema_migrations ORDER BY version");
     const appliedVersions = new Set(result.rows.map((row) => String(row.version)));
     const applied = MIGRACOES_ESPERADAS.filter((version) => appliedVersions.has(version)).length;
     const expected = MIGRACOES_ESPERADAS.length;
+    const expectedVersions = new Set(MIGRACOES_ESPERADAS);
+    const unknown = [...appliedVersions].filter((version) => !expectedVersions.has(version)).length;
     return {
-      estado: applied === expected ? 'migrado' : 'migracoes_pendentes',
+      estado: applied === expected && unknown === 0 ? 'migrado' : 'migracoes_pendentes',
       aplicadas: applied,
       esperadas: expected,
+      desconhecidas: unknown,
     };
   } catch {
-    return { estado: 'indisponivel', aplicadas: 0, esperadas: MIGRACOES_ESPERADAS.length };
+    return { estado: 'indisponivel', aplicadas: 0, esperadas: MIGRACOES_ESPERADAS.length, desconhecidas: 0 };
   }
 }
 
