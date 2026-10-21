@@ -77,7 +77,7 @@ function getGenAI(): GoogleGenAI | null {
 
 // Instruções da assistente: respostas fiscais atuais devem vir de busca e citar fontes.
 const SYSTEM_INSTRUCTION_FISCAL = `
-Você é o Dr. Benny, assistente fiscal do Murade Fisco IA.
+Você é o Fisco IA, assistente fiscal do Murade Fisco IA.
 Responda em português claro, direto e cordial. Não invente prazos, alíquotas, resultados de consultas ou integrações.
 Para legislação, obrigações, vencimentos e regras que possam mudar, use a ferramenta de pesquisa disponível nesta solicitação e priorize fontes oficiais brasileiras (gov.br, Receita Federal, SERPRO, SEFAZ competente, eSocial, Caixa ou prefeitura competente).
 Se não encontrar fonte oficial atual e suficiente, diga que não conseguiu confirmar e indique o órgão responsável. Cite os links retornados pela pesquisa.
@@ -99,7 +99,7 @@ app.get("/api/health", async (_req, res) => {
   const bancoPermanente = await verificarBancoPermanente();
   res.json({
     status: "ok",
-    assistente: "Dr. Benny Gonçalves",
+    assistente: "Fisco IA",
     sistema: "Murade Fisco IA",
     // Um health check confirma apenas que o servidor respondeu. A existência
     // de uma chave não prova que o provedor ou a pesquisa web estão operantes.
@@ -347,7 +347,7 @@ app.use('/api/ia-fiscal/consultar', (req, res, next) => {
   next();
 });
 
-// Endpoint oficial de Consulta da IA Fiscal — Dr. Benny Gonçalves
+// Endpoint oficial de Consulta da IA Fiscal — Fisco IA
 app.post("/api/ia-fiscal/consultar", async (req, res) => {
   if (!(await obterUsuarioDaSessao(req))) return res.status(401).json({
     erro: 'Entre no Fisco IA para fazer consultas. Nenhuma consulta ou uso da chave de IA foi realizado.',
@@ -387,8 +387,8 @@ app.post("/api/ia-fiscal/consultar", async (req, res) => {
     }
 
     const regraApresentacao = isPrimeiraInteracao
-      ? 'Esta é a PRIMEIRA mensagem do diálogo. Inicie com "Olá, eu sou o Dr. Benny." e responda à pergunta com precisão.'
-      : 'Esta NÃO é a primeira mensagem da conversa. NÃO se apresente e NÃO repita "Olá, eu sou o Dr. Benny". Responda DIRETAMENTE à pergunta.';
+      ? 'Esta é a PRIMEIRA mensagem do diálogo. Inicie com "Olá, quem fala é o Fisco IA." e responda à pergunta com precisão.'
+      : 'Esta NÃO é a primeira mensagem da conversa. NÃO se apresente e NÃO repita "Olá, quem fala é o Fisco IA". Responda DIRETAMENTE à pergunta.';
 
     const promptFinal = `Pergunta do usuário: "${pergunta}"\n[INSTRUÇÃO DE DIÁLOGO: ${regraApresentacao}] Responda:`;
     contents.push({ role: "user", parts: [{ text: promptFinal }] });
@@ -411,16 +411,16 @@ app.post("/api/ia-fiscal/consultar", async (req, res) => {
 
           let textoResposta = response.text?.trim();
           if (textoResposta) {
-            // Se for primeira interação, assegura que tem a saudação "Olá, eu sou o Dr. Benny."
+            // Se for primeira interação, assegura que tem a saudação "Olá, quem fala é o Fisco IA."
             if (isPrimeiraInteracao) {
-              if (!textoResposta.startsWith("Olá, eu sou o Dr. Benny") && !textoResposta.startsWith("Quem fala é o Dr. Benny")) {
-                textoResposta = `Olá, eu sou o Dr. Benny.\n\n${textoResposta}`;
+              if (!textoResposta.startsWith("Olá, quem fala é o Fisco IA") && !textoResposta.startsWith("Quem fala é o Fisco IA")) {
+                textoResposta = `Olá, quem fala é o Fisco IA.\n\n${textoResposta}`;
               }
             } else {
               // Se NÃO for a primeira interação, remove qualquer saudação repetitiva que o modelo possa ter gerado
               textoResposta = textoResposta
-                .replace(/^Olá,?\s+(eu\s+sou\s+o\s+)?Dr\.?\s+Benny(\s+Gonçalves)?[\.\!\:\-]?\s*/i, "")
-                .replace(/^Quem\s+fala\s+é\s+o\s+Dr\.?\s+Benny(\s+Gonçalves)?[\.\!\:\-]?\s*/i, "")
+                .replace(/^Olá,?\s+(eu\s+sou\s+o\s+|quem\s+fala\s+é\s+o\s+)?(Dr\.?\s+Benny(\s+Gonçalves)?|Fisco\s+IA)[\.\!\:\-]?\s*/i, "")
+                .replace(/^Quem\s+fala\s+é\s+o\s+(Dr\.?\s+Benny(\s+Gonçalves)?|Fisco\s+IA)[\.\!\:\-]?\s*/i, "")
                 .trim();
             }
 
@@ -482,14 +482,14 @@ function gerarRespostaTributariaLocal(pergunta: string, isPrimeiraInteracao = fa
   if (nomePerguntado) {
     return {
       sucesso: true,
-      resposta: 'Olá, eu sou o Dr. Benny. Como posso ajudar?',
+      resposta: 'Olá, quem fala é o Fisco IA. Como posso ajudar?',
       referencia: 'Murade Fisco IA',
       fontesWeb: [],
       origem: 'RESPOSTA_LOCAL'
     };
   }
 
-  const saudacao = isPrimeiraInteracao ? 'Olá, eu sou o Dr. Benny.\n\n' : '';
+  const saudacao = isPrimeiraInteracao ? 'Olá, quem fala é o Fisco IA.\n\n' : '';
   return {
     sucesso: false,
     resposta: `${saudacao}Não consegui consultar uma fonte atual nesta tentativa. Não vou afirmar prazos, valores ou situação fiscal sem confirmação. Tente novamente mais tarde ou consulte o órgão oficial responsável.`,

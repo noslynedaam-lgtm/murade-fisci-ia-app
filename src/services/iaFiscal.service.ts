@@ -49,7 +49,7 @@ export async function consultarIAFiscal(
     console.error('Falha ao comunicar com o servidor da IA Fiscal:', error);
 
     const isPrimeiraInteracao = historico.filter(h => h.autor === 'usuario').length === 0;
-    const prefixo = isPrimeiraInteracao ? 'Olá, eu sou o Dr. Benny.\n\n' : '';
+    const prefixo = isPrimeiraInteracao ? 'Olá, quem fala é o Fisco IA. O que você deseja?\n\n' : '';
 
     return {
       sucesso: false,

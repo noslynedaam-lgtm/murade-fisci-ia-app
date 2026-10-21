@@ -54,7 +54,7 @@ export function useVoz({
   // Controle de velocidade dinâmica configurável (padrão normal: 1.0)
   const [velocidade, setVelocidade] = useState<number>(velocidadeInicial);
 
-  // Lista de vozes e voz ativa masculina Dr. Benny Gonçalves
+  // Lista de vozes e voz ativa masculina Fisco IA
   const [vozesDisponiveis, setVozesDisponiveis] = useState<SpeechSynthesisVoice[]>([]);
   const [nomeVozAtiva, setNomeVozAtiva] = useState<string>('');
 
@@ -71,7 +71,7 @@ export function useVoz({
   const velocidadeRef = useRef(velocidade);
   velocidadeRef.current = velocidade;
 
-  // Função para selecionar a melhor voz MASCULINA em português (Dr. Benny Gonçalves)
+  // Função para selecionar a melhor voz MASCULINA em português (Fisco IA)
   const carregarVozesMasculinas = useCallback(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
@@ -88,7 +88,7 @@ export function useVoz({
 
     setVozesDisponiveis(vozesPt.length > 0 ? vozesPt : vozes);
 
-    // Prioridade para vozes masculinas naturais em português (Dr. Benny)
+    // Prioridade para vozes masculinas naturais em português (Fisco IA)
     const vozMasculina = vozesPt.find((v) => {
       const n = v.name.toLowerCase();
       return (
@@ -293,7 +293,7 @@ export function useVoz({
       fala.volume = 1;
       // Usa a velocidade selecionada no controle de voz.
       fala.rate = velocidadeRef.current || 1.0;
-      fala.pitch = 0.96; // Tom masculino firme e seguro (Dr. Beni Gonçalves)
+      fala.pitch = 0.96; // Tom masculino firme e seguro (Fisco IA)
 
       // Selecionar voz masculina no banco de vozes
       const vozes = window.speechSynthesis.getVoices();
@@ -361,11 +361,11 @@ export function useVoz({
     setFalando(false);
   }, []);
 
-  // Testar voz do Dr. Benny Gonçalves ao vivo com a velocidade calibrada
+  // Testar voz do Fisco IA ao vivo com a velocidade calibrada
   const testarVozDrBenny = useCallback((textoPersonalizado?: string) => {
     falarTexto(
       textoPersonalizado ||
-      'Olá, eu sou o Dr. Benny Gonçalves. O que deseja?'
+      'Olá, quem fala é o Fisco IA. O que você deseja?'
     );
   }, [falarTexto]);
 

@@ -49,7 +49,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     {
       id: 'msg-1',
       autor: 'ia',
-      texto: 'Olá, eu sou o Dr. Benny.\n\nPosso ajudar com dúvidas fiscais e trabalhistas. Quando a pergunta depender de uma regra atual, vou pesquisar e mostrar as fontes encontradas. Não tenho acesso automático a dados de SERPRO, SEFAZ, Receita ou e-CAC sem uma integração configurada.\n\n🎙️ Clique no microfone para falar comigo ou digite sua dúvida.',
+      texto: 'Olá, quem fala é o Fisco IA. O que você deseja?\n\nPosso ajudar com dúvidas fiscais e trabalhistas. Quando a pergunta depender de uma regra atual, vou pesquisar e mostrar as fontes encontradas. Não tenho acesso automático a dados de SERPRO, SEFAZ, Receita ou e-CAC sem uma integração configurada.\n\n🎙️ Clique no microfone para falar comigo ou digite sua dúvida.',
       timestamp: 'Agora',
       referencia: 'Murade Fisco IA',
       origem: 'ASSISTENTE'
@@ -59,7 +59,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
   const [inputTexto, setInputTexto] = useState('');
   const [pensando, setPensando] = useState(false);
 
-  // Sub-abas do Módulo Oficial: Chat Dr. Benny Gonçalves, Certificado Digital e Tela Standalone FIASCO IA
+  // Sub-abas do Módulo Oficial: Chat Fisco IA, Certificado Digital e Tela Standalone FIASCO IA
   const [abaModulo, setAbaModulo] = useState<'chat' | 'certificado' | 'rascunho' | 'telaOficial'>('chat');
   const [certificado, setCertificado] = useState<CertificadoDigitalDados | null>(null);
 
@@ -130,7 +130,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     }
   }, [mensagens, pensando, transcricaoParcial]);
 
-  // Sugestões rápidas — Dados Oficiais Dr. Benny
+  // Sugestões rápidas — Dados Oficiais Fisco IA
   const sugestoes = [
     'Qual o vencimento do FGTS Digital?',
     'Quando vencem FGTS, DCTFWeb, INSS e Simples Nacional?',
@@ -324,7 +324,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </span>
             <div>
               <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap">
-                <span>Dr. Benny Gonçalves • FIASCO IA</span>
+                <span>Fisco IA</span>
                 <span className="px-2 py-0.5 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-bold rounded-full flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3 text-amber-700" />
                   <span>Consultas oficiais não conectadas</span>
@@ -337,7 +337,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </div>
           </div>
           <p className="text-xs text-slate-600 mt-1">
-            Converse por voz ou texto com o Dr. Benny Gonçalves sobre regras e vencimentos do FGTS Digital, DCTFWeb, INSS, IRRF, Simples Nacional e outros assuntos fiscais. Prazos atuais dependem de consulta a fonte oficial.
+            Converse por voz ou texto com o Fisco IA sobre regras e vencimentos do FGTS Digital, DCTFWeb, INSS, IRRF, Simples Nacional e outros assuntos fiscais. Prazos atuais dependem de consulta a fonte oficial.
           </p>
         </div>
 
@@ -402,7 +402,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
           }`}
         >
           <Bot className="w-4 h-4" />
-          <span>💬 Dr. Benny • FIASCO IA</span>
+          <span>💬 Fisco IA</span>
         </button>
 
         <button
@@ -549,7 +549,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </div>
           </div>
 
-          {/* Barra de Controles de Voz do Dr. Benny Gonçalves */}
+          {/* Barra de Controles de Voz do Fisco IA */}
           <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-2xl p-3 sm:p-4 text-white shadow-md flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
@@ -561,14 +561,14 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 ? 'bg-rose-500 hover:bg-rose-600 text-white animate-pulse ring-4 ring-rose-400/40'
                 : 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
             } disabled:opacity-50`}
-            title={ouvindo ? 'Clique para parar de falar' : 'Clique e fale com o Dr. Benny Gonçalves'}
+            title={ouvindo ? 'Clique para parar de falar' : 'Clique e fale com o Fisco IA'}
           >
             {ouvindo ? <Mic className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
           <div>
             <div className="text-xs font-bold flex items-center gap-1.5">
-              <span>{ouvindo ? 'Dr. Benny está ouvindo você...' : falando ? 'Dr. Benny está falando com voz masculina (1.15x)...' : 'Fale com o Dr. Benny Gonçalves (Voz Masculina)'}</span>
+              <span>{ouvindo ? 'Fisco IA está ouvindo você...' : falando ? 'Fisco IA está falando com voz masculina (1.15x)...' : 'Fale com o Fisco IA (Voz Masculina)'}</span>
               {ouvindo && (
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -580,8 +580,8 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
               <span>{ouvindo 
                 ? 'Pode falar sua dúvida fiscal agora...' 
                 : falando
-                ? 'Ouvindo a resposta do Dr. Benny Gonçalves...'
-                : 'Clique no microfone para falar com o Dr. Benny'}</span>
+                ? 'Ouvindo a resposta do Fisco IA...'
+                : 'Clique no microfone para falar com o Fisco IA'}</span>
               {nomeVozAtiva && (
                 <span className="text-[10px] px-1.5 py-0.2 bg-indigo-950 text-amber-300 rounded font-mono border border-indigo-700/50">
                   {nomeVozAtiva}
@@ -600,7 +600,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             <div className="flex items-center gap-1">
               {[
                 { label: 'Normal', val: 1.0 },
-                { label: 'Dr. Benny (1.15x)', val: 1.15 },
+                { label: 'Fisco IA (1.15x)', val: 1.15 },
                 { label: 'Rápida', val: 1.30 }
               ].map((opcao) => (
                 <button
@@ -620,16 +620,16 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </div>
           </div>
 
-          {/* Botão de Testar Voz Dr. Benny */}
+          {/* Botão de Testar Voz Fisco IA */}
           <button
             type="button"
             onClick={() => testarVozDrBeni()}
             disabled={falando}
             className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-950 hover:bg-indigo-900 text-amber-300 border border-indigo-700 flex items-center gap-1.5 cursor-pointer transition-colors"
-            title="Clique para testar a voz masculina do Dr. Benny Gonçalves agora"
+            title="Clique para testar a voz masculina do Fisco IA agora"
           >
             <Play className="w-3 h-3 text-amber-400" />
-            <span>Testar Voz Dr. Benny</span>
+            <span>Testar Voz Fisco IA</span>
           </button>
 
           {/* Botão de Diálogo Contínuo */}
@@ -641,13 +641,13 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 ? 'bg-amber-400 text-slate-950 font-bold'
                 : 'bg-indigo-950/70 border border-indigo-700/60 text-slate-200 hover:bg-indigo-950'
             }`}
-            title="Quando ativado, o Dr. Benny responde falando e já reabre o microfone para você continuar a conversa"
+            title="Quando ativado, o Fisco IA responde falando e já reabre o microfone para você continuar a conversa"
           >
             <Radio className="w-3.5 h-3.5" />
             <span>{modoVozContinuo ? 'Diálogo Contínuo: LIGADO' : 'Diálogo Contínuo: DESLIGADO'}</span>
           </button>
 
-          {/* Botão de Áudio do Dr. Benny */}
+          {/* Botão de Áudio do Fisco IA */}
           <button
             type="button"
             onClick={() => {
@@ -659,7 +659,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 ? 'bg-indigo-950/90 border border-indigo-600 text-amber-300'
                 : 'bg-indigo-950/50 border border-indigo-800 text-slate-400 hover:text-white'
             }`}
-            title={respostaAudioAtiva ? 'Dr. Benny fala a resposta (Voz masculina 1.15x ativa)' : 'Dr. Benny não fala a resposta (Apenas texto)'}
+            title={respostaAudioAtiva ? 'Fisco IA fala a resposta (Voz masculina 1.15x ativa)' : 'Fisco IA não fala a resposta (Apenas texto)'}
           >
             {respostaAudioAtiva ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
             <span>{respostaAudioAtiva ? 'Voz: Ativa' : 'Voz: Mudo'}</span>
@@ -697,7 +697,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
           <Mic className="w-4 h-4 text-amber-600 shrink-0" />
           <div className="flex-1">
             <span className="font-bold">Ouvindo você:</span>{' '}
-            <span className="italic">{transcricaoParcial || 'Fale sua dúvida com o Dr. Benny Gonçalves...'}</span>
+            <span className="italic">{transcricaoParcial || 'Fale sua dúvida com o Fisco IA...'}</span>
           </div>
           <button
             type="button"
@@ -719,7 +719,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
       <div className="space-y-2">
         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
           <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Consultas Oficiais — Dr. Benny Gonçalves</span>
+          <span>Consultas Oficiais — Fisco IA</span>
         </span>
         <div className="flex flex-wrap gap-2">
           {sugestoes.map((sug, i) => (
@@ -759,7 +759,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
               >
                 <div className="flex items-center justify-between gap-4 text-[10px] opacity-80 pb-1 border-b border-black/5">
                   <span className="font-bold flex items-center gap-1">
-                    {msg.autor === 'usuario' ? 'Você (Áudio/Texto)' : 'Dr. Benny Gonçalves • FIASCO IA'}
+                    {msg.autor === 'usuario' ? 'Você (Áudio/Texto)' : 'Fisco IA'}
                   </span>
                   <div className="flex items-center gap-2">
                     {msg.autor === 'ia' && (
@@ -767,7 +767,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                         type="button"
                         onClick={() => falarTexto(msg.texto)}
                         className="opacity-70 hover:opacity-100 hover:text-indigo-700 flex items-center gap-0.5 cursor-pointer"
-                        title="Ouvir esta resposta com voz do Dr. Benny"
+                        title="Ouvir esta resposta com voz do Fisco IA"
                       >
                         <Volume2 className="w-3 h-3 text-indigo-600" />
                         <span>Ouvir Voz</span>
@@ -839,7 +839,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
               </div>
               <div className="p-3 bg-slate-50 rounded-2xl border border-indigo-100 flex items-center gap-2 text-indigo-900">
                 <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                <span>Dr. Benny Gonçalves está consultando a legislação e formulando a resposta...</span>
+                <span>Fisco IA está consultando a legislação e formulando a resposta...</span>
               </div>
             </div>
           )}
@@ -863,7 +863,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                 ? 'bg-rose-600 text-white animate-pulse ring-2 ring-rose-400'
                 : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
             } disabled:opacity-50`}
-            title={ouvindo ? 'Parar gravação' : 'Falar com o Dr. Benny pelo microfone'}
+            title={ouvindo ? 'Parar gravação' : 'Falar com o Fisco IA pelo microfone'}
           >
             {ouvindo ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
@@ -873,7 +873,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             value={inputTexto}
             disabled={pensando}
             onChange={(e) => setInputTexto(e.target.value)}
-            placeholder={ouvindo ? 'Ouvindo sua voz...' : 'Digite sua dúvida ou use o microfone para falar com o Dr. Benny Gonçalves...'}
+            placeholder={ouvindo ? 'Ouvindo sua voz...' : 'Digite sua dúvida ou use o microfone para falar com o Fisco IA...'}
             className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 focus:bg-white rounded-2xl text-xs outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600 transition-all font-medium"
           />
 
