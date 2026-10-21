@@ -17,7 +17,7 @@ O serviço `murade-fisco-ia` está publicado no Render. A implantação inicial 
 
 Configure no ambiente do serviço, sem prefixo `VITE_` para segredos:
 
-- `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA_PGDATABASE`, `FISCOIA_PGUSER`, `FISCOIA_PGPASSWORD`: credencial de runtime do papel `fiscoia_runtime`, sem acesso a outros schemas. Em produção, o serviço web ignora `DATABASE_URL` administrativa.
+- `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA_PGDATABASE`, `FISCOIA_PGUSER`, `FISCOIA_PGPASSWORD`: credencial de runtime do papel `fiscoia_runtime`. Antes de usar, confirme os privilégios efetivos com `npm run db:provision-status`, inclusive grants herdados de `PUBLIC`. Em produção, o serviço web ignora `DATABASE_URL` administrativa.
 - `FISCOIA_PGSSL`: `true` para conexão externa TLS com verificação de certificado; `false` somente para tráfego interno na mesma região do Render.
 - `DATABASE_URL`: use apenas no job privado de provisionamento inicial do papel/schema. Nunca coloque no serviço web.
 - `FISCOIA_MIGRATION_DATABASE_URL`: credencial administrativa, somente em jobs privados de migração/bootstrap. Nunca coloque no serviço web.
@@ -44,6 +44,8 @@ O `npm audit` de 21/10/2026 reporta vulnerabilidade alta em `node-forge` até a 
 
 ### Conferir antes de alterar o banco
 
+Use `npm run db:provision-status` em um job privado com `DATABASE_URL` administrativa antes de decidir sobre papéis e schema. O comando é somente leitura; lista o proprietário do schema, atributos e associações do papel runtime e privilégios efetivos em schemas/objetos fora de `fiscoia`, incluindo grants via `PUBLIC`. Se apontar acesso a tabelas ou privilégio `CREATE` fora de `fiscoia`, não conecte o runtime ao serviço até revisar a configuração. Em banco compartilhado, revogar privilégios de `PUBLIC` pode afetar outros sistemas; considere banco dedicado.
+
 Use `npm run db:status` em um job privado com `FISCOIA_MIGRATION_DATABASE_URL`. O comando é somente leitura: compara o ledger `fiscoia.schema_migrations` com os arquivos locais, incluindo SHA-256, e aponta migrações pendentes, checksums divergentes ou versões desconhecidas. Não imprime a URL nem altera o banco. Repita a conferência depois de cada job de migração.
 
 Antes de provisionar o papel e o schema, confira o estado existente no PostgreSQL. `npm run db:provision-shared-role` aborta intencionalmente se `fiscoia`, `fiscoia_runtime` ou `fiscoia_schema_owner` já existir. Nesse caso, não apague nem recrie objetos: inspecione os papéis e permissões existentes e só então escolha o próximo passo. Se o schema ainda não existir, faça o provisionamento autorizado uma única vez; depois execute `npm run db:migrate` em job privado e confirme `npm run db:status` sem pendências ou divergências.
@@ -52,7 +54,7 @@ Não execute o bootstrap administrativo sem confirmar primeiro se já existe uma
 
 ### PostgreSQL compartilhado com schema restrito (configuração inicial autorizada)
 
-O serviço web não deve receber a URL administrativa do Murade Fiscal. O schema `fiscoia` foi provisionado com o papel administrativo do banco como proprietário e uma credencial de runtime separada para `fiscoia_runtime`. Não reutiliza nem altera tabelas de outro schema.
+O serviço web não deve receber a URL administrativa do Murade Fiscal. O provisionador cria `fiscoia_runtime` e cria o schema `fiscoia` sob o usuário administrativo conectado. Ele não cria o papel `fiscoia_schema_owner`; esse nome é tratado como reservado e, se já existir, a rotina aborta para inspeção manual. O papel runtime não recebe grants diretos em outros schemas, mas privilégios concedidos a `PUBLIC` podem continuar efetivos. Execute `npm run db:provision-status` e resolva qualquer acesso externo a objetos ou `CREATE` antes de usar o runtime.
 
 Configure o serviço web apenas com `FISCOIA_PGHOST`, `FISCOIA_PGPORT`, `FISCOIA_PGDATABASE`, `FISCOIA_PGUSER=fiscoia_runtime` e a mesma senha secreta `FISCOIA_PGPASSWORD`. Para esse serviço, não configure `DATABASE_URL` nem `FISCOIA_MIGRATION_DATABASE_URL`.
 

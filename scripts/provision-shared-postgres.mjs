@@ -61,11 +61,13 @@ try {
     );
     await client.query(grantConnect.rows[0].statement);
     await client.query('CREATE SCHEMA fiscoia AUTHORIZATION CURRENT_USER');
+    // Remove grants diretos ao papel; privilégios concedidos a PUBLIC são
+    // herdados por todos os logins e precisam ser avaliados separadamente.
     await client.query('REVOKE ALL ON SCHEMA public FROM fiscoia_runtime');
     await client.query("ALTER ROLE fiscoia_runtime SET search_path = fiscoia, pg_catalog");
     await client.query('COMMIT');
 
-    console.log('Schema fiscoia criado com proprietário administrativo e usuário de runtime separado. O runtime não recebeu privilégios de DDL, superusuário, criação de banco, criação de papéis ou acesso a outros schemas.');
+    console.log('Schema fiscoia criado com proprietário administrativo e papel runtime separado. O runtime não recebeu diretamente privilégios de DDL, superusuário, criação de banco, criação de papéis ou grants em outros schemas. Confira privilégios efetivos, inclusive os herdados de PUBLIC, com npm run db:provision-status antes de usar o papel no serviço.');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
     console.error(error instanceof Error ? error.message : 'Provisionamento do schema restrito falhou.');

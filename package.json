@@ -11,6 +11,7 @@
     "db:status": "node scripts/check-migrations.mjs",
     "db:bootstrap-admin": "node scripts/bootstrap-admin.mjs",
     "db:provision-shared-role": "node scripts/provision-shared-postgres.mjs",
+    "db:provision-status": "node scripts/check-provisioning.mjs",
     "test:protocol": "tsx --test src/server/sefazDistribution.protocol.test.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
