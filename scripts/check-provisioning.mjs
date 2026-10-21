@@ -163,6 +163,23 @@ try {
     const ledger = await pool.query(`
       SELECT to_regclass('fiscoia.schema_migrations') AS table_name
     `);
+    const dispatchState = await pool.query(`
+      SELECT to_regclass('fiscoia.sefaz_dfe_global_dispatch_state') AS table_name
+    `);
+    if (dispatchState.rows[0]?.table_name) {
+      const accessResult = await pool.query(`
+        SELECT has_table_privilege('fiscoia_runtime', 'fiscoia.sefaz_dfe_global_dispatch_state', 'SELECT') AS can_select,
+               has_table_privilege('fiscoia_runtime', 'fiscoia.sefaz_dfe_global_dispatch_state', 'INSERT') AS can_insert,
+               has_table_privilege('fiscoia_runtime', 'fiscoia.sefaz_dfe_global_dispatch_state', 'UPDATE') AS can_update,
+               has_table_privilege('fiscoia_runtime', 'fiscoia.sefaz_dfe_global_dispatch_state', 'DELETE') AS can_delete
+      `);
+      const access = accessResult.rows[0];
+      console.log(`Estado global do agendador SEFAZ: leitura=${access.can_select}; inserir=${access.can_insert}; atualizar=${access.can_update}; excluir=${access.can_delete}.`);
+      if (access.can_select || access.can_insert || access.can_update || access.can_delete) {
+        console.log('ATENÇÃO: o runtime acessa diretamente o estado interno que serializa consultas. Revogue os privilégios dessa tabela; o runtime deve usar somente a função controlada.');
+        process.exitCode = 1;
+      }
+    }
     if (ledger.rows[0]?.table_name) {
       const dml = await pool.query(`
         SELECT has_table_privilege('fiscoia_runtime', 'fiscoia.schema_migrations', 'SELECT') AS can_select,
