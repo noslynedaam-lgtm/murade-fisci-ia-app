@@ -17,6 +17,7 @@ const MIGRACOES_ESPERADAS = [
   '009_sefaz_certificate_validation',
   '010_sefaz_dfe_global_cnpj_rate_limit',
   '011_central_sso_authorization',
+  '012_platform_offices',
 ];
 
 const hasScopedDatabaseConfig = Boolean(

@@ -95,6 +95,39 @@ async function criarHash(senha: string): Promise<string> {
   return `${PASSWORD_HASH_PREFIX}${PASSWORD_ITERATIONS}$${salt.toString('hex')}$${Buffer.from(digest).toString('hex')}`;
 }
 
+/** Consulta sob a identidade do usuário: as políticas RLS de vínculos exigem app.user_id na transação. */
+async function consultarComoUsuario(pool: NonNullable<ReturnType<typeof obterPoolBanco>>, userId: string, sql: string, params: unknown[]) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SELECT set_config('app.user_id', $1, true)", [userId]);
+    const result = await client.query(sql, params);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+  finally { client.release(); }
+}
+
+let funcoesEscritoriosAplicadas: boolean | null = null;
+/** True quando a migração 012 (escritórios contratantes) já foi aplicada no banco. */
+async function escritoriosDisponiveis(pool: NonNullable<ReturnType<typeof obterPoolBanco>>): Promise<boolean> {
+  if (funcoesEscritoriosAplicadas === true) return true;
+  try {
+    const r = await pool.query("SELECT to_regprocedure('fiscoia.user_is_blocked(uuid)') IS NOT NULL AS ok");
+    funcoesEscritoriosAplicadas = r.rows[0]?.ok === true;
+  } catch { funcoesEscritoriosAplicadas = false; }
+  return funcoesEscritoriosAplicadas;
+}
+
+/** Conta de escritório bloqueado pelo dono do sistema (falta de pagamento): não entra. */
+async function usuarioDeEscritorioBloqueado(pool: NonNullable<ReturnType<typeof obterPoolBanco>>, userId: unknown, ehAdmin: boolean): Promise<boolean> {
+  if (ehAdmin || !(await escritoriosDisponiveis(pool))) return false;
+  try {
+    const r = await pool.query('SELECT fiscoia.user_is_blocked($1::uuid) AS bloqueado', [userId]);
+    return r.rows[0]?.bloqueado === true;
+  } catch { return false; }
+}
+
 async function obterSessao(req: Request): Promise<{ tokenHash: string; user: PublicUser; passwordHash: string } | null> {
   const pool = obterPoolBanco();
   const token = lerCookie(req, COOKIE_NAME);
@@ -110,6 +143,7 @@ async function obterSessao(req: Request): Promise<{ tokenHash: string; user: Pub
   );
   const row = result.rows[0] as Record<string, unknown> | undefined;
   if (!row) return null;
+  if (await usuarioDeEscritorioBloqueado(pool, row.id, row.is_admin === true || row.account_type === 'ADMIN')) return null;
   return { tokenHash: String(row.token_sha256), user: usuarioPublico(row), passwordHash: String(row.password_hash) };
 }
 
@@ -153,7 +187,7 @@ router.post('/login', async (req, res) => {
     // diferenças de tempo que poderiam revelar quais contas estão cadastradas.
     const senhaValida = await verificarHash(row?.password_hash ?? DUMMY_PASSWORD_HASH, senha);
     // A resposta é igual para conta inexistente, senha incorreta ou conta suspensa.
-    if (!row || row.active !== true || !senhaValida) {
+    if (!row || row.active !== true || !senhaValida || await usuarioDeEscritorioBloqueado(pool, row.id, row.is_admin === true || row.account_type === 'ADMIN')) {
       return res.status(401).json({ mensagem: 'E-mail ou senha incorretos.' });
     }
     const rawToken = randomBytes(32).toString('base64url');
@@ -262,8 +296,7 @@ router.get('/users', async (req, res) => {
   try {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Apenas administrador central pode consultar contas.' });
-    const result = await pool.query(
+    const result = await consultarComoUsuario(pool, session.user.id,
       `SELECT u.id, u.display_name, u.email, u.crc, u.plan_id, u.active, u.is_admin, m.role
          FROM fiscoia.tenant_memberships mine
          JOIN fiscoia.tenant_memberships m ON m.tenant_id = mine.tenant_id
@@ -291,7 +324,6 @@ router.post('/users', async (req, res) => {
   try {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Apenas administrador central pode cadastrar contas.' });
 
     const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
@@ -309,13 +341,13 @@ router.post('/users', async (req, res) => {
     }
     if (expiresOn && !dataCivilValida(expiresOn)) return res.status(400).json({ mensagem: 'Data de vencimento inválida.' });
 
-    const membership = await pool.query(
+    const membership = await consultarComoUsuario(pool, session.user.id,
       `SELECT tenant_id FROM fiscoia.tenant_memberships
         WHERE user_id = $1 AND role IN ('OWNER', 'ADMIN')
         ORDER BY (role = 'OWNER') DESC LIMIT 1`,
       [session.user.id],
     );
-    if (!membership.rows[0]) return res.status(403).json({ mensagem: 'Conta administrativa sem escritório proprietário configurado.' });
+    if (!membership.rows[0]) return res.status(403).json({ mensagem: session.user.ehAdmin ? 'Conta administrativa sem escritório proprietário configurado.' : 'Somente o responsável do escritório cadastra a equipe.' });
 
     const planNames: Record<string, string> = { basico: 'Básico', profissional: 'Profissional', empresarial: 'Empresarial' };
     const convite = randomBytes(32).toString('base64url');
@@ -334,6 +366,7 @@ router.post('/users', async (req, res) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
       const inserted = await client.query(
         `INSERT INTO fiscoia.users
            (email, password_hash, display_name, phone, tax_id, crc, plan_id, plan_name, expires_on, must_change_password, account_type)
@@ -474,6 +507,88 @@ router.post('/users/reset-password', async (req, res) => {
     });
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível redefinir a senha no banco.' });
+  }
+});
+
+// ---- Dono do sistema: contrata e bloqueia escritórios (sem acesso às empresas deles) ----
+router.get('/escritorios', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema consulta os escritórios.' });
+    if (!(await escritoriosDisponiveis(pool))) return res.json({ disponivel: false, escritorios: [], mensagem: 'A migração 012 (escritórios contratantes) ainda não foi aplicada no banco.' });
+    const r = await pool.query('SELECT * FROM fiscoia.platform_list_offices($1::uuid)', [session.user.id]);
+    return res.json({ disponivel: true, escritorios: r.rows.map((row) => ({
+      id: String(row.id), nome: String(row.name), responsavel: row.owner_email ? String(row.owner_email) : '',
+      usuarios: Number(row.users), bloqueado: row.blocked_at != null, criadoEm: new Date(row.created_at).toISOString(),
+    })) });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível listar os escritórios.' }); }
+});
+
+router.post('/escritorios', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema contrata escritórios.' });
+    if (!(await escritoriosDisponiveis(pool))) return res.status(409).json({ mensagem: 'Aplique primeiro a migração 012 (npm run db:migrate) para habilitar escritórios contratantes.' });
+    const nomeEscritorio = typeof req.body?.nomeEscritorio === 'string' ? req.body.nomeEscritorio.trim() : '';
+    const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim() : '';
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const planId = ['basico', 'profissional', 'empresarial'].includes(req.body?.idPlano) ? req.body.idPlano : 'profissional';
+    const expiresOn = typeof req.body?.dataVencimento === 'string' ? req.body.dataVencimento : '';
+    if (nomeEscritorio.length < 2 || nomeEscritorio.length > 160 || nome.length < 2 || nome.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      return res.status(400).json({ mensagem: 'Informe o nome do escritório, o nome do responsável e um e-mail válido.' });
+    }
+    if (expiresOn && !dataCivilValida(expiresOn)) return res.status(400).json({ mensagem: 'Data de vencimento inválida.' });
+    const planNames: Record<string, string> = { basico: 'Básico', profissional: 'Profissional', empresarial: 'Empresarial' };
+    const convite = randomBytes(32).toString('base64url');
+    const passwordHash = await criarHash(randomBytes(48).toString('base64url'));
+    let conviteBase: URL;
+    try {
+      conviteBase = new URL((process.env.APP_URL || 'https://murade-fisco-ia.onrender.com').replace(/\/$/, ''));
+      if (conviteBase.protocol !== 'https:' && process.env.NODE_ENV === 'production') throw new Error('APP_URL must use HTTPS');
+    } catch { return res.status(503).json({ mensagem: 'Convites indisponíveis: configure uma URL pública HTTPS válida no APP_URL.' }); }
+    conviteBase.hash = new URLSearchParams({ convite }).toString();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query(
+        `INSERT INTO fiscoia.users (email, password_hash, display_name, plan_id, plan_name, expires_on, must_change_password, account_type)
+         VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::date, true, 'CONTADOR') RETURNING *`,
+        [email, passwordHash, nome, planId, planNames[planId], expiresOn],
+      );
+      await client.query('SELECT fiscoia.platform_create_office($1::uuid, $2, $3::uuid)', [session.user.id, nomeEscritorio, inserted.rows[0].id]);
+      await client.query(`INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at) VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '48 hours')`, [hashToken(convite), inserted.rows[0].id]);
+      await client.query('COMMIT');
+      return res.status(201).json({ sucesso: true, conviteUrl: conviteBase.toString(), mensagem: 'Escritório criado. Envie o link de uso único ao responsável; ele expira em 48 horas.' });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') return res.status(409).json({ mensagem: 'Já existe uma conta com este e-mail.' });
+      throw error;
+    } finally { client.release(); }
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível criar o escritório.' }); }
+});
+
+router.post('/escritorios/:id/bloqueio', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema bloqueia escritórios.' });
+    if (!(await escritoriosDisponiveis(pool))) return res.status(409).json({ mensagem: 'A migração 012 ainda não foi aplicada no banco.' });
+    const r = await pool.query('SELECT fiscoia.platform_set_office_blocked($1::uuid, $2::uuid, $3::boolean) AS ok', [session.user.id, id, req.body?.bloqueado === true]);
+    if (r.rows[0]?.ok !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
+    return res.json({ sucesso: true, bloqueado: req.body?.bloqueado === true, dadosPreservados: true });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não pode ser bloqueado.' });
+    return res.status(503).json({ mensagem: 'Não foi possível alterar o bloqueio.' });
   }
 });
 

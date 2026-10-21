@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { PLANOS } from '../../config/planos';
 import CadastroContadorScreen from './CadastroContadorScreen';
+import EscritoriosContratantes from './EscritoriosContratantes';
 import BotaoVoltar from '../../components/BotaoVoltar';
 import { obterSenhaAdmin, salvarNovaSenhaAdmin } from '../../components/ModalAcessoAdmin';
 import { alterarSenhaDireta, listarContasParaAdmin } from '../../services/auth/auth.service';
@@ -564,7 +565,10 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
 
           {/* Aba: Cadastrar Novo Contador */}
           {abaAtiva === 'cadastrar' && (
+            <>
+            <EscritoriosContratantes />
             <CadastroContadorScreen onVoltar={() => setAbaAtiva('visao_geral')} />
+            </>
           )}
 
           {/* Aba: Financeiro & Pagamentos */}
