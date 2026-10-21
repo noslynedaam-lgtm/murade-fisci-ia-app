@@ -36,6 +36,10 @@ O estado e o alcance do teste SERPRO estão descritos em [`INTEGRACAO_SERPRO.md`
 
 Nunca coloque credenciais em `VITE_*`, no código, no Git ou no navegador.
 
+### Aviso de dependência do certificado A1
+
+O `npm audit` de 21/10/2026 reporta vulnerabilidade alta em `node-forge` até a versão 1.4.0 e não indica versão corrigida. O Fisco IA usa essa biblioteca em `src/server/pfxCompat.ts` para reempacotar arquivos A1 legados quando o OpenSSL do Node não consegue abri-los. O Vite foi atualizado no lockfile para 6.4.5, que remove os avisos corrigíveis do auditor. Não há atualização automática segura para `node-forge` enquanto não houver versão corrigida; avaliar substituição do conversor e validar compatibilidade com certificados A1 legados antes de alterar esse fluxo.
+
 ## Migração do banco
 
 ### Conferir antes de alterar o banco
