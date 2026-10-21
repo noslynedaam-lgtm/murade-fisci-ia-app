@@ -7,6 +7,7 @@ import {
 import { PLANOS } from '../../config/planos';
 import CadastroContadorScreen from './CadastroContadorScreen';
 import EscritoriosContratantes from './EscritoriosContratantes';
+import PainelAtividade from './PainelAtividade';
 import BotaoVoltar from '../../components/BotaoVoltar';
 import { obterSenhaAdmin, salvarNovaSenhaAdmin } from '../../components/ModalAcessoAdmin';
 import { alterarSenhaDireta, listarContasParaAdmin } from '../../services/auth/auth.service';
@@ -567,6 +568,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
           {abaAtiva === 'cadastrar' && (
             <>
             <EscritoriosContratantes />
+            <PainelAtividade />
             <CadastroContadorScreen onVoltar={() => setAbaAtiva('visao_geral')} />
             </>
           )}

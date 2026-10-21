@@ -13,6 +13,7 @@ import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido,
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { obterPoolBanco } from "./src/server/persistence";
 import authRoutes from "./src/server/auth.routes";
+import { listarAtividadeEquipe, registrarAtividadeEquipe } from "./src/server/atividadeEquipe";
 import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
@@ -43,6 +44,8 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
   }
   return next(error);
 });
+app.use('/api', registrarAtividadeEquipe);
+app.get('/api/auth/atividade', listarAtividadeEquipe);
 app.use('/api/auth', authRoutes);
 app.use('/api/sso', ssoRoutes);
 app.use('/api', tenantRoutes);
