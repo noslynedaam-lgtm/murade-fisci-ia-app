@@ -45,6 +45,15 @@ try {
       )
     `);
 
+    const localVersions = new Set(migrationFiles.map((file) => file.replace(/\.sql$/, '')));
+    const appliedVersions = await client.query('SELECT version FROM fiscoia.schema_migrations');
+    const unknownVersions = appliedVersions.rows
+      .map((row) => String(row.version))
+      .filter((version) => !localVersions.has(version));
+    if (unknownVersions.length) {
+      throw new Error(`Migração cancelada: o ledger contém versões sem arquivo local (${unknownVersions.sort().join(', ')}). Nenhuma alteração foi feita.`);
+    }
+
     for (const migrationFile of migrationFiles) {
       const migrationVersion = migrationFile.replace(/\.sql$/, '');
       const migrationSql = await readFile(path.join(migrationsDirectory, migrationFile), 'utf8');
