@@ -108,6 +108,17 @@ async function consultarComoUsuario(pool: NonNullable<ReturnType<typeof obterPoo
   finally { client.release(); }
 }
 
+let limiteUsuariosAplicado: boolean | null = null;
+/** True quando a migração 013 (limite de usuários por escritório) já foi aplicada. */
+async function limiteUsuariosDisponivel(pool: NonNullable<ReturnType<typeof obterPoolBanco>>): Promise<boolean> {
+  if (limiteUsuariosAplicado === true) return true;
+  try {
+    const r = await pool.query("SELECT to_regprocedure('fiscoia.office_user_limit_reached(uuid)') IS NOT NULL AS ok");
+    limiteUsuariosAplicado = r.rows[0]?.ok === true;
+  } catch { limiteUsuariosAplicado = false; }
+  return limiteUsuariosAplicado;
+}
+
 let funcoesEscritoriosAplicadas: boolean | null = null;
 /** True quando a migração 012 (escritórios contratantes) já foi aplicada no banco. */
 async function escritoriosDisponiveis(pool: NonNullable<ReturnType<typeof obterPoolBanco>>): Promise<boolean> {
@@ -355,6 +366,10 @@ router.post('/users', async (req, res) => {
     );
     if (!membership.rows[0]) return res.status(403).json({ mensagem: session.user.ehAdmin ? 'Conta administrativa sem escritório proprietário configurado.' : 'Somente o responsável do escritório cadastra a equipe.' });
 
+    if (await limiteUsuariosDisponivel(pool)) {
+      const cheio = await pool.query('SELECT fiscoia.office_user_limit_reached($1::uuid) AS limite', [membership.rows[0].tenant_id]);
+      if (cheio.rows[0]?.limite != null) return res.status(409).json({ mensagem: `O plano deste escritório permite ${cheio.rows[0].limite} usuário(s) (dono incluso) e todos já estão em uso. Fale com o fornecedor para ampliar.` });
+    }
     const planNames: Record<string, string> = { basico: 'Básico', profissional: 'Profissional', empresarial: 'Empresarial' };
     const convite = randomBytes(32).toString('base64url');
     const passwordHash = await criarHash(randomBytes(48).toString('base64url'));
@@ -526,8 +541,14 @@ router.get('/escritorios', async (req, res) => {
     if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema consulta os escritórios.' });
     if (!(await escritoriosDisponiveis(pool))) return res.json({ disponivel: false, escritorios: [], mensagem: 'A migração 012 (escritórios contratantes) ainda não foi aplicada no banco.' });
     const r = await pool.query('SELECT * FROM fiscoia.platform_list_offices($1::uuid)', [session.user.id]);
+    const limites = new Map<string, number | null>();
+    if (await limiteUsuariosDisponivel(pool)) {
+      const l = await pool.query('SELECT * FROM fiscoia.platform_list_office_limits($1::uuid)', [session.user.id]);
+      for (const row of l.rows) limites.set(String(row.id), row.max_users == null ? null : Number(row.max_users));
+    }
     return res.json({ disponivel: true, escritorios: r.rows.map((row) => ({
       id: String(row.id), nome: String(row.name), responsavel: row.owner_email ? String(row.owner_email) : '',
+      limiteUsuarios: limites.get(String(row.id)) ?? null,
       usuarios: Number(row.users), bloqueado: row.blocked_at != null, criadoEm: new Date(row.created_at).toISOString(),
     })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível listar os escritórios.' }); }
@@ -595,6 +616,27 @@ router.post('/escritorios/:id/bloqueio', async (req, res) => {
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não pode ser bloqueado.' });
     return res.status(503).json({ mensagem: 'Não foi possível alterar o bloqueio.' });
+  }
+});
+
+router.post('/escritorios/:id/limite', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  const bruto = req.body?.limite; const limite = bruto === null ? null : Number(bruto);
+  if (limite !== null && (!Number.isInteger(limite) || limite < 1 || limite > 1000)) return res.status(400).json({ mensagem: 'Informe um limite de 1 a 1000 usuários (ou vazio para sem limite).' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema define o limite de usuários.' });
+    if (!(await limiteUsuariosDisponivel(pool))) return res.status(409).json({ mensagem: 'Aplique primeiro a migração 013 (npm run db:migrate) para habilitar o limite de usuários.' });
+    const r = await pool.query('SELECT fiscoia.platform_set_office_limit($1::uuid, $2::uuid, $3::integer) AS ok', [session.user.id, id, limite]);
+    if (r.rows[0]?.ok !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
+    return res.json({ sucesso: true, limite });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não tem limite.' });
+    return res.status(503).json({ mensagem: 'Não foi possível definir o limite.' });
   }
 });
 

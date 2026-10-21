@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
 
-type Escritorio = { id: string; nome: string; responsavel: string; usuarios: number; bloqueado: boolean; criadoEm: string };
+type Escritorio = { id: string; nome: string; responsavel: string; usuarios: number; limiteUsuarios?: number | null; bloqueado: boolean; criadoEm: string };
 
 // Painel do dono do sistema: contrata e bloqueia escritórios. Só mostra dados de contratação;
 // as empresas, notas e certificados de cada escritório ficam fora do alcance desta conta.
@@ -29,6 +29,12 @@ export default function EscritoriosContratantes() {
     try { const d = await chamar('/api/auth/escritorios', form); setLink(d.conviteUrl); setForm({ nomeEscritorio: '', nome: '', email: '' }); await carregar(); }
     catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
+  const definirLimite = async (x: Escritorio) => {
+    const resp = window.prompt(`Quantos usuários o escritório ${x.nome} contratou (dono incluso)? Deixe vazio para sem limite.`, x.limiteUsuarios == null ? '' : String(x.limiteUsuarios));
+    if (resp === null) return;
+    try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/limite`, { limite: resp.trim() === '' ? null : Number(resp) }); await carregar(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível definir o limite.'); }
+  };
   const alternar = async (x: Escritorio) => {
     if (!window.confirm(x.bloqueado ? `Liberar o escritório ${x.nome}?` : `Bloquear o escritório ${x.nome}? Ninguém dele (equipe e clientes) consegue entrar; nada é apagado.`)) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/bloqueio`, { bloqueado: !x.bloqueado }); await carregar(); }
@@ -50,7 +56,8 @@ export default function EscritoriosContratantes() {
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
       {lista.length > 0 && <div className="mt-4">{lista.map((x) => (
         <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm">
-          <span><strong>{x.nome}</strong> · {x.responsavel || 'sem responsável'} · {x.usuarios} usuário(s) · {x.bloqueado ? <span className="font-semibold text-red-700">BLOQUEADO</span> : <span className="text-emerald-700">ativo</span>}</span>
+          <span><strong>{x.nome}</strong> · {x.responsavel || 'sem responsável'} · {x.usuarios} de {x.limiteUsuarios ?? 'sem limite'} usuário(s) · {x.bloqueado ? <span className="font-semibold text-red-700">BLOQUEADO</span> : <span className="text-emerald-700">ativo</span>}</span>
+          <button onClick={() => void definirLimite(x)} className="rounded bg-slate-700 px-3 py-1 text-white">Limite</button>
           <button onClick={() => void alternar(x)} className={x.bloqueado ? 'rounded bg-emerald-700 px-3 py-1 text-white' : 'rounded bg-red-700 px-3 py-1 text-white'}>{x.bloqueado ? 'Liberar' : 'Bloquear (falta de pagamento)'}</button>
         </div>))}</div>}
     </section>
