@@ -7,6 +7,7 @@ import {
 import { UsuarioAuth } from '../../types';
 import { PLANOS } from '../../config/planos';
 import { atualizarPerfilUsuario, alterarSenhaContaLocal } from '../../services/auth/auth.service';
+import GestaoEquipe from '../../components/GestaoEquipe';
 
 interface MinhaContaScreenProps {
   usuario: UsuarioAuth | null;
@@ -182,6 +183,8 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
           </div>
         </div>
       </div>
+
+      <GestaoEquipe />
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Coluna Esquerda: Dados Cadastrais da Contadora e Escritório */}

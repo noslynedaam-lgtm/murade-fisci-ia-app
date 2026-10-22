@@ -326,6 +326,7 @@ router.get('/users', async (req, res) => {
       id: String(row.id), nome: String(row.display_name), email: String(row.email),
       crc: typeof row.crc === 'string' ? row.crc : '',
       tipo: row.role === 'OWNER' || row.role === 'ADMIN' ? 'ADMIN' : 'CONTADOR',
+      papel: String(row.role),
       ehAdmin: row.is_admin === true,
       ativo: row.active === true,
       plano: row.plan_id,
@@ -430,6 +431,138 @@ router.post('/users', async (req, res) => {
   }
 });
 
+
+router.post('/users/:id/block', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  const bloqueado = req.body?.bloqueado === true;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ mensagem: 'Identificador de usuário inválido.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      const membership = await client.query(
+        `SELECT mine.tenant_id FROM fiscoia.tenant_memberships mine
+          WHERE mine.user_id=$1 AND mine.role IN ('OWNER','ADMIN')
+          ORDER BY (mine.role='OWNER') DESC LIMIT 1`,
+        [session.user.id],
+      );
+      if (!membership.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
+      const target = await client.query(
+        `SELECT m.role FROM fiscoia.tenant_memberships m
+          JOIN fiscoia.users u ON u.id=m.user_id
+          WHERE m.tenant_id=$1 AND m.user_id=$2
+          FOR UPDATE OF m,u`,
+        [membership.rows[0].tenant_id, id],
+      );
+      if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
+      await client.query('UPDATE fiscoia.users SET active=$1,updated_at=now() WHERE id=$2', [!bloqueado, id]);
+      if (bloqueado) await client.query('UPDATE fiscoia.auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      await client.query('COMMIT');
+      return res.json({ sucesso: true, bloqueado });
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível atualizar o acesso do membro.' });
+  }
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ mensagem: 'Identificador de usuário inválido.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      const membership = await client.query(
+        `SELECT mine.tenant_id FROM fiscoia.tenant_memberships mine
+          WHERE mine.user_id=$1 AND mine.role IN ('OWNER','ADMIN')
+          ORDER BY (mine.role='OWNER') DESC LIMIT 1`,
+        [session.user.id],
+      );
+      if (!membership.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
+      const target = await client.query(
+        `SELECT m.role FROM fiscoia.tenant_memberships m
+          JOIN fiscoia.users u ON u.id=m.user_id
+          WHERE m.tenant_id=$1 AND m.user_id=$2
+          FOR UPDATE OF m,u`,
+        [membership.rows[0].tenant_id, id],
+      );
+      if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
+      await client.query('DELETE FROM fiscoia.tenant_memberships WHERE tenant_id=$1 AND user_id=$2', [membership.rows[0].tenant_id, id]);
+      await client.query('UPDATE fiscoia.users SET active=EXISTS(SELECT 1 FROM fiscoia.tenant_memberships WHERE user_id=$1),updated_at=now() WHERE id=$1', [id]);
+      await client.query('UPDATE fiscoia.auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      await client.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [id]);
+      await client.query('COMMIT');
+      return res.json({ sucesso: true, mensagem: 'Membro removido do escritório. A conta e os dados foram preservados.' });
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível remover o membro.' });
+  }
+});
+
+router.post('/users/:id/reset-link', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ mensagem: 'Identificador de usuário inválido.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const appUrl = (process.env.APP_URL || 'https://murade-fisco-ia.onrender.com').replace(/\/$/, '');
+    let linkBase: URL;
+    try { linkBase = new URL(appUrl); if (process.env.NODE_ENV === 'production' && linkBase.protocol !== 'https:') throw new Error('HTTPS obrigatório'); }
+    catch { return res.status(503).json({ mensagem: 'Links indisponíveis: configure uma URL HTTPS válida no APP_URL.' }); }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      const manager = await client.query(
+        `SELECT tenant_id FROM fiscoia.tenant_memberships
+          WHERE user_id=$1 AND role IN ('OWNER','ADMIN')
+          ORDER BY (role='OWNER') DESC LIMIT 1`,
+        [session.user.id],
+      );
+      if (!manager.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
+      const target = await client.query(
+        `SELECT u.id,u.must_change_password,u.active,m.role FROM fiscoia.tenant_memberships m
+          JOIN fiscoia.users u ON u.id=m.user_id
+          WHERE m.tenant_id=$1 AND m.user_id=$2
+          FOR UPDATE OF m,u`,
+        [manager.rows[0].tenant_id, id],
+      );
+      if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
+      if (target.rows[0].active !== true) { await client.query('ROLLBACK'); return res.status(409).json({ mensagem: 'Desbloqueie o membro antes de gerar um link de acesso.' }); }
+      const token = randomBytes(32).toString('base64url');
+      const purpose = target.rows[0].must_change_password === true ? 'FIRST_ACCESS' : 'PASSWORD_RESET';
+      const tokenHash = hashToken(token);
+      await client.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [id]);
+      await client.query(
+        `INSERT INTO fiscoia.password_reset_tokens (token_sha256,user_id,purpose,expires_at)
+         VALUES ($1,$2,$3,now()+interval '24 hours')`,
+        [tokenHash,id,purpose],
+      );
+      await client.query('COMMIT');
+      linkBase.hash = new URLSearchParams({ redefinir: token }).toString();
+      return res.status(201).json({ sucesso: true, link: linkBase.toString(), expiraEmHoras: 24, primeiroAcesso: purpose === 'FIRST_ACCESS' });
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível gerar o link de acesso.' });
+  }
+});
+
 router.post('/accept-invite', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Autenticação central indisponível: banco permanente não configurado.' });
@@ -445,7 +578,7 @@ router.post('/accept-invite', async (req, res) => {
       `SELECT t.user_id, u.*
          FROM fiscoia.password_reset_tokens t
          JOIN fiscoia.users u ON u.id = t.user_id
-        WHERE t.token_sha256 = $1 AND t.purpose = 'FIRST_ACCESS'
+        WHERE t.token_sha256 = $1 AND t.purpose IN ('FIRST_ACCESS', 'PASSWORD_RESET')
           AND t.consumed_at IS NULL AND t.expires_at > now() AND u.active = true
         FOR UPDATE OF t, u`,
       [hashToken(token)],
