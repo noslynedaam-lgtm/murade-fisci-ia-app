@@ -133,13 +133,9 @@ export default function MenuLateral({
   };
 
   const toggleCertificado = () => {
-    if ((window as any).ABRIR_CERTIFICADO_MURADE) {
-      (window as any).ABRIR_CERTIFICADO_MURADE();
-      setCertAberto(true);
-    } else if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('abrir_painel_unificado', { detail: { aba: 'cert' } }));
-      setCertAberto(true);
-    }
+    // Abre o envio real do certificado A1 (modal da barra superior).
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('murade_abrir_certificado'));
+    setCertAberto(true);
   };
 
   // Mapeamento bidirecional para compatibilidade total entre nomes amigáveis e IDs internos
