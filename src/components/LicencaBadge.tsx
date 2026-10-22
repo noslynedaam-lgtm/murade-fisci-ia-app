@@ -30,6 +30,8 @@ export default function LicencaBadge({ cnpj }: { cnpj: string | null | undefined
     else if (estado.situacao === 'vencida') { texto = `Licença vencida em ${data(estado.vencimento)}`; cor = 'bg-red-50 border-red-300 text-red-900'; }
     else { texto = 'Licença inativa'; cor = 'bg-red-50 border-red-300 text-red-900'; }
   }
+  return null; // Selo de licença removido a pedido do dono do sistema.
+  // eslint-disable-next-line no-unreachable
   return (
     <div role="button" tabIndex={0} onClick={() => window.open('https://murade-dp.onrender.com', '_blank', 'noopener,noreferrer')} className={`flex cursor-pointer items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold ${cor}`} title="Licença da empresa — clique para abrir o Murade DP, onde ela é cadastrada">
       <KeyRound className="h-3.5 w-3.5 shrink-0" />
