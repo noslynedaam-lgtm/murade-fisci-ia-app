@@ -138,6 +138,7 @@ export default function Navbar({
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1 text-xs text-white">
           <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
           <div className="flex gap-2">
+            <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${empresaAtiva?.certificado ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{empresaAtiva?.certificado ? `Certificado ${empresaAtiva.certificado.tipo || 'A1'}` : 'Colocar Certificado'}</button>
             <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>
             {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
           </div>
