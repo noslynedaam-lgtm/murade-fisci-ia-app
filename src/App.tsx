@@ -62,12 +62,18 @@ export default function App() {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fiscoia_auth_session_updated'));
   };
 
-  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir' | 'convite'>(() => tokenConvite ? 'convite' : 'login');
+  const [modoAuth, setModoAuth] = useState<'app' | 'login' | 'primeiro_acesso' | 'recuperar' | 'redefinir' | 'convite'>(() => {
+    const redefinir = typeof window !== 'undefined' ? new URLSearchParams(window.location.hash.replace(/^#/, '')).get('redefinir') : '';
+    return redefinir ? 'redefinir' : tokenConvite ? 'convite' : 'login';
+  });
   const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [mensagemAuthServidor, setMensagemAuthServidor] = useState<string | null>(null);
   const [emailPrimeiroAcesso, setEmailPrimeiroAcesso] = useState('');
   const [emailRecuperacao, setEmailRecuperacao] = useState('');
-  const [tokenRedefinicao, setTokenRedefinicao] = useState('');
+  const [tokenRedefinicao, setTokenRedefinicao] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.hash.replace(/^#/, '')).get('redefinir') || '';
+  });
   const [modalEmailsAberto, setModalEmailsAberto] = useState(false);
   const [emailsEnviados, setEmailsEnviados] = useState<EmailEnviadoLog[]>([]);
 
