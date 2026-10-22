@@ -141,10 +141,8 @@ export function PainelAnimadoLateral({
       setAbaAtiva('monitor');
     };
     (window as any).ABRIR_CERTIFICADO_MURADE = () => {
-      setFechado(false);
-      setMinimizado(false);
-      setModoTamanho('expandido');
-      setAbaAtiva('cert');
+      // O envio real do certificado A1 fica no botão da barra superior (Navbar); este painel era só informativo.
+      window.dispatchEvent(new Event('murade_abrir_certificado'));
     };
     (window as any).ABRIR_ROBO_MURADE = () => {
       setFechado(false);

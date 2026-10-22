@@ -101,6 +101,11 @@ export default function Navbar({
     if (!empresaAtiva) { setAvisoCert('Escolha ou cadastre uma empresa para colocar o certificado digital.'); window.setTimeout(() => setAvisoCert(''), 5000); return; }
     setCertModalAberto(true);
   };
+  useEffect(() => {
+    const abrir = () => abrirCertificado();
+    window.addEventListener('murade_abrir_certificado', abrir);
+    return () => window.removeEventListener('murade_abrir_certificado', abrir);
+  });
   const handleAbrirOpcaoConfig = (opcao: string) => {
     if (opcao === 'certificado') { abrirCertificado(); return; }
     setOpcaoConfigAtiva(opcao);
