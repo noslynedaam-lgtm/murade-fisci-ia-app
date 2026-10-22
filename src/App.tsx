@@ -137,6 +137,11 @@ export default function App() {
   }, [modalEmailsAberto]);
 
   useEffect(() => {
+    if (tokenRedefinicao) {
+      setModoAuth('redefinir');
+      setVerificandoSessao(false);
+      return () => undefined;
+    }
     if (tokenConvite) {
       setModoAuth('convite');
       setVerificandoSessao(false);
@@ -160,7 +165,7 @@ export default function App() {
       setVerificandoSessao(false);
     });
     return () => { ativo = false; };
-  }, [tokenConvite]);
+  }, [tokenConvite, tokenRedefinicao]);
 
   // Navegação com proteção estrita de acesso e suporte abrangente a aliases
   const handleNavegacao = (novaAba: string) => {
