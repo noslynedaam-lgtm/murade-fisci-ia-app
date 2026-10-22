@@ -499,7 +499,7 @@ router.delete('/users/:id', async (req, res) => {
       );
       if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
       await client.query('DELETE FROM fiscoia.tenant_memberships WHERE tenant_id=$1 AND user_id=$2', [membership.rows[0].tenant_id, id]);
-      await client.query('UPDATE fiscoia.users SET active=false,updated_at=now() WHERE id=$1', [id]);
+      await client.query('UPDATE fiscoia.users SET active=EXISTS(SELECT 1 FROM fiscoia.tenant_memberships WHERE user_id=$1),updated_at=now() WHERE id=$1', [id]);
       await client.query('UPDATE fiscoia.auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
       await client.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [id]);
       await client.query('COMMIT');
@@ -536,13 +536,14 @@ router.post('/users/:id/reset-link', async (req, res) => {
       );
       if (!manager.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
       const target = await client.query(
-        `SELECT u.id,u.must_change_password,m.role FROM fiscoia.tenant_memberships m
+        `SELECT u.id,u.must_change_password,u.active,m.role FROM fiscoia.tenant_memberships m
           JOIN fiscoia.users u ON u.id=m.user_id
           WHERE m.tenant_id=$1 AND m.user_id=$2
           FOR UPDATE OF m,u`,
         [manager.rows[0].tenant_id, id],
       );
       if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
+      if (target.rows[0].active !== true) { await client.query('ROLLBACK'); return res.status(409).json({ mensagem: 'Desbloqueie o membro antes de gerar um link de acesso.' }); }
       const token = randomBytes(32).toString('base64url');
       const purpose = target.rows[0].must_change_password === true ? 'FIRST_ACCESS' : 'PASSWORD_RESET';
       const tokenHash = hashToken(token);
