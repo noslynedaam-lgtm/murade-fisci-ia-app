@@ -151,12 +151,41 @@ export async function cadastrarContador(dados: DadosCadastroContador): Promise<{
   };
 }
 
-export async function listarContasParaAdmin(): Promise<Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean }>> {
-  const resultado = await requisicaoAuthCentral<{ contas?: Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean }>; mensagem?: string }>('users');
+export type MembroEquipe = { id: string; nome: string; email: string; crc: string; tipo: string; papel: string; ehAdmin: boolean; ativo: boolean; plano: string };
+
+export async function listarContasParaAdmin(): Promise<Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean; ativo?: boolean; papel?: string }>> {
+  const resultado = await requisicaoAuthCentral<{ contas?: Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean; ativo?: boolean; papel?: string }>; mensagem?: string }>('users');
   if (!resultado.ok || !Array.isArray(resultado.dados?.contas)) {
     throw new Error(resultado.dados?.mensagem || 'Não foi possível carregar as contas do servidor.');
   }
   return resultado.dados.contas;
+}
+
+
+export async function listarEquipeEscritorio(): Promise<MembroEquipe[]> {
+  const resultado = await requisicaoAuthCentral<{ contas?: MembroEquipe[]; mensagem?: string }>('users');
+  if (!resultado.ok || !Array.isArray(resultado.dados?.contas)) {
+    throw new Error(resultado.dados?.mensagem || 'Não foi possível carregar a equipe deste escritório.');
+  }
+  return resultado.dados.contas;
+}
+
+export async function definirBloqueioMembro(id: string, bloqueado: boolean): Promise<void> {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string }>(`users/${encodeURIComponent(id)}/block`, {
+    method: 'POST', body: JSON.stringify({ bloqueado }),
+  });
+  if (!resultado.ok || !resultado.dados?.sucesso) throw new Error(resultado.dados?.mensagem || 'Não foi possível alterar o acesso.');
+}
+
+export async function removerMembroEquipe(id: string): Promise<void> {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string }>(`users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!resultado.ok || !resultado.dados?.sucesso) throw new Error(resultado.dados?.mensagem || 'Não foi possível remover o membro.');
+}
+
+export async function gerarLinkAcessoMembro(id: string): Promise<{ link: string; primeiroAcesso: boolean }> {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; link?: string; primeiroAcesso?: boolean; mensagem?: string }>(`users/${encodeURIComponent(id)}/reset-link`, { method: 'POST', body: '{}' });
+  if (!resultado.ok || !resultado.dados?.sucesso || !resultado.dados.link) throw new Error(resultado.dados?.mensagem || 'Não foi possível gerar o link.');
+  return { link: resultado.dados.link, primeiroAcesso: resultado.dados.primeiroAcesso === true };
 }
 
 export async function alterarSenhaDireta(email: string, _novaSenha: string): Promise<{
@@ -185,12 +214,8 @@ export async function recuperarSenha(email: string): Promise<{ sucesso: boolean;
 }
 
 export async function redefinirSenha(token: string, novaSenha: string): Promise<{ sucesso: boolean; mensagem: string }> {
-  void token;
-  void novaSenha;
-  return {
-    sucesso: false,
-    mensagem: 'Este link não redefine a senha da conta do servidor. Peça ao administrador para redefinir seu acesso pelo painel seguro.'
-  };
+  const resultado = await aceitarConvite(token, novaSenha);
+  return { sucesso: resultado.sucesso, mensagem: resultado.mensagem };
 }
 
 export async function atualizarPerfilUsuario(usuarioAtualizado: UsuarioAuth): Promise<{ sucesso: boolean; mensagem: string; usuario?: UsuarioAuth }> {
