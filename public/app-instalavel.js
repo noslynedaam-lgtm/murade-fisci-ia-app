@@ -51,3 +51,24 @@
   });
   window.addEventListener('appinstalled', function () { var b = document.getElementById('murade-instalar'); if (b) b.remove(); });
 })();
+
+// Atualização automática: se o Render publicou versão nova, recarrega sozinho (ao abrir e ao voltar para a janela).
+(function () {
+  function atual() { return Array.prototype.map.call(document.scripts, function (s) { return s.src; }).filter(function (s) { return /\/assets\//.test(s); }).join('|'); }
+  function checar() {
+    try {
+      fetch('/?_=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.text(); }).then(function (t) {
+        var ach = []; var re = /src="([^"]*\/assets\/[^"]+\.js)"/g; var m;
+        while ((m = re.exec(t))) ach.push(new URL(m[1], location.href).href);
+        var novo = ach.join('|');
+        if (!novo) return;
+        var chave = 'murade_recarga_' + location.host;
+        if (novo !== atual()) {
+          if (sessionStorage.getItem(chave) !== novo) { sessionStorage.setItem(chave, novo); location.reload(); }
+        } else sessionStorage.removeItem(chave);
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  setTimeout(checar, 2500);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checar(); });
+})();
