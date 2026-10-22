@@ -60,6 +60,19 @@ export default function Navbar({
   const [modalAdminAberto, setModalAdminAberto] = useState(false);
   const { empresaAtiva, selecionarEmpresa, salvarNovaEmpresa } = useEmpresa();
   const [certModalAberto, setCertModalAberto] = useState(false);
+  // Verde só quando o servidor confirma o A1 guardado no cofre; senão laranja (igual ao Fiscal).
+  const [certNoServidor, setCertNoServidor] = useState<boolean | null>(null);
+  useEffect(() => {
+    const idC = (empresaAtiva as any)?.idCentral; const tenant = (empresaAtiva as any)?.tenantIdCentral;
+    if (!idC || !tenant) { setCertNoServidor(false); return; }
+    let ativo = true;
+    setCertNoServidor(null);
+    fetch(`/api/companies/${encodeURIComponent(idC)}/fiscal-certificate/status?tenantId=${encodeURIComponent(tenant)}`, { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => r.json().catch(() => ({})).then((d) => { if (ativo) setCertNoServidor(r.ok && d.cadastradoNoServidor === true); }))
+      .catch(() => { if (ativo) setCertNoServidor(false); });
+    return () => { ativo = false; };
+  }, [(empresaAtiva as any)?.idCentral, (empresaAtiva as any)?.tenantIdCentral, certModalAberto]);
+  const certOk = certNoServidor === true;
   const [avisoCert, setAvisoCert] = useState('');
   const [opcaoConfigAtiva, setOpcaoConfigAtiva] = useState<string>('certificado');
 
@@ -138,7 +151,7 @@ export default function Navbar({
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1 text-xs text-white">
           <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
           <div className="flex gap-2">
-            <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${empresaAtiva?.certificado ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{empresaAtiva?.certificado ? `Certificado ${empresaAtiva.certificado.tipo || 'A1'}` : 'Colocar Certificado'}</button>
+            <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
             <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>
             {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
           </div>
@@ -372,11 +385,11 @@ export default function Navbar({
               type="button"
               id="btn-certificado-topo"
               onClick={abrirCertificado}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white font-bold text-xs cursor-pointer transition-colors shadow-xs ${empresaAtiva?.certificado ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white font-bold text-xs cursor-pointer transition-colors shadow-xs ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}
               title="Colocar ou atualizar o certificado digital A1 da empresa ativa"
             >
               <Lock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{empresaAtiva?.certificado ? `Certificado ${empresaAtiva.certificado.tipo || 'A1'}` : 'Colocar Certificado'}</span>
+              <span className="hidden sm:inline">{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</span>
             </button>
 
             {/* Seletor de Nível / Visualizador de Plano */}
