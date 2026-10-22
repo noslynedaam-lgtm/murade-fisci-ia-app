@@ -11,6 +11,7 @@ import { UsuarioAuth } from '../types';
 import { ehUsuarioAdmin } from '../config/Permissoes';
 import SeletorEmpresaGlobal from './SeletorEmpresaGlobal';
 import LicencaBadge from './LicencaBadge';
+import ModalCertificadoEmpresa from '../screens/Empresas/ModalCertificadoEmpresa';
 import { useEmpresa } from '../context/EmpresaContext';
 import ModalConfiguracoesSistema from './ModalConfiguracoesSistema';
 import ModalAcessoAdmin from './ModalAcessoAdmin';
@@ -57,6 +58,9 @@ export default function Navbar({
   const [menuConfigAberto, setMenuConfigAberto] = useState(false);
   const [modalConfigAberto, setModalConfigAberto] = useState(false);
   const [modalAdminAberto, setModalAdminAberto] = useState(false);
+  const { empresaAtiva, selecionarEmpresa, salvarNovaEmpresa } = useEmpresa();
+  const [certModalAberto, setCertModalAberto] = useState(false);
+  const [avisoCert, setAvisoCert] = useState('');
   const [opcaoConfigAtiva, setOpcaoConfigAtiva] = useState<string>('certificado');
 
   const refMenuConfig = useRef<HTMLDivElement>(null);
@@ -92,7 +96,13 @@ export default function Navbar({
     return () => window.removeEventListener('abrir_modal_senha_admin', handleAbrirJanelaSenha);
   }, []);
 
+  const abrirCertificado = () => {
+    setMenuConfigAberto(false);
+    if (!empresaAtiva) { setAvisoCert('Escolha ou cadastre uma empresa para colocar o certificado digital.'); window.setTimeout(() => setAvisoCert(''), 5000); return; }
+    setCertModalAberto(true);
+  };
   const handleAbrirOpcaoConfig = (opcao: string) => {
+    if (opcao === 'certificado') { abrirCertificado(); return; }
     setOpcaoConfigAtiva(opcao);
     setMenuConfigAberto(false);
     setModalConfigAberto(true);
@@ -351,6 +361,18 @@ export default function Navbar({
             <SeletorEmpresaGlobal onCadastrarNova={() => onSelecionarAba('cadastro-empresa')} />
             <LicencaBadge cnpj={empresaAtivaLicenca?.cnpj} />
 
+            {/* 🔐 Certificado digital da empresa ativa (igual ao Fiscal) */}
+            <button
+              type="button"
+              id="btn-certificado-topo"
+              onClick={abrirCertificado}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white font-bold text-xs cursor-pointer transition-colors shadow-xs ${empresaAtiva?.certificado ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}
+              title="Colocar ou atualizar o certificado digital A1 da empresa ativa"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{empresaAtiva?.certificado ? `Certificado ${empresaAtiva.certificado.tipo || 'A1'}` : 'Colocar Certificado'}</span>
+            </button>
+
             {/* Seletor de Nível / Visualizador de Plano */}
             <div className="relative">
               <button
@@ -532,6 +554,21 @@ export default function Navbar({
           onSelecionarAba(aba);
         }}
       />
+      {avisoCert && <div role="alert" className="fixed top-16 right-4 z-[200] rounded-xl bg-amber-100 border border-amber-300 text-amber-900 text-xs font-semibold px-4 py-2 shadow-lg">{avisoCert}</div>}
+      {certModalAberto && empresaAtiva && (
+        <ModalCertificadoEmpresa
+          empresa={empresaAtiva}
+          onFechar={() => setCertModalAberto(false)}
+          onSalvarCertificado={async (atualizada) => {
+            const salva = salvarNovaEmpresa(atualizada);
+            if (!salva) throw new Error('O certificado foi confirmado no servidor, mas a referência local não pôde ser atualizada. Atualize a tela; ele permanece salvo no servidor.');
+            selecionarEmpresa(salva);
+            setCertModalAberto(false);
+          }}
+          onAbrirCadastroCompleto={() => { setCertModalAberto(false); onSelecionarAba('empresas'); }}
+        />
+      )}
     </header>
+
   );
 }
