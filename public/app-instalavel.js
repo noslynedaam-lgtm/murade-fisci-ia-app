@@ -71,4 +71,30 @@
   }
   setTimeout(checar, 2500);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checar(); });
+  setInterval(checar, 5 * 60 * 1000); // aplicativo deixado aberto: confere versão nova a cada 5 minutos
+  window.addEventListener('online', checar);
+  try { if ('serviceWorker' in navigator) setInterval(function () { navigator.serviceWorker.getRegistration().then(function (g) { if (g) g.update(); }); }, 30 * 60 * 1000); } catch (e) {}
+})();
+
+// Aviso de conexão: sem internet o sistema continua aberto; ao voltar, avisa para os sistemas enviarem o que ficou pendente.
+(function () {
+  var faixa = null;
+  function mostrar(texto, cor) {
+    if (!document.body) return;
+    if (!faixa) {
+      faixa = document.createElement('div'); faixa.id = 'murade-conexao'; faixa.setAttribute('role', 'status');
+      faixa.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147482000;padding:8px 12px;font:600 13px system-ui,sans-serif;color:#fff;text-align:center';
+      document.body.appendChild(faixa);
+    }
+    faixa.style.background = cor; faixa.textContent = texto;
+  }
+  function esconder() { if (faixa) { faixa.remove(); faixa = null; } }
+  function off() { mostrar('Sem internet. Você pode continuar; o que for salvo fica neste computador e é enviado sozinho quando a conexão voltar.', '#92400e'); }
+  window.addEventListener('offline', off);
+  window.addEventListener('online', function () {
+    mostrar('Conexão de volta. Enviando o que foi feito sem internet…', '#1e3a8a');
+    try { window.dispatchEvent(new Event('murade-voltou-online')); } catch (e) {}
+    setTimeout(esconder, 5000);
+  });
+  if (navigator.onLine === false) { if (document.body) off(); else document.addEventListener('DOMContentLoaded', off); }
 })();
