@@ -151,7 +151,7 @@ export async function cadastrarContador(dados: DadosCadastroContador): Promise<{
   };
 }
 
-export type MembroEquipe = { id: string; nome: string; email: string; crc: string; tipo: string; papel: string; ehAdmin: boolean; ativo: boolean; plano: string };
+export type MembroEquipe = { id: string; nome: string; email: string; crc: string; tipo: string; papel: string; ehAdmin: boolean; ativo: boolean; primeiroAcesso?: boolean; plano: string };
 
 export async function listarContasParaAdmin(): Promise<Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean; ativo?: boolean; papel?: string }>> {
   const resultado = await requisicaoAuthCentral<{ contas?: Array<{ id: string; nome: string; email: string; tipo: string; ehAdmin: boolean; ativo?: boolean; papel?: string }>; mensagem?: string }>('users');
@@ -180,6 +180,12 @@ export async function definirBloqueioMembro(id: string, bloqueado: boolean): Pro
 export async function removerMembroEquipe(id: string): Promise<void> {
   const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string }>(`users/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!resultado.ok || !resultado.dados?.sucesso) throw new Error(resultado.dados?.mensagem || 'Não foi possível remover o membro.');
+}
+
+export async function excluirMembroEquipe(id: string): Promise<string> {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; mensagem?: string }>(`users/${encodeURIComponent(id)}/excluir`, { method: 'POST', body: JSON.stringify({}) });
+  if (!resultado.ok || !resultado.dados?.sucesso) throw new Error(resultado.dados?.mensagem || 'Não foi possível excluir o usuário.');
+  return resultado.dados.mensagem || 'Usuário excluído.';
 }
 
 export async function gerarLinkAcessoMembro(id: string): Promise<{ link: string; primeiroAcesso: boolean }> {

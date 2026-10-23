@@ -314,7 +314,7 @@ router.get('/users', async (req, res) => {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     const result = await consultarComoUsuario(pool, session.user.id,
-      `SELECT u.id, u.display_name, u.email, u.crc, u.plan_id, u.active, u.is_admin, m.role
+      `SELECT u.id, u.display_name, u.email, u.crc, u.plan_id, u.active, u.is_admin, u.must_change_password, m.role
          FROM fiscoia.tenant_memberships mine
          JOIN fiscoia.tenant_memberships m ON m.tenant_id = mine.tenant_id
          JOIN fiscoia.users u ON u.id = m.user_id
@@ -329,6 +329,7 @@ router.get('/users', async (req, res) => {
       papel: String(row.role),
       ehAdmin: row.is_admin === true,
       ativo: row.active === true,
+      primeiroAcesso: row.must_change_password === true,
       plano: row.plan_id,
     })) });
   } catch {
@@ -508,6 +509,49 @@ router.delete('/users/:id', async (req, res) => {
     finally { client.release(); }
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível remover o membro.' });
+  }
+});
+
+router.post('/users/:id/excluir', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ mensagem: 'Identificador de usuário inválido.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      const membership = await client.query(
+        `SELECT tenant_id FROM fiscoia.tenant_memberships WHERE user_id=$1 AND role IN ('OWNER','ADMIN') ORDER BY (role='OWNER') DESC LIMIT 1`, [session.user.id]);
+      if (!membership.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
+      const target = await client.query(
+        `SELECT m.role FROM fiscoia.tenant_memberships m JOIN fiscoia.users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.user_id=$2 FOR UPDATE OF m,u`,
+        [membership.rows[0].tenant_id, id]);
+      if (!target.rows[0] || target.rows[0].role !== 'CONTADOR') { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'Membro não encontrado neste escritório.' }); }
+      await client.query('DELETE FROM fiscoia.tenant_memberships WHERE tenant_id=$1 AND user_id=$2', [membership.rows[0].tenant_id, id]);
+      await client.query('UPDATE fiscoia.auth_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [id]);
+      const outros = await client.query('SELECT 1 FROM fiscoia.tenant_memberships WHERE user_id=$1 LIMIT 1', [id]);
+      if (outros.rowCount) { await client.query('COMMIT'); return res.json({ sucesso: true, excluido: false, mensagem: 'Removido deste escritório (a conta também pertence a outro escritório e foi preservada).' }); }
+      await client.query('SAVEPOINT apagar');
+      try {
+        await client.query('DELETE FROM fiscoia.password_reset_tokens WHERE user_id=$1', [id]);
+        await client.query('DELETE FROM fiscoia.auth_sessions WHERE user_id=$1', [id]);
+        await client.query('DELETE FROM fiscoia.users WHERE id=$1', [id]);
+        await client.query('COMMIT');
+        return res.json({ sucesso: true, excluido: true, mensagem: 'Conta excluída.' });
+      } catch {
+        await client.query('ROLLBACK TO SAVEPOINT apagar');
+        await client.query('UPDATE fiscoia.users SET active=false, updated_at=now() WHERE id=$1', [id]);
+        await client.query('COMMIT');
+        return res.json({ sucesso: true, excluido: false, mensagem: 'A conta tem histórico e não pode ser apagada; ficou bloqueada e sem acesso.' });
+      }
+    } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { client.release(); }
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível excluir o usuário.' });
   }
 });
 
