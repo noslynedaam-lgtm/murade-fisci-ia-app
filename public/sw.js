@@ -1,7 +1,7 @@
 // Service worker do Murade: o sistema abre sem internet (guarda só a casca do aplicativo) e se atualiza sozinho.
 // Nunca guarda respostas /api com dados de clientes. Única exceção: a identificação da sessão (quem está logado),
 // para o sistema não pedir login de novo só porque a internet caiu; ela é apagada ao sair.
-const VERSAO = 'murade-casca-v2';
+const VERSAO = 'murade-casca-v3';
 const SESSAO = ['/api/auth/session', '/api/auth/me'];
 const PUBLICAS = ['/api/auth/status']; // situação do serviço de login (sem dados de usuário)
 self.addEventListener('install', () => self.skipWaiting());
@@ -60,9 +60,10 @@ self.addEventListener('fetch', (e) => {
     // Página principal: rede primeiro (versão nova). Sem internet, ou servidor demorando a acordar, abre a última guardada.
     e.respondWith((async () => {
       const cache = await caches.open(VERSAO); const guardada = await cache.match('/');
+      if (url.pathname === '/reparar.html') return fetch(req);
       try {
         const resp = guardada ? await comTempo(req, 4000) : await fetch(req);
-        if (resp.ok && resp.headers.get('content-type')?.includes('text/html')) await cache.put('/', resp.clone());
+        if (url.pathname === '/' && resp.ok && resp.headers.get('content-type')?.includes('text/html')) await cache.put('/', resp.clone());
         return resp;
       } catch { return guardada || Response.error(); }
     })());

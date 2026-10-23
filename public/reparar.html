@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atualizando o aplicativo…</title>
+<style>body{font:16px system-ui,sans-serif;background:#0f2444;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;text-align:center;padding:16px}main{max-width:420px}small{opacity:.8}</style></head>
+<body><main><h1>Atualizando…</h1><p id="m">Limpando a versão antiga guardada neste computador. Seu usuário, sua senha e seus dados não são apagados.</p><small>Não precisa instalar de novo.</small></main>
+<script>
+(async function () {
+  var m = document.getElementById('m');
+  try { if (navigator.serviceWorker) { var regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(function (r) { return r.unregister(); })); } } catch (e) {}
+  try { if (window.caches) { var ns = await caches.keys(); await Promise.all(ns.map(function (n) { return caches.delete(n); })); } } catch (e) {}
+  m.textContent = 'Pronto! Abrindo a versão nova…';
+  setTimeout(function () { location.replace('/?atualizado=' + Date.now()); }, 800);
+})();
+</script></body></html>

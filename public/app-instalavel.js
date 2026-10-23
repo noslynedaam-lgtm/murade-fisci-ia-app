@@ -98,3 +98,19 @@
   });
   if (navigator.onLine === false) { if (document.body) off(); else document.addEventListener('DOMContentLoaded', off); }
 })();
+
+// Autocura: se a tela ficar em branco (versão antiga guardada que não existe mais no servidor), limpa só a cópia guardada do app e recarrega.
+(function () {
+  function vazio() { var r = document.getElementById('root'); return r ? r.children.length === 0 && !(document.body.innerText || '').trim() : false; }
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      try {
+        if (!vazio()) return;
+        var ult = Number(sessionStorage.getItem('murade_autocura') || 0);
+        if (Date.now() - ult < 10 * 60 * 1000) return; // no máximo uma vez a cada 10 minutos
+        sessionStorage.setItem('murade_autocura', String(Date.now()));
+        location.replace('/reparar.html');
+      } catch (e) {}
+    }, 15000);
+  });
+})();
