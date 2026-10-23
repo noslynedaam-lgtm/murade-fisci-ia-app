@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pbkdf2 as pbkdf2Callback } from 'node:crypto';
 import { obterPoolBanco } from './persistence';
+import { emailConfigurado, enviarEmail } from './emailMurade';
 
 const pbkdf2 = promisify(pbkdf2Callback);
 const router = Router();
@@ -605,6 +606,36 @@ router.post('/users/:id/reset-link', async (req, res) => {
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível gerar o link de acesso.' });
   }
+});
+
+const tentativasEsqueciSenha = new Map<string, number[]>();
+router.post('/esqueci-senha', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const email = typeof req.body?.login === 'string' ? req.body.login.trim().toLowerCase() : (typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '');
+  const resposta = { sucesso: true, mensagem: 'Se este e-mail estiver cadastrado, enviamos um link para criar a nova senha. Confira também a caixa de spam.' };
+  if (!emailConfigurado()) return res.status(503).json({ sucesso: false, mensagem: 'A recuperação por e-mail ainda não foi ativada neste sistema. Peça ao responsável do escritório para gerar um link de nova senha.', motivo: 'A recuperação por e-mail ainda não foi ativada neste sistema. Peça ao responsável do escritório para gerar um link de nova senha.' });
+  const agora = Date.now();
+  for (const k of [`ip:${req.ip || 'x'}`, `em:${email}`]) {
+    const l = (tentativasEsqueciSenha.get(k) || []).filter((t) => agora - t < 15 * 60_000);
+    if (l.length >= (k.startsWith('ip:') ? 10 : 3)) return res.status(429).json({ sucesso: false, motivo: 'Muitas tentativas. Aguarde alguns minutos.', mensagem: 'Muitas tentativas. Aguarde alguns minutos.' });
+    l.push(agora); tentativasEsqueciSenha.set(k, l);
+  }
+  if (tentativasEsqueciSenha.size > 5000) tentativasEsqueciSenha.clear();
+  const pool = obterPoolBanco();
+  if (!pool || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return res.json(resposta);
+  try {
+    const appUrl = (process.env.APP_URL || 'https://murade-fisco-ia.onrender.com').replace(/\/$/, '');
+    const linkBase = new URL(appUrl);
+    const u = await pool.query('SELECT id FROM fiscoia.users WHERE lower(email)=$1 AND active=true', [email]);
+    if (u.rows[0]) {
+      const token = randomBytes(32).toString('base64url');
+      await pool.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [u.rows[0].id]);
+      await pool.query("INSERT INTO fiscoia.password_reset_tokens (token_sha256,user_id,purpose,expires_at) VALUES ($1,$2,'PASSWORD_RESET',now()+interval '24 hours')", [hashToken(token), u.rows[0].id]);
+      linkBase.hash = new URLSearchParams({ redefinir: token }).toString();
+      await enviarEmail(email, 'Murade Fisco IA: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murade Fisco IA.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkBase.toString()}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
+    }
+  } catch (e) { console.error('Falha na recuperação de senha:', e instanceof Error ? e.message : e); }
+  return res.json(resposta);
 });
 
 router.post('/accept-invite', async (req, res) => {

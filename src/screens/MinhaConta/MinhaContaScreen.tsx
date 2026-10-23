@@ -184,7 +184,7 @@ export default function MinhaContaScreen({ usuario, onAtualizarUsuario, onNavega
         </div>
       </div>
 
-      <GestaoEquipe />
+      <GestaoEquipe idPlano={(usuario?.idPlano as 'basico' | 'profissional' | 'empresarial') || 'profissional'} />
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Coluna Esquerda: Dados Cadastrais da Contadora e Escritório */}

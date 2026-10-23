@@ -1,3 +1,4 @@
+import { EsqueciSenha } from '../../components/EsqueciSenha';
 import { useState, FormEvent } from 'react';
 import { Shield, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2, Crown } from 'lucide-react';
 import { login } from '../../services/auth/auth.service';
@@ -183,6 +184,7 @@ export default function LoginScreen({
             <span>{carregando ? 'Validando Acesso...' : 'Entrar'}</span>
             <ArrowRight className="w-4 h-4 ml-1" />
           </button>
+          <div className="pt-1 text-center"><EsqueciSenha /></div>
         </form>
 
         {/* Rodapé de Segurança */}
