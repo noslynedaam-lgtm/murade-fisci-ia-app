@@ -36,7 +36,7 @@ export default function RedefinirSenhaScreen({ token, onVoltarLogin }: Redefinir
         <BotaoVoltar onVoltar={onVoltarLogin} />
         <div className="mx-auto mt-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-800"><LockKeyhole className="h-7 w-7" /></div>
         <h1 className="mt-5 text-center text-2xl font-black text-slate-900">Defina sua senha do Fisco IA</h1>
-        <p className="mt-2 text-center text-sm text-slate-600">Este link é individual, de uso único e expira em 24 horas.</p>
+        <p className="mt-2 text-center text-sm text-slate-600">Este link é individual, de uso único e tem prazo de validade.</p>
         {erro && <div role="alert" className="mt-5 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="h-5 w-5 shrink-0" />{erro}</div>}
         {sucesso && <div role="status" className="mt-5 flex gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 className="h-5 w-5 shrink-0" />{sucesso}</div>}
         <form className="mt-6 space-y-4" onSubmit={enviar}>

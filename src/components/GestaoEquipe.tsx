@@ -37,7 +37,7 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
   const pendentes = equipe.filter((m) => m.primeiroAcesso && m.ativo);
   const usuarios = equipe.filter((m) => !(m.primeiroAcesso && m.ativo));
   const LinkCaixa = ({ id }: { id: string }) => linkPorMembro[id] ? (
-    <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (24 horas):</strong> <a className="text-blue-800 underline" href={linkPorMembro[id]}>{linkPorMembro[id]}</a>
+    <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único:</strong> <a className="text-blue-800 underline" href={linkPorMembro[id]}>{linkPorMembro[id]}</a>
       <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={async () => { await navigator.clipboard.writeText(linkPorMembro[id]); setCopiado(id); }}>{copiado === id ? 'Copiado' : 'Copiar'}</button></div>
   ) : null;
 
@@ -54,7 +54,7 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
       {erro && <p role="alert" className="mt-2 text-sm text-red-700">{erro}</p>}
       {mensagem && <p role="status" className="mt-2 text-sm text-green-800">{mensagem}</p>}
       {carregando ? <p className="mt-3 text-sm text-slate-500">Carregando equipe…</p> : (<>
-        <div className="mt-3"><p className="text-xs font-semibold text-slate-700">Convites pendentes (valem 24 horas)</p>
+        <div className="mt-3"><p className="text-xs font-semibold text-slate-700">Convites pendentes (valem 30 dias)</p>
           {pendentes.length === 0 && <p className="border-t py-2 text-sm text-slate-500">Nenhum convite pendente.</p>}
           {pendentes.map((m) => <div key={m.id} className="border-t py-2 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span>{m.email}</span><span className="flex gap-3">
             <button className="text-blue-800 hover:underline" onClick={() => void gerarLink(m)}>Reenviar (novo link)</button>

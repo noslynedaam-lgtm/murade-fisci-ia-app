@@ -595,12 +595,12 @@ router.post('/users/:id/reset-link', async (req, res) => {
       await client.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [id]);
       await client.query(
         `INSERT INTO fiscoia.password_reset_tokens (token_sha256,user_id,purpose,expires_at)
-         VALUES ($1,$2,$3,now()+interval '24 hours')`,
-        [tokenHash,id,purpose],
+         VALUES ($1,$2,$3,now()+($4 * interval '1 hour'))`,
+        [tokenHash,id,purpose,purpose === 'FIRST_ACCESS' ? 720 : 24], // convite de primeiro acesso: 30 dias; nova senha: 24 h
       );
       await client.query('COMMIT');
       linkBase.hash = new URLSearchParams({ redefinir: token }).toString();
-      return res.status(201).json({ sucesso: true, link: linkBase.toString(), expiraEmHoras: 24, primeiroAcesso: purpose === 'FIRST_ACCESS' });
+      return res.status(201).json({ sucesso: true, link: linkBase.toString(), expiraEmHoras: purpose === 'FIRST_ACCESS' ? 720 : 24, primeiroAcesso: purpose === 'FIRST_ACCESS' });
     } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
     finally { client.release(); }
   } catch {
