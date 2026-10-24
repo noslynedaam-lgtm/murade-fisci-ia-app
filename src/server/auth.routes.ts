@@ -545,7 +545,14 @@ router.post('/users/:id/excluir', async (req, res) => {
         return res.json({ sucesso: true, excluido: true, mensagem: 'Conta excluída.' });
       } catch {
         await client.query('ROLLBACK TO SAVEPOINT apagar');
-        await client.query('UPDATE fiscoia.users SET active=false, updated_at=now() WHERE id=$1', [id]);
+        await client.query('SAVEPOINT liberar_email');
+        try {
+          // Libera o e-mail: a conta fica bloqueada com outro endereço e o e-mail original pode receber convite novo.
+          await client.query("UPDATE fiscoia.users SET active=false, email=left(email, 60) || '#removido-' || extract(epoch from now())::bigint::text, updated_at=now() WHERE id=$1", [id]);
+        } catch {
+          await client.query('ROLLBACK TO SAVEPOINT liberar_email');
+          await client.query('UPDATE fiscoia.users SET active=false, updated_at=now() WHERE id=$1', [id]);
+        }
         await client.query('COMMIT');
         return res.json({ sucesso: true, excluido: false, mensagem: 'A conta tem histórico e não pode ser apagada; ficou bloqueada e sem acesso.' });
       }
