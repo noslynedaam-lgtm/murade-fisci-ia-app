@@ -280,7 +280,7 @@ export default function MenuLateral({
           overscrollBehavior: 'contain',
           overscrollBehaviorY: 'contain'
         }}
-        className={`fixed md:sticky top-0 left-0 z-50 h-screen text-white flex flex-col transition-all duration-300 ease-in-out relative overflow-hidden select-none overscroll-contain ${
+        className={`fixed md:sticky top-0 left-0 z-50 h-screen text-white flex flex-col transition-all duration-300 ease-in-out overflow-hidden select-none overscroll-contain ${
           // Largura no desktop: recolhido (w-16) vs expandido padrão 220px (w-[220px])
           recolhidoDesktop ? 'md:w-16' : 'md:w-[220px]'
         } ${

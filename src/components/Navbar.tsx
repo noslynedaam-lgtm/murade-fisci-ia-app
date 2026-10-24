@@ -150,7 +150,7 @@ export default function Navbar({
       {usuarioAtual && (
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1 text-xs text-white">
           <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
             <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>
             {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
@@ -158,8 +158,8 @@ export default function Navbar({
         </div>
       )}
       {/* Barra de Status do Sistema */}
-      <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 flex items-center justify-between border-b border-slate-800">
-        <div className="flex items-center gap-2">
+      <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-800">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-slate-400"></span>
           <span className="font-black text-white tracking-wide">Murade Fisco IA</span>
           <span className="text-slate-500">•</span>
@@ -168,7 +168,7 @@ export default function Navbar({
           <strong className="text-[#F2D26E] font-bold">Ambiente de gestão MURADE</strong>
         </div>
 
-        <div className="flex items-center gap-2.5 text-slate-400 text-[11px]">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-slate-400 text-[11px]">
           {usuarioAtual ? (
             <span className="text-slate-300 flex items-center gap-1.5 mr-1">
               <User className={`w-3.5 h-3.5 ${estaAdminAtivo ? 'text-amber-400' : 'text-indigo-400'}`} />
@@ -213,7 +213,7 @@ export default function Navbar({
 
       {/* Barra Principal */}
       <div className="max-w-7xl mx-auto px-3 sm:px-6">
-        <div className="flex items-center justify-between h-16 gap-3">
+        <div className="flex flex-wrap items-center justify-between min-h-16 py-1 gap-x-3 gap-y-1">
           {/* Botão Hambúrguer para Menu Lateral + Logo & Marca */}
           <div className="flex items-center gap-2 sm:gap-3">
             {onToggleMenuLateral && (
@@ -375,7 +375,7 @@ export default function Navbar({
           </nav>
 
           {/* Ações Direitas: Seletor de Empresa Global, Seletor de Plano & Sessão */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
             {/* 🏢 Seletor de Empresa Selecionada em TODAS as partes */}
             <SeletorEmpresaGlobal onCadastrarNova={() => onSelecionarAba('cadastro-empresa')} />
             <LicencaBadge cnpj={empresaAtivaLicenca?.cnpj} />
@@ -393,7 +393,7 @@ export default function Navbar({
             </button>
 
             {/* Seletor de Nível / Visualizador de Plano */}
-            <div className="relative">
+            <div className="relative hidden sm:block">
               <button
                 type="button"
                 id="btn-seletor-plano-ativo"

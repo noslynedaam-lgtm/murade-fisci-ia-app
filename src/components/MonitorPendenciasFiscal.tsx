@@ -533,7 +533,7 @@ export function MonitorPendenciasFiscal() {
   }
 
   return (
-    <aside className="fixed bottom-5 right-5 z-[100] max-w-sm rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-xl" role="status" aria-live="polite">
+    <aside className="fixed bottom-3 right-3 left-3 sm:left-auto sm:bottom-5 sm:right-5 z-[100] sm:max-w-sm max-h-[55vh] overflow-y-auto rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-xl" role="status" aria-live="polite">
       <div className="flex items-start gap-3">
         {estado.pendencias ? <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /> : <Bell className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />}
         <div className="min-w-0 flex-1">
