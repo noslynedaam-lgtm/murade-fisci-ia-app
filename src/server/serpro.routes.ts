@@ -5,6 +5,7 @@ import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
 import { comContextoTenant } from './persistence';
+import { tokenValido } from './agentesEntreSistemas';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAPEIS_CONSULTA = ['OWNER', 'ADMIN'];
@@ -41,6 +42,19 @@ router.get('/config-status', async (req, res) => {
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível consultar o estado das credenciais SERPRO.' });
   }
+});
+
+// Leitura entre sistemas (token de integração): informa apenas SE os segredos existem. Nunca devolve valores.
+router.get('/status-integracao', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!tokenValido(req.get('authorization'))) return res.status(401).json({ mensagem: 'Credencial de integração inválida.' });
+  const tem = (n: string) => Boolean(process.env[n]?.trim());
+  return res.json({
+    producao: { consumerKey: tem('SERPRO_PRODUCAO_CONSUMER_KEY'), consumerSecret: tem('SERPRO_PRODUCAO_CONSUMER_SECRET') },
+    certificadoEscritorio: tem('SERPRO_CERT_PFX_BASE64') && tem('SERPRO_CERT_PFX_SENHA'),
+    cnpjContratante: tem('SERPRO_CONTRATANTE_CNPJ'),
+    observacao: 'Indica só a presença das variáveis no servidor; não confirma contrato, escopos nem autenticação.',
+  });
 });
 
 router.post('/token-check', async (req, res) => {
