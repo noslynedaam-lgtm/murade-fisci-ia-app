@@ -409,13 +409,13 @@ router.post('/users', async (req, res) => {
       );
       await client.query(
         `INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at)
-         VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '48 hours')`,
+         VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '30 days')`,
         [hashConvite, inserted.rows[0].id],
       );
       await client.query('COMMIT');
       return res.status(201).json({
         sucesso: true,
-        mensagem: 'Conta criada no servidor. Envie o link de uso único ao usuário; ele expira em 48 horas. Nenhum e-mail foi enviado.',
+        mensagem: 'Conta criada no servidor. Envie o link de uso único ao usuário; ele expira em 30 dias. Nenhum e-mail foi enviado.',
         conviteUrl: conviteBase.toString(),
         usuario: usuarioPublico(inserted.rows[0] as Record<string, unknown>),
       });
@@ -804,9 +804,9 @@ router.post('/escritorios', async (req, res) => {
         [email, passwordHash, nome, planId, planNames[planId], expiresOn],
       );
       await client.query('SELECT fiscoia.platform_create_office($1::uuid, $2, $3::uuid)', [session.user.id, nomeEscritorio, inserted.rows[0].id]);
-      await client.query(`INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at) VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '48 hours')`, [hashToken(convite), inserted.rows[0].id]);
+      await client.query(`INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at) VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '30 days')`, [hashToken(convite), inserted.rows[0].id]);
       await client.query('COMMIT');
-      return res.status(201).json({ sucesso: true, conviteUrl: conviteBase.toString(), mensagem: 'Escritório criado. Envie o link de uso único ao responsável; ele expira em 48 horas.' });
+      return res.status(201).json({ sucesso: true, conviteUrl: conviteBase.toString(), mensagem: 'Escritório criado. Envie o link de uso único ao responsável; ele expira em 30 dias.' });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined);
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') return res.status(409).json({ mensagem: 'Já existe uma conta com este e-mail.' });
