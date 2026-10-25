@@ -554,7 +554,7 @@ router.post('/users/:id/excluir', async (req, res) => {
           await client.query('UPDATE fiscoia.users SET active=false, updated_at=now() WHERE id=$1', [id]);
         }
         await client.query('COMMIT');
-        return res.json({ sucesso: true, excluido: false, mensagem: 'A conta tem histórico e não pode ser apagada; ficou bloqueada e sem acesso.' });
+        return res.json({ sucesso: true, excluido: false, mensagem: 'O histórico impediu apagar a conta por completo; ela ficou sem acesso e o e-mail está livre para um novo cadastro.' });
       }
     } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
     finally { client.release(); }
