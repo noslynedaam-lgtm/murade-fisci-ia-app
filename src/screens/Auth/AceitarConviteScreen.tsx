@@ -45,7 +45,7 @@ export default function AceitarConviteScreen({ token, onConcluido, onVoltarLogin
           <LockKeyhole className="h-7 w-7" />
         </div>
         <h1 className="mt-5 text-center text-2xl font-black text-slate-900">Crie sua senha do Fisco IA</h1>
-        <p className="mt-2 text-center text-sm text-slate-600">Este convite é de uso único e expira em 48 horas.</p>
+        <p className="mt-2 text-center text-sm text-slate-600">Este convite é de uso único e expira em 30 dias.</p>
 
         {erro && <div role="alert" className="mt-5 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="h-5 w-5 shrink-0" />{erro}</div>}
 

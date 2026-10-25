@@ -52,7 +52,7 @@ export default function EscritoriosContratantes() {
         <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="E-mail do responsável" className="rounded-lg border p-2" />
         <button disabled={!disponivel} className="rounded-lg bg-slate-800 p-2 font-semibold text-white disabled:opacity-50">Criar escritório e gerar convite</button>
       </form>
-      {link && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único (48 horas):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
+      {link && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único (30 dias):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
       {lista.length > 0 && <div className="mt-4">{lista.map((x) => (
         <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm">

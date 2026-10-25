@@ -50,7 +50,7 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
         <input required type="email" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} placeholder="Usuário (e-mail) do funcionário" className="min-w-0 flex-1 rounded-lg border p-2" />
         <button className="rounded-lg bg-slate-800 px-3 text-white">Gerar convite</button>
       </form>
-      {conviteNovo && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (48 horas):</strong> <a className="text-blue-800 underline" href={conviteNovo}>{conviteNovo}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(conviteNovo)}>Copiar</button></div>}
+      {conviteNovo && <div className="mt-2 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link (30 dias):</strong> <a className="text-blue-800 underline" href={conviteNovo}>{conviteNovo}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(conviteNovo)}>Copiar</button></div>}
       {erro && <p role="alert" className="mt-2 text-sm text-red-700">{erro}</p>}
       {mensagem && <p role="status" className="mt-2 text-sm text-green-800">{mensagem}</p>}
       {carregando ? <p className="mt-3 text-sm text-slate-500">Carregando equipe…</p> : (<>
