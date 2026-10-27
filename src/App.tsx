@@ -446,9 +446,9 @@ export default function App() {
           adminDesbloqueado={adminDesbloqueado}
           visaoAdminAtiva={visaoAdminAtiva}
           onAlternarVisaoAdmin={handleAlternarVisaoAdmin}
-          onAbrirJanelaSenhaAdmin={() => {
+          onAbrirJanelaSenhaAdmin={usuarioAtual?.ehAdmin === true ? () => {
             window.dispatchEvent(new CustomEvent('abrir_modal_senha_admin'));
-          }}
+          } : undefined}
           onBloquearAdmin={handleBloquearAdmin}
         />
 

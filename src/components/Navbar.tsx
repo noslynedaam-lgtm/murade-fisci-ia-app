@@ -464,7 +464,7 @@ export default function Navbar({
             </div>
 
             {/* 🔐 JANELINHA / CONTROLE DE ACESSO DO ADMINISTRADOR */}
-            {!adminDesbloqueado ? (
+            {usuarioAtual?.ehAdmin === true && (!adminDesbloqueado ? (
               <button
                 type="button"
                 id="btn-janelinha-admin-senha"
@@ -527,7 +527,7 @@ export default function Navbar({
                   <Lock className="w-3.5 h-3.5 text-rose-600" />
                 </button>
               </div>
-            )}
+            ))}
 
             {onLogout && (
               <button
