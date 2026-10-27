@@ -66,10 +66,8 @@ export default function EscritoriosContratantes() {
       <p className="mb-3 text-xs text-slate-600">Você contrata e bloqueia escritórios. Não tem acesso às empresas, notas ou certificados deles.</p>
       {!disponivel && <p role="alert" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{aviso || 'Recurso aguardando atualização do banco.'}</p>}
       <form onSubmit={criar} className="grid gap-2 md:grid-cols-4">
-        <input required value={form.nomeEscritorio} onChange={(e) => setForm({ ...form, nomeEscritorio: e.target.value })} placeholder="Nome do escritório" className="rounded-lg border p-2" />
-        <input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Nome do responsável" className="rounded-lg border p-2" />
-        <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="E-mail do responsável" className="rounded-lg border p-2" />
-        <button disabled={!disponivel} className="rounded-lg bg-slate-800 p-2 font-semibold text-white disabled:opacity-50">Criar escritório e gerar convite</button>
+        <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Usuário (e-mail) do dono do escritório" className="min-w-0 rounded-lg border p-2 md:col-span-3" />
+        <button disabled={!disponivel} className="rounded-lg bg-slate-800 p-2 font-semibold text-white disabled:opacity-50">Gerar convite do escritório</button>
       </form>
       {link && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único (30 dias):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}

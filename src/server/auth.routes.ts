@@ -790,13 +790,17 @@ router.post('/escritorios', async (req, res) => {
     if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema contrata escritórios.' });
     if (!(await escritoriosDisponiveis(pool))) return res.status(409).json({ mensagem: 'Aplique primeiro a migração 012 (npm run db:migrate) para habilitar escritórios contratantes.' });
-    const nomeEscritorio = typeof req.body?.nomeEscritorio === 'string' ? req.body.nomeEscritorio.trim() : '';
-    const nome = typeof req.body?.nome === 'string' ? req.body.nome.trim() : '';
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    // Só o e-mail é obrigatório (igual ao DP e ao Contábil): a contadora completa o nome e o CRC em "Minha Conta".
+    const nomeInformado = typeof req.body?.nome === 'string' ? req.body.nome.trim() : '';
+    const escritorioInformado = typeof req.body?.nomeEscritorio === 'string' ? req.body.nomeEscritorio.trim() : '';
+    const prefixo = email.split('@')[0] || email;
+    const nome = nomeInformado || prefixo;
+    const nomeEscritorio = escritorioInformado || `Escritório ${prefixo}`;
     const planId = ['basico', 'profissional', 'empresarial'].includes(req.body?.idPlano) ? req.body.idPlano : 'profissional';
     const expiresOn = typeof req.body?.dataVencimento === 'string' ? req.body.dataVencimento : '';
     if (nomeEscritorio.length < 2 || nomeEscritorio.length > 160 || nome.length < 2 || nome.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-      return res.status(400).json({ mensagem: 'Informe o nome do escritório, o nome do responsável e um e-mail válido.' });
+      return res.status(400).json({ mensagem: 'Informe um e-mail válido.' });
     }
     if (expiresOn && !dataCivilValida(expiresOn)) return res.status(400).json({ mensagem: 'Data de vencimento inválida.' });
     const planNames: Record<string, string> = { basico: 'Básico', profissional: 'Profissional', empresarial: 'Empresarial' };
