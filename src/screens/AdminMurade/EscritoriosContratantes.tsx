@@ -24,10 +24,29 @@ export default function EscritoriosContratantes() {
     if (!r.ok) throw new Error(d.mensagem || 'Não foi possível concluir.');
     return d;
   };
-  const criar = async (e: FormEvent) => {
-    e.preventDefault(); setMsg(''); setLink('');
+  const [conta, setConta] = useState<{ email: string; donoDeEscritorio: boolean; ehVoce: boolean; escritorios: number } | null>(null);
+  const criar = async (e?: FormEvent) => {
+    e?.preventDefault(); setMsg(''); setLink(''); setConta(null);
     try { const d = await chamar('/api/auth/escritorios', form); setLink(d.conviteUrl); setForm({ nomeEscritorio: '', nome: '', email: '' }); await carregar(); }
-    catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
+    catch (c) {
+      const texto = c instanceof Error ? c.message : 'Falha.'; setMsg(texto);
+      if (/já existe/i.test(texto)) {
+        // Mostra o que é essa conta e oferece apagá-la, para o e-mail poder ser cadastrado de novo.
+        try { const email = form.email.trim().toLowerCase(); const d = await chamar('/api/auth/contas/resumo', { email });
+          if (d.existe) setConta({ email, donoDeEscritorio: d.donoDeEscritorio === true, ehVoce: d.ehVoce === true, escritorios: Number(d.escritorios || 0) }); } catch (x) { setMsg(x instanceof Error ? `${texto} ${x.message}` : texto); }
+      }
+    }
+  };
+  const excluirConta = async (c: { email: string }) => {
+    if (!window.confirm(`EXCLUIR a conta ${c.email}? Ela perde o acesso e não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
+    try { await chamar('/api/auth/contas/excluir', { email: c.email, confirmar: true }); setConta(null); setMsg(''); await criar(); } catch (x) { setMsg(x instanceof Error ? x.message : 'Não foi possível excluir a conta.'); }
+  };
+  const excluir = async (x: Escritorio) => {
+    if (!window.confirm(`EXCLUIR de vez o escritório ${x.nome}? As contas do responsável e da equipe são apagadas e não tem volta. Os e-mails ficam livres para cadastrar de novo.`)) return;
+    if (window.prompt(`Para confirmar, digite o nome do escritório: ${x.nome}`)?.trim().toLowerCase() !== x.nome.trim().toLowerCase()) { setMsg('Exclusão cancelada: o nome digitado não confere.'); return; }
+    setMsg('');
+    try { const d = await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/excluir`, { confirmar: true }); setMsg(d.mensagem || 'Escritório excluído.'); await carregar(); }
+    catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível excluir.'); }
   };
   const definirLimite = async (x: Escritorio) => {
     const resp = window.prompt(`Quantos usuários o escritório ${x.nome} contratou (dono incluso)? Deixe vazio para sem limite.`, x.limiteUsuarios == null ? '' : String(x.limiteUsuarios));
@@ -54,11 +73,13 @@ export default function EscritoriosContratantes() {
       </form>
       {link && <div className="mt-3 break-all rounded-lg border border-green-300 bg-green-50 p-3 text-sm"><strong>Link de uso único (30 dias):</strong> <a className="text-blue-800 underline" href={link}>{link}</a> <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={() => void navigator.clipboard.writeText(link)}>Copiar</button></div>}
       {msg && <p role="alert" className="mt-2 text-sm text-red-700">{msg}</p>}
+      {conta && <div className="mt-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm">{conta.ehVoce ? <p>Esta é a sua própria conta; use outro e-mail para o escritório.</p> : conta.donoDeEscritorio ? <p>Este e-mail é dono de um escritório. Use o botão <strong>Excluir</strong> na lista abaixo para apagar o escritório inteiro e liberar o e-mail.</p> : <><p>Esta conta já existe{conta.escritorios ? ` e participa de ${conta.escritorios} escritório(s)` : ''}. Para cadastrar este e-mail como escritório, apague a conta antiga primeiro.</p><button type="button" onClick={() => void excluirConta(conta)} className="mt-2 rounded bg-red-700 px-3 py-1.5 font-semibold text-white">Excluir esta conta e liberar o e-mail</button></>}</div>}
       {lista.length > 0 && <div className="mt-4">{lista.map((x) => (
         <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm">
           <span><strong>{x.nome}</strong> · {x.responsavel || 'sem responsável'} · {x.usuarios} de {x.limiteUsuarios ?? 'sem limite'} usuário(s) · {x.bloqueado ? <span className="font-semibold text-red-700">BLOQUEADO</span> : <span className="text-emerald-700">ativo</span>}</span>
           <button onClick={() => void definirLimite(x)} className="rounded bg-slate-700 px-3 py-1 text-white">Limite</button>
           <button onClick={() => void alternar(x)} className={x.bloqueado ? 'rounded bg-emerald-700 px-3 py-1 text-white' : 'rounded bg-red-700 px-3 py-1 text-white'}>{x.bloqueado ? 'Liberar' : 'Bloquear (falta de pagamento)'}</button>
+          <button onClick={() => void excluir(x)} className="rounded bg-red-900 px-3 py-1 font-semibold text-white">Excluir</button>
         </div>))}</div>}
     </section>
   );

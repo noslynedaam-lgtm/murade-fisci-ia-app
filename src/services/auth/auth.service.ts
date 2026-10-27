@@ -162,6 +162,13 @@ export async function listarContasParaAdmin(): Promise<Array<{ id: string; nome:
 }
 
 
+let permissaoEquipe: Promise<boolean> | null = null;
+/** Só o dono do sistema e o responsável do escritório gerenciam usuários e licenças; equipe comum não. Em dúvida, esconde. */
+export function podeGerenciarEquipe(): Promise<boolean> {
+  permissaoEquipe ??= requisicaoAuthCentral<{ podeGerenciar?: boolean }>('equipe/permissao').then((r) => r.ok && r.dados?.podeGerenciar === true).catch(() => false);
+  return permissaoEquipe;
+}
+
 export async function listarEquipeEscritorio(): Promise<MembroEquipe[]> {
   const resultado = await requisicaoAuthCentral<{ contas?: MembroEquipe[]; mensagem?: string }>('users');
   if (!resultado.ok || !Array.isArray(resultado.dados?.contas)) {

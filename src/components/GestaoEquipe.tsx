@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { cadastrarContador, definirBloqueioMembro, excluirMembroEquipe, gerarLinkAcessoMembro, listarEquipeEscritorio, MembroEquipe, removerMembroEquipe } from '../services/auth/auth.service';
+import { cadastrarContador, definirBloqueioMembro, excluirMembroEquipe, gerarLinkAcessoMembro, listarEquipeEscritorio, MembroEquipe, podeGerenciarEquipe, removerMembroEquipe } from '../services/auth/auth.service';
 
 // Mesma tela de equipe dos demais sistemas Murade (Fiscal, Contábil, DP, Agente): convites pendentes + usuários.
 export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: 'basico' | 'profissional' | 'empresarial' }) {
@@ -11,6 +11,8 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
   const [carregando, setCarregando] = useState(true);
   const [linkPorMembro, setLinkPorMembro] = useState<Record<string, string>>({});
   const [copiado, setCopiado] = useState('');
+  const [permitido, setPermitido] = useState(false);
+  useEffect(() => { void podeGerenciarEquipe().then(setPermitido); }, []);
   const linkReparo = `${window.location.origin}/reparar.html`;
 
   const carregar = useCallback(async () => {
@@ -41,6 +43,7 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
       <button type="button" className="ml-2 rounded bg-green-800 px-2 py-1 text-white" onClick={async () => { await navigator.clipboard.writeText(linkPorMembro[id]); setCopiado(id); }}>{copiado === id ? 'Copiado' : 'Copiar'}</button></div>
   ) : null;
 
+  if (!permitido) return null;
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4">
       <h3 className="mb-1 font-semibold">Equipe do escritório</h3>

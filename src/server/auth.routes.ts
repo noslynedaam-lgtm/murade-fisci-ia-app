@@ -308,6 +308,19 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
+// Quem pode ver e gerar convites/equipe: o dono do sistema e o responsável (OWNER/ADMIN) do escritório. Equipe comum não.
+router.get('/equipe/permissao', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ podeGerenciar: false });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ podeGerenciar: false });
+    if (session.user.ehAdmin) return res.json({ podeGerenciar: true });
+    const r = await consultarComoUsuario(pool, session.user.id, `SELECT 1 FROM fiscoia.tenant_memberships WHERE user_id = $1 AND role IN ('OWNER', 'ADMIN') LIMIT 1`, [session.user.id]);
+    return res.json({ podeGerenciar: Boolean(r.rows[0]) });
+  } catch { return res.status(503).json({ podeGerenciar: false }); }
+});
+
 router.get('/users', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
@@ -852,6 +865,71 @@ router.post('/escritorios/:id/limite', async (req, res) => {
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não tem limite.' });
     return res.status(503).json({ mensagem: 'Não foi possível definir o limite.' });
+  }
+});
+
+// Dono do sistema: excluir escritório inteiro ou uma conta que impede novo cadastro do e-mail. Nada fica bloqueado: o e-mail volta a ficar livre.
+async function exclusaoDisponivel(pool: NonNullable<ReturnType<typeof obterPoolBanco>>): Promise<boolean> {
+  try { const r = await pool.query("SELECT to_regprocedure('fiscoia.platform_delete_office(uuid,uuid)') IS NOT NULL AS ok"); return r.rows[0]?.ok === true; } catch { return false; }
+}
+const AVISO_MIGRACAO_015 = 'A exclusão ainda depende da atualização 015 do banco (npm run db:migrate). Depois dela o botão passa a funcionar.';
+
+router.post('/escritorios/:id/excluir', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  if (req.body?.confirmar !== true) return res.status(400).json({ mensagem: 'Confirme a exclusão do escritório.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema exclui escritórios.' });
+    if (!(await exclusaoDisponivel(pool))) return res.status(409).json({ mensagem: AVISO_MIGRACAO_015 });
+    const r = await pool.query('SELECT * FROM fiscoia.platform_delete_office($1::uuid, $2::uuid)', [session.user.id, id]);
+    const x = r.rows[0];
+    if (!x || x.encontrado !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
+    return res.json({ sucesso: true, contasApagadas: Number(x.apagadas), contasSemAcesso: Number(x.sem_acesso), mensagem: Number(x.sem_acesso) ? 'Escritório excluído. Algumas contas têm histórico e ficaram sem acesso, com o e-mail liberado para novo cadastro.' : 'Escritório excluído. Os e-mails já podem ser cadastrados de novo.' });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não pode ser excluído.' });
+    return res.status(503).json({ mensagem: 'Não foi possível excluir o escritório.' });
+  }
+});
+
+router.post('/contas/resumo', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email || email.length > 254) return res.status(400).json({ mensagem: 'Informe o e-mail.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema consulta contas.' });
+    if (!(await exclusaoDisponivel(pool))) return res.status(409).json({ mensagem: AVISO_MIGRACAO_015 });
+    const r = await pool.query('SELECT * FROM fiscoia.platform_account_summary($1::uuid, $2)', [session.user.id, email]);
+    const x = r.rows[0];
+    if (!x) return res.json({ existe: false });
+    return res.json({ existe: true, id: String(x.id), administrador: x.is_admin === true, ativa: x.active === true, escritorios: Number(x.offices), donoDeEscritorio: x.is_owner === true, ehVoce: String(x.id) === session.user.id });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a conta.' }); }
+});
+
+router.post('/contas/excluir', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email || email.length > 254) return res.status(400).json({ mensagem: 'Informe o e-mail.' });
+  if (req.body?.confirmar !== true) return res.status(400).json({ mensagem: 'Confirme a exclusão da conta.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema exclui contas.' });
+    if (!(await exclusaoDisponivel(pool))) return res.status(409).json({ mensagem: AVISO_MIGRACAO_015 });
+    const alvo = await pool.query('SELECT * FROM fiscoia.platform_account_summary($1::uuid, $2)', [session.user.id, email]);
+    if (!alvo.rows[0]) return res.status(404).json({ mensagem: 'Conta não encontrada: o e-mail já está livre.' });
+    const r = await pool.query('SELECT fiscoia.platform_delete_account($1::uuid, $2::uuid) AS resultado', [session.user.id, alvo.rows[0].id]);
+    return res.json({ sucesso: true, semAcesso: r.rows[0]?.resultado === 'sem_acesso' });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: error instanceof Error ? error.message : 'Esta conta não pode ser excluída aqui.' });
+    return res.status(503).json({ mensagem: 'Não foi possível excluir a conta.' });
   }
 });
 
