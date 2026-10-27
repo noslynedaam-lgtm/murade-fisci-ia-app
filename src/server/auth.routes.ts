@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pbkdf2 as pbkdf2Callback } from 'node:crypto';
@@ -308,23 +308,16 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
-async function soDonoDoSistema(req: Request, res: Response, next: NextFunction) {
-  try {
-    const session = await obterSessao(req);
-    if (!session) { res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' }); return; }
-    if (!session.user.ehAdmin) { res.status(403).json({ mensagem: 'Somente o dono do sistema gerencia usuários e convites.' }); return; }
-    next();
-  } catch { res.status(503).json({ mensagem: 'Não foi possível validar a permissão.' }); }
-}
-
-// Só o dono do sistema vê e gera convites/equipe. Escritório contratante e equipe não.
+// Quem pode ver e gerar convites/equipe: o dono do sistema e o responsável (OWNER/ADMIN) do escritório. Equipe comum não.
 router.get('/equipe/permissao', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ podeGerenciar: false });
   try {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ podeGerenciar: false });
-    return res.json({ podeGerenciar: session.user.ehAdmin === true });
+    if (session.user.ehAdmin) return res.json({ podeGerenciar: true });
+    const r = await consultarComoUsuario(pool, session.user.id, `SELECT 1 FROM fiscoia.tenant_memberships WHERE user_id = $1 AND role IN ('OWNER', 'ADMIN') LIMIT 1`, [session.user.id]);
+    return res.json({ podeGerenciar: Boolean(r.rows[0]) });
   } catch { return res.status(503).json({ podeGerenciar: false }); }
 });
 
@@ -358,7 +351,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-router.post('/users', soDonoDoSistema, async (req, res) => {
+router.post('/users', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   try {
@@ -454,7 +447,7 @@ router.post('/users', soDonoDoSistema, async (req, res) => {
 });
 
 
-router.post('/users/:id/block', soDonoDoSistema, async (req, res) => {
+router.post('/users/:id/block', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   const id = String(req.params.id || '');
@@ -493,7 +486,7 @@ router.post('/users/:id/block', soDonoDoSistema, async (req, res) => {
   }
 });
 
-router.delete('/users/:id', soDonoDoSistema, async (req, res) => {
+router.delete('/users/:id', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   const id = String(req.params.id || '');
@@ -533,7 +526,7 @@ router.delete('/users/:id', soDonoDoSistema, async (req, res) => {
   }
 });
 
-router.post('/users/:id/excluir', soDonoDoSistema, async (req, res) => {
+router.post('/users/:id/excluir', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   const id = String(req.params.id || '');
@@ -583,7 +576,7 @@ router.post('/users/:id/excluir', soDonoDoSistema, async (req, res) => {
   }
 });
 
-router.post('/users/:id/reset-link', soDonoDoSistema, async (req, res) => {
+router.post('/users/:id/reset-link', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   const id = String(req.params.id || '');
@@ -823,7 +816,9 @@ router.post('/escritorios', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::date, true, 'CONTADOR') RETURNING *`,
         [email, passwordHash, nome, planId, planNames[planId], expiresOn],
       );
-      await client.query('SELECT fiscoia.platform_create_office($1::uuid, $2, $3::uuid)', [session.user.id, nomeEscritorio, inserted.rows[0].id]);
+      const criado = await client.query('SELECT fiscoia.platform_create_office($1::uuid, $2, $3::uuid) AS id', [session.user.id, nomeEscritorio, inserted.rows[0].id]);
+      // Escritório novo já nasce com 3 usuários (dono + 2); o limite pode ser mudado depois pelo dono do sistema.
+      if (await limiteUsuariosDisponivel(pool)) await client.query('SELECT fiscoia.platform_set_office_limit($1::uuid, $2::uuid, 3)', [session.user.id, criado.rows[0].id]);
       await client.query(`INSERT INTO fiscoia.password_reset_tokens (token_sha256, user_id, purpose, expires_at) VALUES ($1, $2, 'FIRST_ACCESS', now() + interval '30 days')`, [hashToken(convite), inserted.rows[0].id]);
       await client.query('COMMIT');
       return res.status(201).json({ sucesso: true, conviteUrl: conviteBase.toString(), mensagem: 'Escritório criado. Envie o link de uso único ao responsável; ele expira em 30 dias.' });
