@@ -122,7 +122,7 @@ export async function salvarCertificadoA1Central(
   tenantId: string,
   arquivo: File,
   senha: string,
-): Promise<{ recebidoEm: string; mensagem: string }> {
+): Promise<{ recebidoEm: string; mensagem: string; validade?: string; emissor?: string }> {
   if (!companyId || !tenantId) throw new Error('Salve a empresa no banco permanente antes de vincular o A1.');
   if (!/\.p(?:fx|12)$/i.test(arquivo.name) || arquivo.size <= 0 || arquivo.size > 5 * 1024 * 1024) {
     throw new Error('Selecione um arquivo A1 .pfx ou .p12 de até 5 MB.');
@@ -150,6 +150,8 @@ export async function salvarCertificadoA1Central(
     cadastradoNoServidor?: boolean;
     recebidoEm?: string;
     mensagem?: string;
+    validade?: string | null;
+    emissor?: string | null;
   }>(`/api/companies/${encodeURIComponent(companyId)}/fiscal-certificate`, {
     method: 'PUT',
     body: JSON.stringify({ tenantId, pfxBase64, passphrase: senha }),
@@ -157,7 +159,7 @@ export async function salvarCertificadoA1Central(
   if (result.cadastradoNoServidor !== true || !result.recebidoEm) {
     throw new Error('O servidor não confirmou a gravação protegida do A1.');
   }
-  return { recebidoEm: result.recebidoEm, mensagem: result.mensagem || 'A1 cifrado e salvo no banco permanente.' };
+  return { recebidoEm: result.recebidoEm, mensagem: result.mensagem || 'A1 cifrado e salvo no banco permanente.', validade: result.validade || undefined, emissor: result.emissor || undefined };
 }
 
 export async function arquivarEmpresaCentral(companyId: string, tenantId: string): Promise<void> {

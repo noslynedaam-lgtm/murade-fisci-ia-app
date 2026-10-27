@@ -44,3 +44,20 @@ export function pfxDeVariavel(valor: string): Buffer {
   const limpo = valor.trim().replace(/^["']|["']$/g, '').replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
   return Buffer.from(limpo, 'base64');
 }
+
+/** Lê validade (AAAA-MM-DD) e emissor do certificado do titular dentro do .pfx. Falha silenciosa: devolve null. */
+export function lerValidadeEmissorPfx(pfx: Buffer, senha: string): { validade: string; emissor: string } | null {
+  try {
+    const asn1 = forge.asn1.fromDer(forge.util.createBuffer(pfx.toString('binary')));
+    const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, senha);
+    const certs = (p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [])
+      .map(b => b.cert).filter((c): c is forge.pki.Certificate => Boolean(c));
+    if (!certs.length) return null;
+    const ehCa = (c: forge.pki.Certificate) => (c.getExtension('basicConstraints') as { cA?: boolean } | null)?.cA === true;
+    const titular = certs.find(c => !ehCa(c)) ?? certs[0];
+    const fim = titular.validity.notAfter;
+    const validade = `${fim.getUTCFullYear()}-${String(fim.getUTCMonth() + 1).padStart(2, '0')}-${String(fim.getUTCDate()).padStart(2, '0')}`;
+    const cn = titular.issuer.getField('CN')?.value;
+    return { validade, emissor: typeof cn === 'string' ? cn.slice(0, 120) : '' };
+  } catch { return null; }
+}

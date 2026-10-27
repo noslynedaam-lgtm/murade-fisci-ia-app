@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createSecureContext } from 'node:tls';
 import { Router } from 'express';
-import { prepararPfx } from './pfxCompat';
+import { lerValidadeEmissorPfx, prepararPfx } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { descriptografarSegredoEmpresa, criptografarSegredoEmpresa } from './encryption';
 import { comContextoTenant, obterPoolBanco } from './persistence';
@@ -126,6 +126,7 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
       : 'Não foi possível ler este arquivo como certificado A1 (.pfx/.p12). Nada foi armazenado.' });
   }
   const pfx = preparado.pfx;
+  const dadosCert = lerValidadeEmissorPfx(pfx, passphrase);
   const pfxBase64Final = pfx.toString('base64');
 
   try {
@@ -176,6 +177,8 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
       cadastradoNoServidor: true,
       recebidoEm: scoped.resultado.uploaded_at,
       fingerprint: fingerprint.slice(0, 12),
+      validade: dadosCert?.validade ?? null,
+      emissor: dadosCert?.emissor ?? null,
       certificadoValidadoPelaSefaz: false,
       consultaOficialAtiva: false,
       mensagem: 'A1 recebido e cifrado no banco vinculado a esta empresa. Isso não valida o certificado na SEFAZ nem consulta notas.',

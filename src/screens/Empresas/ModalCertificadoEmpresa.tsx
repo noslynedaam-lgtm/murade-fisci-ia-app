@@ -96,10 +96,14 @@ export default function ModalCertificadoEmpresa({
     try {
       if (!empresa.idCentral || !empresa.tenantIdCentral) throw new Error('Salve o cadastro completo da empresa no banco permanente antes de vincular o certificado.');
       const resultado = await salvarCertificadoA1Central(empresa.idCentral, empresa.tenantIdCentral, arquivo, senha);
+      const validadeFinal = resultado.validade || validade;
+      const emissorFinal = resultado.emissor || emissor;
+      if (resultado.validade) setValidade(resultado.validade);
+      if (resultado.emissor) setEmissor(resultado.emissor);
       await onSalvarCertificado({
         ...empresa,
         certificado: {
-          tipo, nomeArquivo: arquivo.name, validade, emissor, ativo: false, valido: false, servidorCadastrado: true,
+          tipo, nomeArquivo: arquivo.name, validade: validadeFinal, emissor: emissorFinal, ativo: false, valido: false, servidorCadastrado: true,
           recebidoEm: resultado.recebidoEm, dataCadastro: new Date().toLocaleDateString('pt-BR'),
         },
         statusCND: empresa.statusCND || 'NAO_CONSULTADA',
@@ -126,11 +130,13 @@ export default function ModalCertificadoEmpresa({
     try {
       if (tipo !== 'A1') throw new Error('O armazenamento seguro de certificado A3/token não está disponível nesta tela. Não vou salvar uma referência como se fosse uma credencial funcional.');
       if (!empresa.idCentral || !empresa.tenantIdCentral) throw new Error('Salve o cadastro completo da empresa no banco permanente antes de vincular o certificado.');
-      let resultadoA1: { recebidoEm: string; mensagem: string } | null = null;
+      let resultadoA1: { recebidoEm: string; mensagem: string; validade?: string; emissor?: string } | null = null;
       if (arquivoA1 || senhaA1) {
         if (!arquivoA1) throw new Error('O arquivo do certificado precisa ser selecionado novamente: clique na área pontilhada e escolha o .pfx/.p12.');
         if (!senhaA1) throw new Error('Informe a senha do arquivo A1.');
         resultadoA1 = await salvarCertificadoA1Central(empresa.idCentral, empresa.tenantIdCentral, arquivoA1, senhaA1);
+        if (resultadoA1.validade) setValidade(resultadoA1.validade);
+        if (resultadoA1.emissor) setEmissor(resultadoA1.emissor);
       } else if (!statusServidor.cadastrado) {
         throw new Error('Selecione o arquivo A1 e informe sua senha para o primeiro cadastro seguro.');
       }
@@ -138,8 +144,8 @@ export default function ModalCertificadoEmpresa({
       const certificadoAtualizado = {
         tipo,
         nomeArquivo: arquivoA1?.name || nomeArquivo,
-        validade,
-        emissor,
+        validade: resultadoA1?.validade || validade,
+        emissor: resultadoA1?.emissor || emissor,
         ativo: false,
         valido: false,
         servidorCadastrado: true,
@@ -351,7 +357,16 @@ export default function ModalCertificadoEmpresa({
             </label>
           )}
 
-          {/* Validade declarada manualmente */}
+          {tipo === 'A1' && (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700">
+              {validade
+                ? <>Validade lida do arquivo: <strong>{new Date(validade + 'T00:00:00').toLocaleDateString('pt-BR')}</strong>{emissor ? <> · Emitido por: <strong>{emissor}</strong></> : null}.</>
+                : 'A validade e a certificadora são lidas sozinhas do arquivo quando você enviar o certificado com a senha. Não precisa preencher nada.'}
+            </p>
+          )}
+
+          {/* Validade declarada manualmente (só A3) */}
+          {tipo === 'A3' && (<>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -394,7 +409,7 @@ export default function ModalCertificadoEmpresa({
             </div>
           )}
 
-          {/* Autoridade Certificadora / Emissor */}
+          {/* Autoridade Certificadora / Emissor (só A3) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
               Autoridade Certificadora (Emissor ICP-Brasil)
@@ -414,6 +429,7 @@ export default function ModalCertificadoEmpresa({
               <option value="Outra Autoridade Homologada ICP-Brasil">Outra Autoridade Homologada ICP-Brasil</option>
             </select>
           </div>
+          </>)}
 
           <div role="note" className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
