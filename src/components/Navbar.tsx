@@ -60,6 +60,13 @@ export default function Navbar({
   const [dropdownAberto, setDropdownAberto] = useState(false);
   const [podeGerenciar, setPodeGerenciar] = useState(false);
   const [painelUsuarios, setPainelUsuarios] = useState(false);
+  // Com a janela aberta, só ela rola; a página de trás fica parada.
+  useEffect(() => {
+    if (!painelUsuarios) return;
+    const antes = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = antes; };
+  }, [painelUsuarios]);
   useEffect(() => { void podeGerenciarEquipe().then(setPodeGerenciar); }, []);
   const [menuConfigAberto, setMenuConfigAberto] = useState(false);
   const [modalConfigAberto, setModalConfigAberto] = useState(false);
@@ -154,8 +161,8 @@ export default function Navbar({
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
       {painelUsuarios && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4" onClick={() => setPainelUsuarios(false)}>
-          <section onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center overscroll-contain bg-black/50 p-4" onClick={() => setPainelUsuarios(false)}>
+          <section onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
             <header className="flex items-center justify-between"><h2 className="text-lg font-bold">Usuários e licenças</h2><button type="button" onClick={() => setPainelUsuarios(false)} aria-label="Fechar"><X className="h-5 w-5" /></button></header>
             {ehUsuarioAdmin(usuarioAtual) && <EscritoriosContratantes />}
             <GestaoEquipe idPlano={(usuarioAtual?.idPlano as 'basico' | 'profissional' | 'empresarial') || 'profissional'} />
