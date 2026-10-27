@@ -96,12 +96,21 @@ async function criarHash(senha: string): Promise<string> {
   return `${PASSWORD_HASH_PREFIX}${PASSWORD_ITERATIONS}$${salt.toString('hex')}$${Buffer.from(digest).toString('hex')}`;
 }
 
+/** O app não é dono das tabelas: as políticas RLS só mostram a equipe do escritório quando app.tenant_id está definido. */
+async function definirEscritorioDoResponsavel(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, userId: string) {
+  await client.query(
+    `SELECT set_config('app.tenant_id', COALESCE((SELECT tenant_id::text FROM fiscoia.tenant_memberships WHERE user_id = $1::uuid AND role IN ('OWNER', 'ADMIN') ORDER BY (role = 'OWNER') DESC LIMIT 1), ''), true)`,
+    [userId],
+  );
+}
+
 /** Consulta sob a identidade do usuário: as políticas RLS de vínculos exigem app.user_id na transação. */
 async function consultarComoUsuario(pool: NonNullable<ReturnType<typeof obterPoolBanco>>, userId: string, sql: string, params: unknown[]) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.user_id', $1, true)", [userId]);
+    await definirEscritorioDoResponsavel(client, userId);
     const result = await client.query(sql, params);
     await client.query('COMMIT');
     return result;
@@ -404,6 +413,7 @@ router.post('/users', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      await definirEscritorioDoResponsavel(client, session.user.id);
       const inserted = await client.query(
         `INSERT INTO fiscoia.users
            (email, password_hash, display_name, phone, tax_id, crc, plan_id, plan_name, expires_on, must_change_password, account_type)
@@ -460,6 +470,7 @@ router.post('/users/:id/block', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      await definirEscritorioDoResponsavel(client, session.user.id);
       const membership = await client.query(
         `SELECT mine.tenant_id FROM fiscoia.tenant_memberships mine
           WHERE mine.user_id=$1 AND mine.role IN ('OWNER','ADMIN')
@@ -498,6 +509,7 @@ router.delete('/users/:id', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      await definirEscritorioDoResponsavel(client, session.user.id);
       const membership = await client.query(
         `SELECT mine.tenant_id FROM fiscoia.tenant_memberships mine
           WHERE mine.user_id=$1 AND mine.role IN ('OWNER','ADMIN')
@@ -538,6 +550,7 @@ router.post('/users/:id/excluir', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      await definirEscritorioDoResponsavel(client, session.user.id);
       const membership = await client.query(
         `SELECT tenant_id FROM fiscoia.tenant_memberships WHERE user_id=$1 AND role IN ('OWNER','ADMIN') ORDER BY (role='OWNER') DESC LIMIT 1`, [session.user.id]);
       if (!membership.rows[0]) { await client.query('ROLLBACK'); return res.status(403).json({ mensagem: 'Somente o responsável do escritório pode gerenciar a equipe.' }); }
@@ -593,6 +606,7 @@ router.post('/users/:id/reset-link', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query("SELECT set_config('app.user_id', $1, true)", [session.user.id]);
+      await definirEscritorioDoResponsavel(client, session.user.id);
       const manager = await client.query(
         `SELECT tenant_id FROM fiscoia.tenant_memberships
           WHERE user_id=$1 AND role IN ('OWNER','ADMIN')
