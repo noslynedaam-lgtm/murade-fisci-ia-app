@@ -155,7 +155,7 @@ export default function Navbar({
           <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
           <div className="flex flex-wrap gap-2">
             <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
-            {(podeGerenciar || estaAdminAtivo) && <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>}
+            {podeGerenciar && <button type="button" onClick={() => onSelecionarAba(estaAdminAtivo ? 'admin' : 'minhaConta')} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>}
             {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
           </div>
         </div>
