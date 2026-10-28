@@ -34,3 +34,13 @@ test('comparação aponta divergência', () => {
   assert.equal(compararComFiscal({ debitos: 2 }, { debitos: 1 }).status, 'divergente');
   assert.equal(compararComFiscal({ debitos: 1 }, { debitos: 1 }).status, 'conferido');
 });
+
+test('DCTFWeb: pedido igual ao exemplo oficial informado (versão 1.0 e dados categoria/anoPA/mesPA)', () => {
+  const p = montarPedido(CATALOGO_SERVICOS.dctfwebGuia, A, B, { categoria: 'GERAL_MENSAL', anoPA: '2027', mesPA: '11' });
+  assert.equal(p.pedidoDados.idSistema, 'DCTFWEB');
+  assert.equal(p.pedidoDados.idServico, 'GERARGUIA31');
+  assert.equal(p.pedidoDados.versaoSistema, '1.0');
+  assert.equal(p.pedidoDados.dados, '{"categoria":"GERAL_MENSAL","anoPA":"2027","mesPA":"11"}');
+  assert.equal(CATALOGO_SERVICOS.dctfwebRecibo.idServico, 'CONSRECIBO32');
+  assert.equal(CATALOGO_SERVICOS.dctfwebDeclaracao.idServico, 'CONSDECCOMPLETA33');
+});

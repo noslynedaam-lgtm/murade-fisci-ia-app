@@ -267,7 +267,8 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     const dadosEntrada: Record<string, string> = {};
     for (const campo of servico.campos ?? []) {
       const valor = String(e.dados?.[campo.nome] ?? '').trim();
-      if (!/^[0-9A-Za-z./-]{1,40}$/.test(valor)) return resp(400, { mensagem: `Informe o campo "${campo.rotulo}" (letras e números, sem espaços).` });
+      if (!valor && campo.opcional) continue;
+      if (!/^[0-9A-Za-z._/-]{1,40}$/.test(valor)) return resp(400, { mensagem: `Informe o campo "${campo.rotulo}" (letras e números, sem espaços).` });
       dadosEntrada[campo.nome] = valor;
     }
 
