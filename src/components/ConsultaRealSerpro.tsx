@@ -74,7 +74,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
       else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
-      else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `(resposta do SERPRO: HTTP ${d.statusGateway})` : ''].filter(Boolean).join(' ') || `Erro HTTP ${r.status}.`, bruto: d.bruto ? { resposta: d.bruto, cabecalhos: d.cabecalhos } : undefined });
+      else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `(resposta do SERPRO: HTTP ${d.statusGateway})` : ''].filter(Boolean).join(' ') || `Erro HTTP ${r.status}.`, bruto: d.bruto || d.cabecalhos ? { resposta: d.bruto || '(sem corpo na resposta)', cabecalhos: d.cabecalhos } : undefined });
       setVersaoCota(v => v + 1);
     } catch {
       setResposta({ ok: false, titulo: 'Consulta não concluída', texto: 'Não foi possível falar com o servidor. Nada foi consultado.' });
