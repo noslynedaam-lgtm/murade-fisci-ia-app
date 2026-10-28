@@ -49,6 +49,7 @@ import {
   obterUltimaSincronizacaoSerpro
 } from '../../services/serpro/sincronizacaoSerpro.service';
 import { useEmpresa } from '../../context/EmpresaContext';
+import ConsultaRealSerpro from '../../components/ConsultaRealSerpro';
 
 interface SerproHomologacaoScreenProps {
   onVoltar?: () => void;
@@ -706,6 +707,8 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
 
               </div>
             </div>
+
+            <ConsultaRealSerpro companyId={idsEmpresaFiscal?.companyId} tenantId={idsEmpresaFiscal?.tenantId} razaoSocial={empresaAtiva?.razaoSocial} />
 
             {/* PAINEL DE RESULTADO COMPLETO DA SINCRONIZAÇÃO */}
             {resultadoSinc && !resultadoSinc.sucesso && (
