@@ -164,8 +164,8 @@ export function lerPedidosParcsn(bruto: unknown): PedidoParcsn[] | null {
 export interface PagamentoParcsn { mes: string; vencimentoDas: string; arrecadadoEm: string; valorPago: number | null }
 export interface DetalheParcsn {
   numero: string; pedidoEm: string; situacao: string; situacaoEm: string;
-  consolidacao: { valorTotal: number | null; quantidadeParcelas: number | null; primeiraParcela: number | null; parcelaBasica: number | null; em: string; debitos: { periodo: string; vencimento: string; processo: string; saldoOriginal: number | null; valorAtualizado: number | null }[] } | null;
-  alteracoesDivida: number; pagamentos: PagamentoParcsn[];
+  consolidacao: { valorTotal: number | null; quantidadeParcelas: number | null; primeiraParcela: number | null; parcelaBasica: number | null; em: string; entrada?: { valorEntrada: number | null; parcelasEntrada: number | null; parcelaEntrada: number | null; valorDivida: number | null }; debitos: { periodo: string; vencimento: string; processo: string; saldoOriginal: number | null; valorAtualizado: number | null }[] } | null;
+  alteracoesDivida: number; restanteDivida?: number; pagamentos: PagamentoParcsn[];
 }
 export function lerDetalheParcsn(bruto: unknown): DetalheParcsn | null {
   const d = dadosDoGateway(bruto); if (!d || d.numero === undefined) return null;
@@ -174,9 +174,12 @@ export function lerDetalheParcsn(bruto: unknown): DetalheParcsn | null {
     numero: String(d.numero), pedidoEm: dia8(d.dataDoPedido) || '—', situacao: String(d.situacao ?? '—'), situacaoEm: dia8(d.dataDaSituacao),
     consolidacao: c ? {
       valorTotal: num(c.valorTotalConsolidado), quantidadeParcelas: num(c.quantidadeParcelas), primeiraParcela: num(c.primeiraParcela), parcelaBasica: num(c.parcelaBasica), em: dh14(c.dataConsolidacao),
+      // PERTMEI (OBTERPARC224): a consolidação traz entrada e dívida em campos próprios
+      ...(c.valorTotalConsolidadoDaEntrada !== undefined || c.valorTotalConsolidadoDaDivida !== undefined ? { entrada: { valorEntrada: num(c.valorTotalConsolidadoDaEntrada), parcelasEntrada: num(c.quantidadeParcelasDaEntrada), parcelaEntrada: num(c.parcelaBasicaDaEntrada), valorDivida: num(c.valorTotalConsolidadoDaDivida) } } : {}),
       debitos: (Array.isArray(c.detalhesConsolidacao) ? c.detalhesConsolidacao as Record<string, unknown>[] : []).map(x => ({ periodo: mes6(x.periodoApuracao), vencimento: dia8(x.vencimento), processo: String(x.numeroProcesso ?? ''), saldoOriginal: num(x.saldoDevedorOriginal), valorAtualizado: num(x.valorAtualizado) })),
     } : null,
     alteracoesDivida: Array.isArray(d.alteracoesDivida) ? d.alteracoesDivida.length : 0,
+    ...(Array.isArray(d.consolidacoesRestanteDivida) ? { restanteDivida: d.consolidacoesRestanteDivida.length } : {}),
     pagamentos: (Array.isArray(d.demonstrativoPagamentos) ? d.demonstrativoPagamentos as Record<string, unknown>[] : []).map(x => ({ mes: mes6(x.mesDaParcela), vencimentoDas: dia8(x.vencimentoDoDas), arrecadadoEm: dia8(x.dataDeArrecadacao), valorPago: num(x.valorPago) })),
   };
 }
