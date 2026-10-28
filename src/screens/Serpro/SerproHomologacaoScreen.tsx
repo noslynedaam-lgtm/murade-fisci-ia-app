@@ -708,7 +708,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               </div>
             </div>
 
-            <ConsultaRealSerpro companyId={idsEmpresaFiscal?.companyId} tenantId={idsEmpresaFiscal?.tenantId} razaoSocial={empresaAtiva?.razaoSocial} />
+            <div className="mt-6"><ConsultaRealSerpro companyId={idsEmpresaFiscal?.companyId} tenantId={idsEmpresaFiscal?.tenantId} razaoSocial={empresaAtiva?.razaoSocial} cnpj={empresaAtiva?.cnpj} /></div>
 
             {/* PAINEL DE RESULTADO COMPLETO DA SINCRONIZAÇÃO */}
             {resultadoSinc && !resultadoSinc.sucesso && (

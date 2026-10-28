@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import SimboloContabil from '../../components/SimboloContabil';
 import { useEmpresa } from '../../context/EmpresaContext';
+import ConsultaRealSerpro from '../../components/ConsultaRealSerpro';
 
 interface DashboardFiscalProps {
   planoAtivoId: string;
@@ -13,7 +14,7 @@ interface DashboardFiscalProps {
 }
 
 export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFiscalProps) {
-  const { empresas } = useEmpresa();
+  const { empresas, empresaAtiva } = useEmpresa();
   const maxCnpjs = planoAtivoId === 'empresarial' ? 500 : planoAtivoId === 'profissional' ? 100 : 50;
 
   return (
@@ -59,6 +60,9 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
           </div>
         </div>
       </div>
+
+      {/* Consulta oficial SERPRO logo no início (empresa ativa) */}
+      <ConsultaRealSerpro companyId={empresaAtiva?.idCentral} tenantId={empresaAtiva?.tenantIdCentral} razaoSocial={empresaAtiva?.razaoSocial} cnpj={empresaAtiva?.cnpj} />
 
       {/* 🏛️ BARRA DE SINCRONIZAÇÃO COM ÓRGÃOS PÚBLICOS FEDERAIS & ESTADUAIS (2026) */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-2xs">
