@@ -11,6 +11,7 @@ import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversa
 import { kitFiscoIA } from "./src/server/agenteFiscoIA";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido, type ArmazemPedidos, type PedidoEntreAgentes } from "./src/server/agentesEntreSistemas";
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
+import { rodarAvisoCobrancas } from "./src/server/avisoCobrancas";
 import { obterPoolBanco } from "./src/server/persistence";
 import authRoutes from "./src/server/auth.routes";
 import { listarAtividadeEquipe, registrarAtividadeEquipe } from "./src/server/atividadeEquipe";
@@ -343,6 +344,9 @@ registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisc
 registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.', intervaloMs: 60_000 });
 const timerMensageiro = setInterval(() => { executarRobo('mensageiro', () => centralDePedidos.reenviarPendentes()).catch(() => undefined); }, 60_000);
 timerMensageiro.unref();
+registrarRobo({ id: 'aviso_cobrancas', nome: 'Robô de Aviso de Cobranças (Serpro)', posto: 'conferidor', missao: 'Às 20h (Brasília), mandar por e-mail ao dono o resumo das consultas COBRADAS do dia (escritório, empresa, serviço e valor), para ele conferir antes de cobrar. Só lê o que já foi registrado; não consulta o Serpro.', intervaloMs: 10 * 60_000 });
+const timerAvisoCobrancas = setInterval(() => { executarRobo('aviso_cobrancas', async () => { const r = await rodarAvisoCobrancas(); if (!r.startsWith('Aguardando') && !r.startsWith('Resumo de hoje')) console.log(`[Aviso de cobranças] ${r}`); }).catch((e) => console.error('Falha no Robô de Aviso de Cobranças:', e?.message || e)); }, 10 * 60_000);
+timerAvisoCobrancas.unref();
 
 const limitesIA = new Map<string, { total: number; reiniciaEm: number }>();
 app.set('trust proxy', 1);
