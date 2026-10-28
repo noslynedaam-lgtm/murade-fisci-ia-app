@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 
 interface Linha { escritorio: string; escritorioId: string; empresaId: string; cnpj: string; nome: string; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }
 interface PorEsc { escritorioId: string; escritorio: string; empresas: number; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number }
-interface Extrato { ciclo: string; de: string; ate: string; linhas: Linha[]; porEscritorio: PorEsc[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
+interface Evento { em: string; escritorio: string; escritorioId: string; cnpj: string; nome: string; servico: string; cobrada: boolean; valor: number }
+interface Extrato { eventos?: Evento[]; ciclo: string; de: string; ate: string; linhas: Linha[]; porEscritorio: PorEsc[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
 
 const reais = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (iso: string) => iso.split('-').reverse().join('/');
@@ -77,6 +78,19 @@ export default function ConsumoSerproMensal({ tenantId }: { tenantId?: string })
                 ))}</tbody>
               </table>
             </div>
+          )}
+          {(extrato.eventos ?? []).length > 0 && (
+            <details className="rounded-lg border border-slate-200 p-2">
+              <summary className="cursor-pointer text-sm font-bold">Ver cada consulta do ciclo ({extrato.eventos!.length}) — o que cada escritório fez</summary>
+              <div className="overflow-x-auto mt-2">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left border-b border-slate-300"><th className="py-1 pr-2">Quando</th><th className="pr-2">Escritório</th><th className="pr-2">Empresa</th><th className="pr-2">Serviço</th><th className="pr-2">Situação</th><th className="text-right">Valor</th></tr></thead>
+                  <tbody>{extrato.eventos!.map((v, i) => (
+                    <tr key={v.em + i} className="border-b border-slate-100"><td className="py-1 pr-2 whitespace-nowrap">{new Date(v.em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}</td><td className="pr-2">{v.escritorio}</td><td className="pr-2 font-semibold">{v.nome}</td><td className="pr-2">{v.servico}</td><td className={`pr-2 font-bold ${v.cobrada ? 'text-red-800' : 'text-emerald-800'}`}>{v.cobrada ? 'COBRADA' : 'grátis'}</td><td className="text-right">{v.cobrada ? reais(v.valor) : '—'}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </details>
           )}
           <p className="text-xs text-slate-600">Valores pelo contrato: consulta R$ 0,24 · emissão R$ 0,32 · declaração R$ 0,40. Confira com a fatura do SERPRO antes de lançar o boleto.</p>
         </>

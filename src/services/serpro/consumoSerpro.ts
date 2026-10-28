@@ -13,7 +13,9 @@ export const PRECO_POR_OPERACAO: Record<OperacaoSerpro, number> = { Consultar: 0
 export interface EmpresaConsumo { id: string; cnpj: string; nome: string; consultas: RegistroConsulta[] }
 export interface LinhaConsumo { escritorio: string; escritorioId: string; empresaId: string; cnpj: string; nome: string; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }
 export interface LinhaEscritorio { escritorioId: string; escritorio: string; empresas: number; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }
-export interface ExtratoConsumo { ciclo: string; de: string; ate: string; linhas: LinhaConsumo[]; porEscritorio: LinhaEscritorio[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
+/** Cada consulta do ciclo, uma por linha: é o "o que a pessoa fez" para conferir antes de cobrar. */
+export interface EventoConsumo { em: string; escritorio: string; escritorioId: string; cnpj: string; nome: string; servico: string; cobrada: boolean; valor: number }
+export interface ExtratoConsumo { eventos: EventoConsumo[]; ciclo: string; de: string; ate: string; linhas: LinhaConsumo[]; porEscritorio: LinhaEscritorio[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
 
 const dataSP = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const arred = (n: number) => Math.round(n * 100) / 100;
@@ -42,6 +44,7 @@ export function montarExtrato(empresas: EmpresaConsumo[], ciclo: string, operaca
   const { de, ate } = janelaDoCiclo(ciclo);
   // uma linha por (escritório, empresa): a mesma empresa pode ser consultada por escritórios diferentes
   const mapa = new Map<string, LinhaConsumo>();
+  const eventos: EventoConsumo[] = [];
   for (const e of empresas) {
     for (const c of e.consultas) {
       const dia = dataSP(new Date(c.em));
@@ -51,6 +54,7 @@ export function montarExtrato(empresas: EmpresaConsumo[], ciclo: string, operaca
       let l = mapa.get(chave);
       if (!l) { l = { escritorio: orig.nome, escritorioId: orig.id, empresaId: e.id, cnpj: e.cnpj, nome: e.nome, consultas: 0, gratuitas: 0, cobradas: 0, valorCobrado: 0, custoAbsorvido: 0 }; mapa.set(chave, l); }
       const preco = PRECO_POR_OPERACAO[operacaoDoServico(c.servico)] ?? PRECO_POR_OPERACAO.Consultar;
+      eventos.push({ em: c.em, escritorio: orig.nome, escritorioId: orig.id, cnpj: e.cnpj, nome: e.nome, servico: c.servico, cobrada: c.cobrada, valor: c.cobrada ? preco : 0 });
       l.consultas++;
       if (c.cobrada) { l.cobradas++; l.valorCobrado += preco; } else { l.gratuitas++; l.custoAbsorvido += preco; }
     }
@@ -65,7 +69,8 @@ export function montarExtrato(empresas: EmpresaConsumo[], ciclo: string, operaca
   }
   const porEscritorio: LinhaEscritorio[] = [...porMapa.values()].map(({ _e, ...o }) => ({ ...o, empresas: _e.size, valorCobrado: arred(o.valorCobrado), custoAbsorvido: arred(o.custoAbsorvido) })).sort((x, y) => y.valorCobrado - x.valorCobrado || x.escritorio.localeCompare(y.escritorio));
   const soma = (f: (l: LinhaConsumo) => number) => linhas.reduce((s, l) => s + f(l), 0);
-  return { ciclo, de, ate, linhas, porEscritorio, totalConsultas: soma(l => l.consultas), totalGratuitas: soma(l => l.gratuitas), totalCobradas: soma(l => l.cobradas), valorACobrar: arred(soma(l => l.valorCobrado)), custoAbsorvido: arred(soma(l => l.custoAbsorvido)) };
+  eventos.sort((a, b) => b.em.localeCompare(a.em));
+  return { eventos, ciclo, de, ate, linhas, porEscritorio, totalConsultas: soma(l => l.consultas), totalGratuitas: soma(l => l.gratuitas), totalCobradas: soma(l => l.cobradas), valorACobrar: arred(soma(l => l.valorCobrado)), custoAbsorvido: arred(soma(l => l.custoAbsorvido)) };
 }
 
 export function extratoParaCsv(x: ExtratoConsumo): string {
@@ -73,5 +78,7 @@ export function extratoParaCsv(x: ExtratoConsumo): string {
   const cab = ['Escritório', 'CNPJ', 'Empresa', 'Consultas', 'Gratuitas', 'Cobradas', 'Valor a cobrar (R$)', 'Custo absorvido (R$)'];
   const lin = x.linhas.map(l => [`"${l.escritorio.replace(/"/g, '""')}"`, l.cnpj, `"${l.nome.replace(/"/g, '""')}"`, l.consultas, l.gratuitas, l.cobradas, br(l.valorCobrado), br(l.custoAbsorvido)].join(';'));
   lin.push(['', '', 'TOTAL', x.totalConsultas, x.totalGratuitas, x.totalCobradas, br(x.valorACobrar), br(x.custoAbsorvido)].join(';'));
-  return '﻿' + [cab.join(';'), ...lin].join('\r\n');
+  const quando = (iso: string) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
+  const det = (x.eventos ?? []).map(v => [quando(v.em), `"${v.escritorio.replace(/"/g, '""')}"`, v.cnpj, `"${v.nome.replace(/"/g, '""')}"`, v.servico, v.cobrada ? 'COBRADA' : 'grátis', br(v.valor)].join(';'));
+  return '﻿' + [cab.join(';'), ...lin, '', 'DETALHE: cada consulta do ciclo', ['Quando', 'Escritório', 'CNPJ', 'Empresa', 'Serviço', 'Situação', 'Valor a cobrar (R$)'].join(';'), ...det].join('\r\n');
 }

@@ -39,3 +39,16 @@ test('extrato separa por escritório para o boleto de cada um', () => {
   assert.equal(e1.empresas, 2); assert.equal(e1.cobradas, 2); assert.equal(e1.gratuitas, 1); assert.equal(e1.valorCobrado, 0.48);
   assert.equal(ex.porEscritorio.length, 2);
 });
+
+test('extrato traz cada consulta do ciclo, com situação e valor, e o CSV leva o detalhe', async () => {
+  const { montarExtrato, extratoParaCsv } = await import('./consumoSerpro');
+  const ex = montarExtrato([{ id: 'e1', cnpj: '11222333000181', nome: 'ACME', consultas: [
+    { em: '2026-10-25T15:00:00.000Z', semana: '2026-10-19', cobrada: false, servico: 'situacaoFiscal', escritorio: { id: 'o1', nome: 'ana@x.com' } },
+    { em: '2026-10-26T15:00:00.000Z', semana: '2026-10-26', cobrada: true, servico: 'dctfwebGuia', escritorio: { id: 'o1', nome: 'ana@x.com' } },
+  ] }], '2026-11', (k) => (k === 'dctfwebGuia' ? 'Emitir' : 'Consultar'));
+  assert.equal(ex.eventos.length, 2);
+  assert.deepEqual([ex.eventos[0].servico, ex.eventos[0].cobrada, ex.eventos[0].valor], ['dctfwebGuia', true, 0.32]);
+  assert.equal(ex.eventos[1].valor, 0);
+  const csv = extratoParaCsv(ex);
+  assert.match(csv, /DETALHE/); assert.match(csv, /COBRADA;0,32/); assert.match(csv, /grátis;0,00/);
+});
