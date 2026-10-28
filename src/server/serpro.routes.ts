@@ -6,6 +6,7 @@ import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/s
 import { acharPdfBase64, lerProtocoloSitfis } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
 import { comContextoTenant } from './persistence';
+import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -215,6 +216,36 @@ router.get('/consultas/:companyId', async (req, res) => {
     return res.json(avaliarCota(r.resultado));
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível consultar o controle de consultas.' });
+  }
+});
+
+// Extrato de consumo SERPRO do escritório no ciclo de cobrança (dia 21 → dia 20). Somente o dono (admin).
+router.get('/consumo', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const tenantId = String(req.query.tenantId ?? '');
+  if (!UUID.test(tenantId)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  const ciclo = req.query.ciclo ? String(req.query.ciclo) : cicloDe(new Date());
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora vê o consumo para cobrança.' });
+    const r = await comContextoTenant(user.id, tenantId, async client => {
+      const q = await client.query(`SELECT id, cnpj, legal_name, metadata->'serproCota'->'consultas' AS consultas FROM fiscoia.companies WHERE tenant_id = $1 AND metadata ? 'serproCota'`, [tenantId]);
+      return q.rows.map((x): EmpresaConsumo => ({ id: String(x.id), cnpj: String(x.cnpj), nome: String(x.legal_name), consultas: Array.isArray(x.consultas) ? x.consultas : [] }));
+    }, PAPEIS_CONSULTA);
+    if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!('resultado' in r)) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador.' });
+    const operacao = (chave: string): OperacaoSerpro => CATALOGO_SERVICOS[chave]?.operacao ?? 'Consultar';
+    let extrato;
+    try { extrato = montarExtrato(r.resultado, ciclo, operacao); } catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Ciclo inválido.' }); }
+    if (req.query.formato === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="consumo-serpro-${ciclo}.csv"`);
+      return res.send(extratoParaCsv(extrato));
+    }
+    return res.json(extrato);
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível montar o extrato de consumo.' });
   }
 });
 
