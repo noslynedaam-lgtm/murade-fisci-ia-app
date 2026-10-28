@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
-import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, lerDasMei, lerDividaAtivaMei, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, lerDasMei, lerDividaAtivaMei, lerDadosCcmei, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
 interface Campo { nome: string; rotulo: string; exemplo: string; opcional?: boolean }
 interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: Campo[] }[] }
@@ -65,8 +65,9 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const detalhePS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDetalhe' || resposta.servico === 'parcsnEspDetalhe' || resposta.servico === 'parcmeiDetalhe' || resposta.servico === 'pertmeiDetalhe' || resposta.servico === 'relpsnDetalhe') ? lerDetalheParcsn(resposta.bruto) : null), [resposta]);
   const pagamentoPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPagamento' || resposta.servico === 'parcsnEspPagamento' || resposta.servico === 'parcmeiPagamento' || resposta.servico === 'pertmeiPagamento' || resposta.servico === 'relpsnPagamento') ? lerPagamentoParcsn(resposta.bruto) : null), [resposta]);
   const parcelasPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnParcelas' || resposta.servico === 'parcsnEspParcelas' || resposta.servico === 'parcmeiParcelas' || resposta.servico === 'pertmeiParcelas' || resposta.servico === 'relpsnParcelas') ? lerParcelasParaGerarParcsn(resposta.bruto) : null), [resposta]);
-  const dasMei = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'pgmeiDasCodigoBarras') ? lerDasMei(resposta.bruto) : null), [resposta]);
+  const dasMei = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'ccmeiEmitir' || resposta.servico === 'pgmeiDasCodigoBarras') ? lerDasMei(resposta.bruto) : null), [resposta]);
   const dividaMei = useMemo(() => (resposta?.ok && resposta.servico === 'pgmeiDividaAtiva' ? lerDividaAtivaMei(resposta.bruto) : null), [resposta]);
+  const ccmei = useMemo(() => (resposta?.ok && resposta.servico === 'ccmeiDados' ? lerDadosCcmei(resposta.bruto) : null), [resposta]);
   const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas' || resposta.servico === 'parcmeiDas' || resposta.servico === 'pertmeiDas' || resposta.servico === 'relpsnDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
@@ -262,6 +263,19 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
                 <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-xs"><th className="p-2">Período</th><th className="p-2">Tributo</th><th className="p-2">Valor</th><th className="p-2">Ente</th><th className="p-2">Situação</th></tr></thead>
                   <tbody>{dividaMei.map((x, i) => (<tr key={i} className="border-t border-slate-200"><td className="p-2">{x.periodo}</td><td className="p-2">{x.tributo}</td><td className="p-2">{x.valor === null ? '—' : reaisPS(x.valor)}</td><td className="p-2">{x.ente}</td><td className="p-2">{x.situacao}</td></tr>))}</tbody></table></div>
               )}
+            </div>
+          )}
+
+          {ccmei && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-1 text-sm">
+              <p className="font-black text-base">{ccmei.nome || 'MEI'} · CNPJ {ccmei.cnpj}</p>
+              <p>Situação: <b>{ccmei.situacao || '—'}</b>{ccmei.situacaoDesde ? ` desde ${ccmei.situacaoDesde}` : ''} · início das atividades {ccmei.inicioAtividades || '—'}{ccmei.capital === null ? '' : ` · capital ${reaisPS(ccmei.capital)}`}</p>
+              <p>Empresário: {ccmei.empresario || '—'}{ccmei.cpf ? ` (CPF ${ccmei.cpf})` : ''}</p>
+              {ccmei.endereco && <p>Endereço: {ccmei.endereco}</p>}
+              <p>Enquadramento: {ccmei.enquadramento || '—'}{ccmei.optanteMei === null ? '' : ccmei.optanteMei ? ' · optante MEI' : ' · não optante MEI'}{ccmei.periodos.length ? ` · ${ccmei.periodos.map(p => `${p.inicio || '?'} a ${p.fim || 'hoje'}`).join('; ')}` : ''}</p>
+              {ccmei.ocupacaoPrincipal && <p>Ocupação principal: {ccmei.ocupacaoPrincipal}</p>}
+              {ccmei.ocupacoesSecundarias.length > 0 && <p className="text-xs text-slate-600">Secundárias: {ccmei.ocupacoesSecundarias.join('; ')}</p>}
+              {ccmei.formasAtuacao.length > 0 && <p className="text-xs text-slate-600">Formas de atuação: {ccmei.formasAtuacao.join('; ')}</p>}
             </div>
           )}
 

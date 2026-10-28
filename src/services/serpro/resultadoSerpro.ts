@@ -232,3 +232,27 @@ export function lerDividaAtivaMei(bruto: unknown): DebitoDividaAtivaMei[] | null
   const l = listaDoGateway(bruto); if (!l) return null;
   return l.map(x => ({ periodo: mes6(x.periodoApuracao), tributo: String(x.tributo ?? ''), valor: num(x.valor), ente: String(x.enteFederado ?? ''), situacao: String(x.situacaoDebito ?? '') }));
 }
+
+export interface DadosCcmei {
+  cnpj: string; nome: string; inicioAtividades: string; capital: number | null; situacao: string; situacaoDesde: string;
+  empresario: string; cpf: string; endereco: string; enquadramento: string; optanteMei: boolean | null;
+  periodos: { inicio: string; fim: string }[]; ocupacaoPrincipal: string; ocupacoesSecundarias: string[]; formasAtuacao: string[];
+}
+const dataIso = (v: unknown) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? '')); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+export function lerDadosCcmei(bruto: unknown): DadosCcmei | null {
+  const d = dadosDoGateway(bruto); if (!d || d.cnpj === undefined) return null;
+  const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+  const emp = obj(d.empresario), end = obj(d.enderecoComercial), enq = obj(d.enquadramento), ati = obj(d.atividade), op = obj(ati.ocupacaoPrincipal);
+  const per = enq.PeriodosMei ?? enq.periodosMei; const lper = Array.isArray(per) ? per : per ? [per] : [];
+  const endereco = [end.logradouro, end.numero, end.complemento, end.bairro, end.municipio && end.uf ? `${end.municipio}/${end.uf}` : end.municipio, end.cep ? `CEP ${end.cep}` : ''].map(x => String(x ?? '').trim()).filter(Boolean).join(', ');
+  return {
+    cnpj: String(d.cnpj), nome: String(d.nomeEmpresarial ?? ''), inicioAtividades: dataIso(d.dataInicioAtividades), capital: num(d.capitalSocial),
+    situacao: String(d.situacaoCadastralVigente ?? ''), situacaoDesde: dataIso(d.dataInicioSituacaoCadastral),
+    empresario: String(emp.nomeSocial || emp.nomeCivil || ''), cpf: String(emp.cpf ?? ''), endereco,
+    enquadramento: String(enq.situacao ?? ''), optanteMei: typeof enq.optanteMei === 'boolean' ? enq.optanteMei : null,
+    periodos: (lper as Record<string, unknown>[]).map(x => ({ inicio: dataIso(x.dataInicio), fim: dataIso(x.dataFim) })),
+    ocupacaoPrincipal: [op.descricaoOcupacao, op.codigoCNAE ? `CNAE ${op.codigoCNAE}` : ''].map(x => String(x ?? '').trim()).filter(Boolean).join(' · '),
+    ocupacoesSecundarias: (Array.isArray(ati.ocupacoesSecundarias) ? ati.ocupacoesSecundarias as Record<string, unknown>[] : []).map(x => String(x.descricaoOcupacao ?? '')).filter(Boolean),
+    formasAtuacao: Array.isArray(ati.formasAtuacao) ? (ati.formasAtuacao as unknown[]).map(String) : [],
+  };
+}

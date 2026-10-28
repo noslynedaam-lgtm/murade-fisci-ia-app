@@ -144,3 +144,13 @@ test('PGMEI: serviços das páginas 2.1 a 2.4, sem procuração, validação e l
   const div = lerDividaAtivaMei({ dados: JSON.stringify([{ periodoApuracao: '201901', tributo: 'INSS', valor: 10, enteFederado: 'União', situacaoDebito: 'Enviado à PFN' }]) });
   assert.deepEqual(div, [{ periodo: '01/2019', tributo: 'INSS', valor: 10, ente: 'União', situacao: 'Enviado à PFN' }]);
 });
+
+test('CCMEI: emitir (PDF) e dados, sem entrada; leitura dos dados do certificado', async () => {
+  const { lerDadosCcmei } = await import('./resultadoSerpro');
+  const c = CATALOGO_SERVICOS;
+  assert.deepEqual([c.ccmeiEmitir, c.ccmeiDados].map(x => [x.idSistema, x.idServico, x.operacao, x.dadosVazio]), [['CCMEI', 'EMITIRCCMEI121', 'Emitir', true], ['CCMEI', 'DADOSCCMEI122', 'Consultar', true]]);
+  assert.equal(montarPedido(c.ccmeiDados, '11222333000181', '11222333000181', {}).pedidoDados.dados, '');
+  const d = lerDadosCcmei({ dados: JSON.stringify({ cnpj: '1', nomeEmpresarial: 'JOAO MEI', dataInicioAtividades: '2020-03-15', capitalSocial: 1000, situacaoCadastralVigente: 'ATIVA', empresario: { nomeCivil: 'Joao', cpf: '123' }, enderecoComercial: { logradouro: 'Rua A', numero: '10', bairro: 'Centro', municipio: 'Sao Luis', uf: 'MA', cep: 65000000 }, enquadramento: { situacao: 'Enquadrado', optanteMei: true, PeriodosMei: { indice: 1, dataInicio: '2020-03-15' } }, atividade: { formasAtuacao: ['Estabelecimento fixo'], ocupacaoPrincipal: { descricaoOcupacao: 'Pedreiro', codigoCNAE: '4399103' }, ocupacoesSecundarias: [{ descricaoOcupacao: 'Pintor' }] } }) });
+  assert.equal(d?.inicioAtividades, '15/03/2020'); assert.equal(d?.empresario, 'Joao'); assert.equal(d?.optanteMei, true);
+  assert.deepEqual(d?.periodos, [{ inicio: '15/03/2020', fim: '' }]); assert.match(d!.endereco, /Rua A, 10, Centro, Sao Luis\/MA/); assert.deepEqual(d?.ocupacoesSecundarias, ['Pintor']);
+});
