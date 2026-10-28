@@ -154,3 +154,16 @@ test('CCMEI: emitir (PDF) e dados, sem entrada; leitura dos dados do certificado
   assert.equal(d?.inicioAtividades, '15/03/2020'); assert.equal(d?.empresario, 'Joao'); assert.equal(d?.optanteMei, true);
   assert.deepEqual(d?.periodos, [{ inicio: '15/03/2020', fim: '' }]); assert.match(d!.endereco, /Rua A, 10, Centro, Sao Luis\/MA/); assert.deepEqual(d?.ocupacoesSecundarias, ['Pintor']);
 });
+
+test('PARCMEI-ESP: 5 serviços das páginas 21.1 a 21.5, procuração 00133', () => {
+  const c = CATALOGO_SERVICOS;
+  const l = [c.parcmeiEspPedidos, c.parcmeiEspDetalhe, c.parcmeiEspPagamento, c.parcmeiEspParcelas, c.parcmeiEspDas];
+  assert.deepEqual(l.map(x => x.idServico), ['PEDIDOSPARC213', 'OBTERPARC214', 'DETPAGTOPARC215', 'PARCELASPARAGERAR212', 'GERARDAS211']);
+  assert.ok(l.every(x => x.idSistema === 'PARCMEI-ESP' && x.procuracao?.codigo === '00133'));
+  assert.equal(c.parcmeiEspDas.operacao, 'Emitir');
+  assert.equal(validarDadosParcsn('PEDIDOSPARC213', {}), null);
+  assert.equal(validarDadosParcsn('PARCELASPARAGERAR212', {}), null);
+  assert.equal(validarDadosParcsn('GERARDAS211', { parcelaParaEmitir: '202107' }), null);
+  assert.match(validarDadosParcsn('DETPAGTOPARC215', { numeroParcelamento: '9001' })!, /AAAAMM/);
+  assert.equal(montarPedido(c.parcmeiEspPagamento, '11222333000181', '11222333000181', { numeroParcelamento: '9001', anoMesParcela: '202111' }).pedidoDados.dados, '{"numeroParcelamento":9001,"anoMesParcela":202111}');
+});
