@@ -18,6 +18,8 @@ export interface ServicoIntegra {
   campos?: { nome: string; rotulo: string; exemplo: string; opcional?: boolean }[];
   /** Procuração eletrônica no e-CAC que a empresa precisa dar ao escritório (tabela "Serviços x Procurações" do Serpro). */
   procuracao?: { codigo: string; nome: string; observacao?: string };
+  /** Serviço que muda dados na Receita: só roda pelo fluxo seguro (conferência, confirmação e assinatura), nunca pela consulta genérica. */
+  soFluxoSeguro?: boolean;
 }
 
 /** Catálogo editável: ajuste os códigos conforme o contrato assim que as chaves chegarem. */
@@ -33,6 +35,8 @@ export const CATALOGO_SERVICOS: Record<string, ServicoIntegra> = {
   dctfwebXml: { chave: 'dctfwebXml', descricao: 'DCTFWeb: consultar o XML da declaração (valores por tributo)', idSistema: 'DCTFWEB', idServico: 'CONSXMLDECLARACAO38', versaoSistema: '1.0', operacao: 'Consultar', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }, { nome: 'numeroReciboEntrega', rotulo: 'Número do recibo (vazio = declaração mais recente)', exemplo: '24688', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
   // GERARGUIAANDAMENTO313: exemplo oficial informado (versão 1.0). Resposta: dados = {"PDFByteArrayBase64": "..."}. O campo opcional idsSistemaOrigem (lista) não é usado aqui.
   dctfwebGuiaAndamento: { chave: 'dctfwebGuiaAndamento', descricao: 'DCTFWeb: gerar a guia (DARF) de declaração em andamento', idSistema: 'DCTFWEB', idServico: 'GERARGUIAANDAMENTO313', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb', observacao: 'Este serviço não aparece na tabela do Serpro; presume-se a mesma procuração da DCTFWeb.' } },
+  // TRANSDECLARACAO310 (Declarar, R$ 0,40): transmite a declaração em andamento assinada. Catálogo do Serpro confirma o tipo "Declarar". Não aparece na tabela de procurações; presume-se a 00103.
+  dctfwebTransmitir: { chave: 'dctfwebTransmitir', descricao: 'DCTFWeb: transmitir a declaração em andamento (assinada)', idSistema: 'DCTFWEB', idServico: 'TRANSDECLARACAO310', versaoSistema: '1.0', operacao: 'Declarar', soFluxoSeguro: true, procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
   dctfwebGuia: { chave: 'dctfwebGuia', descricao: 'DCTFWeb: gerar a guia de arrecadação (DARF)', idSistema: 'DCTFWEB', idServico: 'GERARGUIA31', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
 };
 

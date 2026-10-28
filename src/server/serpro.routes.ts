@@ -3,12 +3,13 @@ import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosDctfweb } from '../services/serpro/integraContador';
-import { acharPdfBase64, lerProtocoloSitfis } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, lerProtocoloSitfis, lerXmlDeclaracao, lerReciboTransmissao } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
+import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAPEIS_CONSULTA = ['OWNER', 'ADMIN'];
@@ -197,7 +198,7 @@ router.get('/prontidao', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = await obterUsuarioDaSessao(req).catch(() => null);
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
+  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
 });
 
 // Quantas consultas a empresa já fez, limite e aviso (regra: 1 gratuita/semana por empresa, sem acúmulo).
@@ -258,6 +259,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
   try {
     const servico = CATALOGO_SERVICOS[e.servico];
     if (!servico) return resp(400, { mensagem: 'Serviço desconhecido.' });
+    if (servico.soFluxoSeguro) return resp(400, { mensagem: 'Este serviço altera dados na Receita e só roda pelo fluxo seguro de transmissão.' });
     const { tenantId, companyId } = e;
     if (!UUID.test(tenantId) || !UUID.test(companyId)) return resp(400, { mensagem: 'Escritório ou empresa inválidos.' });
     const prontidao = avaliarProntidao(process.env);
@@ -430,7 +432,7 @@ router.get('/ponte/cota', async (req, res) => {
     const e = await localizarEmpresaDaDona(cnpj);
     // Empresa ainda sem registro central: tem a consulta grátis da semana inteira.
     const cota = avaliarCota(e ? e.cota : { consultas: [] });
-    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
+    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a cota.' }); }
 });
 
@@ -449,6 +451,94 @@ router.post('/ponte/consulta', async (req, res) => {
     const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
+});
+
+// ---- Transmissão da DCTFWeb (TRANSDECLARACAO310) ----
+// Fase "preparar": busca o XML da declaração em andamento (consulta) e devolve para conferência, com o hash.
+// Fase "confirmar": só com hash conferido, custo confirmado e interruptor ligado; assina o MESMO XML e transmite.
+const XML_PREPARADO = new Map<string, { xml: string; cnpj: string; categoria: string; anoPA: string; mesPA?: string; expira: number }>();
+const VALIDADE_PREPARO_MS = 15 * 60 * 1000;
+const limparPreparos = () => { const agora = Date.now(); for (const [k, v] of XML_PREPARADO) if (v.expira < agora) XML_PREPARADO.delete(k); };
+
+router.post('/ponte/dctfweb/transmitir', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) return res.status(503).json({ mensagem: 'Integração não configurada.' });
+  if (!tokenValido(req.get('authorization'))) return res.status(401).json({ mensagem: 'Credencial de integração inválida.' });
+  const cnpj = normalizarCnpj(String(req.body?.cnpj ?? ''));
+  if (!validarCnpj(cnpj)) return res.status(400).json({ mensagem: 'CNPJ inválido.' });
+  const categoria = String(req.body?.categoria ?? '').trim();
+  const anoPA = String(req.body?.anoPA ?? '').trim();
+  const mesPA = String(req.body?.mesPA ?? '').trim() || undefined;
+  const erroDados = validarDadosDctfweb({ categoria, anoPA, ...(mesPA ? { mesPA } : {}) });
+  if (erroDados) return res.status(400).json({ mensagem: erroDados });
+  const fase = String(req.body?.fase ?? '');
+  const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
+  const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
+  try {
+    const e = await localizarEmpresaDaDona(cnpj, { razaoSocial: String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim(), escritorio });
+    if (!e) return res.status(503).json({ mensagem: 'Não foi possível localizar a empresa para controle da cota. Nada foi feito.' });
+    limparPreparos();
+
+    if (fase === 'preparar') {
+      const dados: Record<string, string> = { categoria, anoPA, ...(mesPA ? { mesPA } : {}) };
+      const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: 'dctfwebXml', dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
+      if (r.status !== 200) return res.status(r.status).json(r.corpo);
+      const xml = lerXmlDeclaracao((r.corpo as { bruto?: unknown }).bruto);
+      if (!xml) return res.status(502).json({ preparada: false, mensagem: 'O SERPRO não devolveu o XML da declaração em andamento. Nada foi transmitido.' });
+      const hashXml = sha256Hex(xml);
+      XML_PREPARADO.set(hashXml, { xml, cnpj, categoria, anoPA, mesPA, expira: Date.now() + VALIDADE_PREPARO_MS });
+      return res.json({ preparada: true, transmitida: false, hashXml, validoPorMinutos: VALIDADE_PREPARO_MS / 60000, xmlBase64: Buffer.from(xml, 'utf8').toString('base64'), cota: (r.corpo as { cota?: unknown }).cota, mensagem: 'XML obtido. Confira os valores e confirme para assinar e transmitir. Nada foi enviado à Receita.' });
+    }
+
+    if (fase !== 'confirmar') return res.status(400).json({ mensagem: 'Informe a fase: "preparar" ou "confirmar".' });
+    if (process.env.SERPRO_DCTFWEB_TRANSMISSAO_HABILITADA !== 'true') return res.status(403).json({ transmitida: false, mensagem: 'A transmissão da DCTFWeb está desligada (SERPRO_DCTFWEB_TRANSMISSAO_HABILITADA não é "true"). Nada foi enviado.' });
+    if (req.body?.confirmarCusto !== true || req.body?.confirmarTransmissao !== true) return res.status(402).json({ transmitida: false, exigeConfirmacao: true, mensagem: 'Confirme a transmissão (ela envia a declaração à Receita) e o custo de R$ 0,40 do serviço Declarar.' });
+    const hash = String(req.body?.hashXml ?? '');
+    const preparo = XML_PREPARADO.get(hash);
+    if (!preparo || preparo.cnpj !== cnpj || preparo.categoria !== categoria || preparo.anoPA !== anoPA || (preparo.mesPA ?? '') !== (mesPA ?? '')) return res.status(409).json({ transmitida: false, mensagem: 'A conferência expirou ou não é desta declaração. Refaça a etapa de conferência. Nada foi enviado.' });
+    const prontidao = avaliarProntidao(process.env);
+    if (!prontidao.pronto) return res.status(503).json({ transmitida: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi enviado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
+    const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
+    if (preparadoPfx.ok === false) return res.status(503).json({ transmitida: false, mensagem: 'O certificado do escritório no servidor não pôde ser aberto. Nada foi enviado.' });
+    let assinado;
+    try {
+      const cert = lerCertificadoAssinante(preparadoPfx.pfx, process.env.SERPRO_CERT_PFX_SENHA!);
+      assinado = assinarDeclaracaoDctfweb(preparo.xml, cert, process.env.SERPRO_CONTRATANTE_CNPJ);
+    } catch (erro) { return res.status(422).json({ transmitida: false, mensagem: `${erro instanceof Error ? erro.message : 'Falha ao assinar.'} Nada foi enviado.` }); }
+
+    const servico = CATALOGO_SERVICOS.dctfwebTransmitir;
+    const pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, cnpj, montarDadosTransmissao({ categoria, anoPA, mesPA }, assinado.base64));
+    const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
+    const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
+      method: 'POST', pfx: preparadoPfx.pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
+      headers: { Authorization: `Basic ${basic}`, 'Role-Type': 'TERCEIROS', 'Content-Type': 'application/x-www-form-urlencoded' },
+    }, 'grant_type=client_credentials');
+    if (auth.status !== 200) return res.status(502).json({ transmitida: false, mensagem: 'SERPRO recusou a autenticação do escritório. Nada foi enviado.', statusGateway: auth.status });
+    const tokens = JSON.parse(auth.texto) as { access_token?: string; jwt_token?: string };
+    if (!tokens.access_token || !tokens.jwt_token) return res.status(502).json({ transmitida: false, mensagem: 'Resposta de autenticação inesperada. Nada foi enviado.' });
+
+    XML_PREPARADO.delete(hash); // uso único: cada confirmação vale para uma só transmissão
+    // A tentativa pode ser cobrada: registra antes de chamar, sempre como cobrada (Declarar não tem cota gratuita).
+    await comContextoTenant(e.userId, e.tenantId, async client => {
+      const q = await client.query('SELECT metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [e.companyId, e.tenantId]);
+      const atual = (q.rows[0]?.metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] };
+      const nova = registrarConsulta(atual, true, servico.chave, new Date(), escritorio);
+      await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproCota}', $3::jsonb, true), updated_at = now() WHERE id = $1 AND tenant_id = $2`, [e.companyId, e.tenantId, JSON.stringify(nova)]);
+    }, PAPEIS_CONSULTA);
+    const corpo = JSON.stringify(pedido);
+    const r = await chamarHttps(`${GATEWAY_BY_ENVIRONMENT.producao}/integra-contador/v1/${servico.operacao}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo) },
+    }, corpo);
+    let bruto: unknown = r.texto;
+    try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
+    const recibo = r.status >= 200 && r.status < 300 ? lerReciboTransmissao(bruto) : null;
+    if (!recibo) {
+      const mensagens = (bruto as { mensagens?: unknown })?.mensagens;
+      return res.status(502).json({ transmitida: false, statusGateway: r.status, mensagem: r.status === 403 ? 'O SERPRO negou o acesso: confira a procuração 00103 (DCTFWeb) da empresa no e-CAC.' : 'O SERPRO não confirmou a transmissão. Confira o recibo no e-CAC antes de tentar de novo.', mensagens, hashXml: hash });
+    }
+    return res.json({ transmitida: true, numeroRecibo: recibo, hashXml: hash, transmitidaEm: new Date().toISOString(), mensagens: (bruto as { mensagens?: unknown })?.mensagens, mensagem: 'Declaração transmitida e recibo recebido.' });
+  } catch { return res.status(503).json({ transmitida: false, mensagem: 'Falha ao transmitir. Confira no e-CAC se a declaração foi entregue antes de repetir.' }); }
 });
 
 export default router;

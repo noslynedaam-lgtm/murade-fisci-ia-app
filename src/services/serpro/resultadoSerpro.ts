@@ -82,3 +82,17 @@ export function acharPdfBase64(valor: unknown, nivel = 0): string | null {
   if (typeof valor === 'object') { for (const v of Object.values(valor as Record<string, unknown>)) { const r = acharPdfBase64(v, nivel + 1); if (r) return r; } }
   return null;
 }
+
+/** CONSXMLDECLARACAO38: dados = {"XMLStringBase64": "..."}. Devolve o XML em texto (UTF-8) ou null. */
+export function lerXmlDeclaracao(bruto: unknown): string | null {
+  const d = dadosComoObjeto(bruto) as { XMLStringBase64?: unknown } | null;
+  if (!d || typeof d.XMLStringBase64 !== 'string' || !d.XMLStringBase64) return null;
+  const xml = Buffer.from(d.XMLStringBase64.replace(/\s/g, ''), 'base64').toString('utf8');
+  return xml.includes('<ProcDctf') ? xml : null;
+}
+
+/** TRANSDECLARACAO310: dados = {"NumeroRecibo": 24781}. */
+export function lerReciboTransmissao(bruto: unknown): string | null {
+  const d = dadosComoObjeto(bruto) as { NumeroRecibo?: unknown } | null;
+  return d && (typeof d.NumeroRecibo === 'number' || typeof d.NumeroRecibo === 'string') && String(d.NumeroRecibo) ? String(d.NumeroRecibo) : null;
+}

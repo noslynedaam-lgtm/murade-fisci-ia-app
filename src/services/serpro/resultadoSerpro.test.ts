@@ -33,3 +33,18 @@ test('acha PDF em base64 dentro de dados', () => {
   assert.equal(acharPdfBase64({ dados: JSON.stringify({ pdf }) }), pdf);
   assert.equal(acharPdfBase64({ dados: '{"x":"texto"}' }), null);
 });
+
+import { lerXmlDeclaracao, lerReciboTransmissao } from './resultadoSerpro';
+import { CATALOGO_SERVICOS } from './integraContador';
+test('lê o XML da declaração e o recibo da transmissão', () => {
+  const xml = '<ProcDctf><ConteudoDeclaracao id="id_1"/></ProcDctf>';
+  const bruto = { dados: JSON.stringify({ XMLStringBase64: Buffer.from(xml).toString('base64') }) };
+  assert.equal(lerXmlDeclaracao(bruto), xml);
+  assert.equal(lerXmlDeclaracao({ dados: JSON.stringify({ XMLStringBase64: Buffer.from('<outro/>').toString('base64') }) }), null);
+  assert.equal(lerReciboTransmissao({ dados: '{"NumeroRecibo":24781}' }), '24781');
+  assert.equal(lerReciboTransmissao({ dados: '{}' }), null);
+});
+test('transmissão DCTFWeb só roda pelo fluxo seguro e é do tipo Declarar', () => {
+  assert.equal(CATALOGO_SERVICOS.dctfwebTransmitir.soFluxoSeguro, true);
+  assert.equal(CATALOGO_SERVICOS.dctfwebTransmitir.operacao, 'Declarar');
+});
