@@ -123,3 +123,24 @@ test('RELPSN: 5 serviços das páginas 19.1 a 19.5, procuração 00210, e detalh
   const d = lerDetalheParcsn({ dados: JSON.stringify({ numero: 9131, situacao: 'Em parcelamento', consolidacaoOriginal: { valorTotalConsolidadoDaEntrada: 10, quantidadeParcelasDeEntrada: 1, parcelaDeEntrada: 10, valorConsolidadoDivida: 500 } }) });
   assert.deepEqual(d?.consolidacao?.entrada, { valorEntrada: 10, parcelasEntrada: 1, parcelaEntrada: 10, valorDivida: 500 });
 });
+
+test('PGMEI: serviços das páginas 2.1 a 2.4, sem procuração, validação e leitura do DAS', async () => {
+  const { validarDadosPgmei } = await import('./integraContador');
+  const { lerDasMei, lerDividaAtivaMei } = await import('./resultadoSerpro');
+  const c = CATALOGO_SERVICOS;
+  assert.deepEqual([c.pgmeiDasPdf, c.pgmeiDasCodigoBarras, c.pgmeiBeneficio, c.pgmeiDividaAtiva].map(x => x.idServico), ['GERARDASPDF21', 'GERARDASCODBARRA22', 'ATUBENEFICIO23', 'DIVIDAATIVA24']);
+  assert.ok([c.pgmeiDasPdf, c.pgmeiDasCodigoBarras, c.pgmeiBeneficio, c.pgmeiDividaAtiva].every(x => x.idSistema === 'PGMEI' && !x.procuracao));
+  assert.equal(c.pgmeiBeneficio.soFluxoSeguro, true);
+  assert.equal(c.pgmeiDividaAtiva.operacao, 'Consultar');
+  assert.equal(montarPedido(c.pgmeiDasPdf, '11222333000181', '11222333000181', { periodoApuracao: '201901' }).pedidoDados.dados, '{"periodoApuracao":"201901"}');
+  assert.equal(montarPedido(c.pgmeiDividaAtiva, '11222333000181', '11222333000181', { anoCalendario: '2019' }).pedidoDados.dados, '{"anoCalendario":"2019"}');
+  assert.equal(validarDadosPgmei('GERARDASPDF21', { periodoApuracao: '201901' }), null);
+  assert.match(validarDadosPgmei('GERARDASPDF21', { periodoApuracao: '2019' })!, /AAAAMM/);
+  assert.match(validarDadosPgmei('GERARDASPDF21', { periodoApuracao: '201901', dataConsolidacao: '2019' })!, /AAAAMMDD/);
+  assert.equal(validarDadosPgmei('DIVIDAATIVA24', { anoCalendario: '2019' }), null);
+  assert.match(validarDadosPgmei('DIVIDAATIVA24', {})!, /ano/);
+  const das = lerDasMei({ dados: JSON.stringify([{ cnpjCompleto: '1', pdf: 'x', detalhamento: { periodoApuracao: '201901', numeroDocumento: '07', dataVencimento: '20190220', valores: { principal: 50, multa: 1, juros: 0, total: 51 }, codigoDeBarras: ['a', 'b'], observacao1: 'obs', composicao: [{ periodoApuracao: '201901', codigo: 'INSS', denominacao: 'INSS', valores: [{ total: 50 }] }] } }]) });
+  assert.equal(das?.[0].vencimento, '20/02/2019'); assert.equal(das?.[0].total, 51); assert.deepEqual(das?.[0].codigosDeBarras, ['a', 'b']); assert.equal(das?.[0].composicao[0].total, 50);
+  const div = lerDividaAtivaMei({ dados: JSON.stringify([{ periodoApuracao: '201901', tributo: 'INSS', valor: 10, enteFederado: 'União', situacaoDebito: 'Enviado à PFN' }]) });
+  assert.deepEqual(div, [{ periodo: '01/2019', tributo: 'INSS', valor: 10, ente: 'União', situacao: 'Enviado à PFN' }]);
+});

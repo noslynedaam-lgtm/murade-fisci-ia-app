@@ -202,3 +202,33 @@ export function lerParcelasParaGerarParcsn(bruto: unknown): ParcelaParaGerar[] |
   const d = dadosDoGateway(bruto); if (!d || !Array.isArray(d.listaParcela)) return null;
   return (d.listaParcela as Record<string, unknown>[]).filter(p => p && typeof p === 'object').map(p => ({ parcela: mes6(p.parcela) || String(p.parcela ?? ''), valor: num(p.valor) }));
 }
+
+// ---------------------------------------------------------------- MEI (PGMEI, páginas oficiais 2.1 a 2.4)
+function listaDoGateway(bruto: unknown): Record<string, unknown>[] | null {
+  let dados: unknown = (bruto as { dados?: unknown } | null)?.dados;
+  if (typeof dados === 'string') { try { dados = JSON.parse(dados); } catch { return null; } }
+  return Array.isArray(dados) ? (dados as unknown[]).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : null;
+}
+export interface DasMei { cnpj: string; periodo: string; documento: string; vencimento: string; limiteAcolhimento: string; principal: number | null; multa: number | null; juros: number | null; total: number | null; codigosDeBarras: string[]; observacoes: string[]; composicao: { periodo: string; tributo: string; total: number | null }[] }
+export function lerDasMei(bruto: unknown): DasMei[] | null {
+  const l = listaDoGateway(bruto); if (!l) return null;
+  return l.map(x => {
+    const d = (x.detalhamento && typeof x.detalhamento === 'object' ? x.detalhamento : {}) as Record<string, unknown>;
+    const v = (d.valores && typeof d.valores === 'object' ? d.valores : {}) as Record<string, unknown>;
+    const comp = Array.isArray(d.composicao) ? d.composicao as Record<string, unknown>[] : [];
+    const totalDe = (c: Record<string, unknown>) => { const val = Array.isArray(c.valores) ? (c.valores[0] as Record<string, unknown> | undefined) : (c.valores as Record<string, unknown> | undefined); return num(val?.total); };
+    return {
+      cnpj: String(x.cnpjCompleto ?? ''), periodo: /^\d{6}$/.test(String(d.periodoApuracao ?? '')) ? mes6(d.periodoApuracao) : String(d.periodoApuracao ?? ''), documento: String(d.numeroDocumento ?? ''),
+      vencimento: dia8(d.dataVencimento), limiteAcolhimento: dia8(d.dataLimiteAcolhimento),
+      principal: num(v.principal), multa: num(v.multa), juros: num(v.juros), total: num(v.total),
+      codigosDeBarras: Array.isArray(d.codigoDeBarras) ? (d.codigoDeBarras as unknown[]).map(String) : [],
+      observacoes: [d.observacao1, d.observacao2, d.observacao3].map(o => String(o ?? '').trim()).filter(Boolean),
+      composicao: comp.map(c => ({ periodo: mes6(c.periodoApuracao), tributo: String(c.denominacao ?? c.codigo ?? ''), total: totalDe(c) })),
+    };
+  });
+}
+export interface DebitoDividaAtivaMei { periodo: string; tributo: string; valor: number | null; ente: string; situacao: string }
+export function lerDividaAtivaMei(bruto: unknown): DebitoDividaAtivaMei[] | null {
+  const l = listaDoGateway(bruto); if (!l) return null;
+  return l.map(x => ({ periodo: mes6(x.periodoApuracao), tributo: String(x.tributo ?? ''), valor: num(x.valor), ente: String(x.enteFederado ?? ''), situacao: String(x.situacaoDebito ?? '') }));
+}

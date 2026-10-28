@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
-import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, lerDasMei, lerDividaAtivaMei, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
 interface Campo { nome: string; rotulo: string; exemplo: string; opcional?: boolean }
 interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: Campo[] }[] }
@@ -65,7 +65,9 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const detalhePS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDetalhe' || resposta.servico === 'parcsnEspDetalhe' || resposta.servico === 'parcmeiDetalhe' || resposta.servico === 'pertmeiDetalhe' || resposta.servico === 'relpsnDetalhe') ? lerDetalheParcsn(resposta.bruto) : null), [resposta]);
   const pagamentoPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPagamento' || resposta.servico === 'parcsnEspPagamento' || resposta.servico === 'parcmeiPagamento' || resposta.servico === 'pertmeiPagamento' || resposta.servico === 'relpsnPagamento') ? lerPagamentoParcsn(resposta.bruto) : null), [resposta]);
   const parcelasPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnParcelas' || resposta.servico === 'parcsnEspParcelas' || resposta.servico === 'parcmeiParcelas' || resposta.servico === 'pertmeiParcelas' || resposta.servico === 'relpsnParcelas') ? lerParcelasParaGerarParcsn(resposta.bruto) : null), [resposta]);
-  const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas' || resposta.servico === 'parcmeiDas' || resposta.servico === 'pertmeiDas' || resposta.servico === 'relpsnDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
+  const dasMei = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'pgmeiDasCodigoBarras') ? lerDasMei(resposta.bruto) : null), [resposta]);
+  const dividaMei = useMemo(() => (resposta?.ok && resposta.servico === 'pgmeiDividaAtiva' ? lerDividaAtivaMei(resposta.bruto) : null), [resposta]);
+  const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas' || resposta.servico === 'parcmeiDas' || resposta.servico === 'pertmeiDas' || resposta.servico === 'relpsnDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
   if (!companyId || !tenantId) {
@@ -236,6 +238,30 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
                   ))}</tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {dasMei && dasMei.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <p className="font-black text-base">DAS do MEI</p>
+              {dasMei.map((d, i) => (
+                <div key={i} className="rounded-lg bg-white border border-slate-200 p-3 space-y-1 text-sm">
+                  <p className="font-bold">Período {d.periodo || '—'} · vencimento {d.vencimento || '—'} · documento {d.documento || '—'}</p>
+                  <p>Principal {d.principal === null ? '—' : reaisPS(d.principal)} · multa {d.multa === null ? '—' : reaisPS(d.multa)} · juros {d.juros === null ? '—' : reaisPS(d.juros)} · <b>total {d.total === null ? '—' : reaisPS(d.total)}</b></p>
+                  {d.composicao.length > 0 && <p className="text-xs text-slate-600">{d.composicao.map(c => `${c.tributo}${c.total === null ? '' : ` ${reaisPS(c.total)}`}`).join(' · ')}</p>}
+                  {d.codigosDeBarras.length > 0 && <p className="font-mono text-xs break-all">Código de barras: {d.codigosDeBarras.join(' ')}</p>}
+                  {d.observacoes.map((o, j) => <p key={j} className="text-xs text-slate-600">{o}</p>)}
+                </div>
+              ))}
+            </div>
+          )}
+          {dividaMei && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+              <p className="font-black text-base">Dívida ativa do MEI</p>
+              {dividaMei.length === 0 ? <p className="text-sm text-emerald-800 font-bold">Nenhum período inscrito em dívida ativa neste ano.</p> : (
+                <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-xs"><th className="p-2">Período</th><th className="p-2">Tributo</th><th className="p-2">Valor</th><th className="p-2">Ente</th><th className="p-2">Situação</th></tr></thead>
+                  <tbody>{dividaMei.map((x, i) => (<tr key={i} className="border-t border-slate-200"><td className="p-2">{x.periodo}</td><td className="p-2">{x.tributo}</td><td className="p-2">{x.valor === null ? '—' : reaisPS(x.valor)}</td><td className="p-2">{x.ente}</td><td className="p-2">{x.situacao}</td></tr>))}</tbody></table></div>
+              )}
             </div>
           )}
 
