@@ -72,3 +72,9 @@ test('DCTFWeb: validação do domínio de categorias e do período antes de gast
   assert.match(validarDadosDctfweb({ categoria: 'GERAL_MENSAL', anoPA: '26', mesPA: '09' })!, /ano/);
   assert.match(validarDadosDctfweb({ categoria: 'GERAL_13o_SALARIO', anoPA: '2026', mesPA: '12' })!, /13º/);
 });
+
+test('procuração do e-CAC por serviço (tabela Serviços x Procurações do Serpro)', () => {
+  assert.equal(CATALOGO_SERVICOS.situacaoFiscal.procuracao!.codigo, '00002');
+  assert.equal(CATALOGO_SERVICOS.declaracoesSimples.procuracao!.codigo, '00146');
+  for (const k of ['dctfwebRecibo', 'dctfwebDeclaracao', 'dctfwebXml', 'dctfwebGuia', 'dctfwebGuiaAndamento']) assert.equal(CATALOGO_SERVICOS[k].procuracao!.codigo, '00103');
+});

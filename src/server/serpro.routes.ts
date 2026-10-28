@@ -197,7 +197,7 @@ router.get('/prontidao', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = await obterUsuarioDaSessao(req).catch(() => null);
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [] })) });
+  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
 });
 
 // Quantas consultas a empresa já fez, limite e aviso (regra: 1 gratuita/semana por empresa, sem acúmulo).
@@ -430,7 +430,7 @@ router.get('/ponte/cota', async (req, res) => {
     const e = await localizarEmpresaDaDona(cnpj);
     // Empresa ainda sem registro central: tem a consulta grátis da semana inteira.
     const cota = avaliarCota(e ? e.cota : { consultas: [] });
-    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [] })) });
+    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a cota.' }); }
 });
 
