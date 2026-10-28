@@ -44,3 +44,12 @@ test('DCTFWeb: pedido igual ao exemplo oficial informado (versão 1.0 e dados ca
   assert.equal(CATALOGO_SERVICOS.dctfwebRecibo.idServico, 'CONSRECIBO32');
   assert.equal(CATALOGO_SERVICOS.dctfwebDeclaracao.idServico, 'CONSDECCOMPLETA33');
 });
+
+test('DCTFWeb XML: CONSXMLDECLARACAO38 com recibo opcional, no formato do exemplo oficial', () => {
+  const s = CATALOGO_SERVICOS.dctfwebXml;
+  assert.equal(s.idServico, 'CONSXMLDECLARACAO38');
+  assert.equal(s.operacao, 'Consultar');
+  assert.ok(s.campos!.find((c) => c.nome === 'numeroReciboEntrega')!.opcional);
+  const p = montarPedido(s, A, B, { categoria: 'PF_MENSAL', anoPA: '2022', mesPA: '06' });
+  assert.equal(p.pedidoDados.dados, '{"categoria":"PF_MENSAL","anoPA":"2022","mesPA":"06"}');
+});
