@@ -727,7 +727,9 @@ const tentativasRecuperacao: number[] = [];
 const tentativasRecuperacaoPorIp = new Map<string, number[]>();
 router.post('/recuperar-admin', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const chaveEsperada = process.env.FISCOIA_CHAVE_RECUPERACAO || '';
+  // Tolera espaço/quebra de linha nas pontas e aspas coladas junto com o valor.
+  const limparChave = (v: string) => v.trim().replace(/^["']+|["']+$/g, '').trim();
+  const chaveEsperada = limparChave(process.env.FISCOIA_CHAVE_RECUPERACAO || '');
   if (chaveEsperada.length < 16) return res.status(503).json({ mensagem: 'A recuperação de administradora está desligada. Cadastre FISCOIA_CHAVE_RECUPERACAO (mínimo 16 caracteres) no Render.' });
   const agora = Date.now();
   const recentes = tentativasRecuperacao.filter((t) => agora - t < 60 * 60_000);
@@ -744,7 +746,7 @@ router.post('/recuperar-admin', async (req, res) => {
   const novaSenha = typeof req.body?.novaSenha === 'string' ? req.body.novaSenha : '';
   if (!email || email.length > 254 || !chave || chave.length > 512) return res.status(400).json({ mensagem: 'Informe o e-mail e a chave de recuperação.' });
   if (novaSenha.length < 12 || novaSenha.length > 1024) return res.status(400).json({ mensagem: 'A nova senha precisa ter entre 12 e 1024 caracteres.' });
-  const a = createHash('sha256').update(chave).digest();
+  const a = createHash('sha256').update(limparChave(chave)).digest();
   const b = createHash('sha256').update(chaveEsperada).digest();
   if (!timingSafeEqual(a, b)) return res.status(401).json({ mensagem: 'Chave de recuperação ou e-mail inválidos.' });
   try {
