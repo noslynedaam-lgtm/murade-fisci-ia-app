@@ -53,3 +53,11 @@ test('DCTFWeb XML: CONSXMLDECLARACAO38 com recibo opcional, no formato do exempl
   const p = montarPedido(s, A, B, { categoria: 'PF_MENSAL', anoPA: '2022', mesPA: '06' });
   assert.equal(p.pedidoDados.dados, '{"categoria":"PF_MENSAL","anoPA":"2022","mesPA":"06"}');
 });
+
+test('DCTFWeb guia de declaração em andamento: GERARGUIAANDAMENTO313 no formato do exemplo oficial', () => {
+  const s = CATALOGO_SERVICOS.dctfwebGuiaAndamento;
+  const p = montarPedido(s, A, B, { categoria: 'GERAL_MENSAL', anoPA: '2025', mesPA: '01' });
+  assert.equal(p.pedidoDados.idServico, 'GERARGUIAANDAMENTO313');
+  assert.equal(p.pedidoDados.versaoSistema, '1.0');
+  assert.equal(p.pedidoDados.dados, '{"categoria":"GERAL_MENSAL","anoPA":"2025","mesPA":"01"}');
+});
