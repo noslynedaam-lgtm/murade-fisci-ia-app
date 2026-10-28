@@ -1,0 +1,41 @@
+name: Validacao
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - codex/robot-status-no-false-green
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validacao-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Verificar tipos
+        run: npm run lint
+
+      - name: Executar testes
+        run: npm run test:agentes
+
+      - name: Compilar
+        run: npm run build

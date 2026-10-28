@@ -24,6 +24,8 @@ interface RegistroRobo extends DefinicaoRoboDP {
   falhas: number;
   puladasPorSobreposicao: number;
   ultimaExecucao: string | null;
+  ultimaExecucaoComSucesso: string | null;
+  ultimaTentativaFalhou: boolean;
   ultimaDuracaoMs: number | null;
   ultimoErro: string | null;
   ultimoErroEm: string | null;
@@ -45,6 +47,8 @@ export function registrarRobo(definicao: DefinicaoRoboDP): void {
     falhas: 0,
     puladasPorSobreposicao: 0,
     ultimaExecucao: null,
+    ultimaExecucaoComSucesso: null,
+    ultimaTentativaFalhou: false,
     ultimaDuracaoMs: null,
     ultimoErro: null,
     ultimoErroEm: null,
@@ -67,11 +71,14 @@ export async function executarRobo<T>(id: string, rotina: () => Promise<T>): Pro
   try {
     const resultado = await rotina();
     robo.execucoes += 1;
+    robo.ultimaExecucaoComSucesso = new Date().toISOString();
+    robo.ultimaTentativaFalhou = false;
     return resultado;
   } catch (erro: any) {
     robo.falhas += 1;
     robo.ultimoErro = String(erro?.message || 'Falha sem mensagem.').slice(0, 300);
     robo.ultimoErroEm = new Date().toISOString();
+    robo.ultimaTentativaFalhou = true;
     throw erro;
   } finally {
     robo.ultimaDuracaoMs = Date.now() - inicio;
@@ -83,11 +90,8 @@ export async function executarRobo<T>(id: string, rotina: () => Promise<T>): Pro
 function estadoDe(robo: RegistroRobo, agora: number): EstadoRobo {
   if (!robo.intervaloMs) return 'aguardando_configuracao';
   if (robo.executando) return 'ativo';
-  if (!robo.ultimaExecucao) {
-    // Recém-iniciado: dá tempo de três intervalos antes de considerar parado.
-    return agora - iniciadoEm.getTime() <= robo.intervaloMs * 3 ? 'ativo' : 'parado';
-  }
-  return agora - Date.parse(robo.ultimaExecucao) <= robo.intervaloMs * 3 ? 'ativo' : 'parado';
+  if (!robo.ultimaExecucaoComSucesso || robo.ultimaTentativaFalhou) return 'parado';
+  return agora - Date.parse(robo.ultimaExecucaoComSucesso) <= robo.intervaloMs * 3 ? 'ativo' : 'parado';
 }
 
 export function statusRobos(agora = Date.now()) {
@@ -106,6 +110,8 @@ export function statusRobos(agora = Date.now()) {
       executando: robo.executando,
       intervaloSegundos: robo.intervaloMs ? Math.round(robo.intervaloMs / 1000) : null,
       ultimaExecucao: robo.ultimaExecucao,
+      ultimaExecucaoComSucesso: robo.ultimaExecucaoComSucesso,
+      ultimaTentativaFalhou: robo.ultimaTentativaFalhou,
       ultimaDuracaoMs: robo.ultimaDuracaoMs,
       execucoes: robo.execucoes,
       falhas: robo.falhas,
