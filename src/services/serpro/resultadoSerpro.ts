@@ -96,3 +96,55 @@ export function lerReciboTransmissao(bruto: unknown): string | null {
   const d = dadosComoObjeto(bruto) as { NumeroRecibo?: unknown } | null;
   return d && (typeof d.NumeroRecibo === 'number' || typeof d.NumeroRecibo === 'string') && String(d.NumeroRecibo) ? String(d.NumeroRecibo) : null;
 }
+
+// ---------------------------------------------------------------- Caixa Postal (CAIXAPOSTAL, páginas oficiais do Serpro)
+export interface MensagemCaixaPostal {
+  isn: string; numeroControle: string; enviadaEm: string; assunto: string; lida: boolean | null; dataLeitura: string; cienciaEm: string;
+  origem: string; relevante: boolean | null; validade: string; codigoModelo: string;
+}
+export interface ListaCaixaPostal { quantidade: number; ultimaPagina: boolean; proximaPagina: string | null; mensagens: MensagemCaixaPostal[] }
+export interface DetalheCaixaPostal extends MensagemCaixaPostal { corpo: string }
+
+function dadosDoGateway(bruto: unknown): Record<string, unknown> | null {
+  let dados: unknown = (bruto as { dados?: unknown } | null)?.dados;
+  if (typeof dados === 'string') { try { dados = JSON.parse(dados); } catch { return null; } }
+  return dados && typeof dados === 'object' && !Array.isArray(dados) ? dados as Record<string, unknown> : null;
+}
+function data8(v: unknown): string { const s = String(v ?? ''); const m = /^(\d{4})(\d{2})(\d{2})$/.exec(s); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; }
+function hora6(v: unknown): string { const s = String(v ?? '').padStart(6, '0'); return /^\d{6}$/.test(s) ? `${s.slice(0, 2)}:${s.slice(2, 4)}` : ''; }
+/** O assunto traz ++VARIAVEL++ no lugar do valorParametroAssunto (regra da página do Serpro). */
+export function assuntoCaixaPostal(assuntoModelo: unknown, valorParametro: unknown): string {
+  return String(assuntoModelo ?? '').replace(/\+\+VARIAVEL\+\+/g, String(valorParametro ?? '')).trim();
+}
+/** O corpo traz ++1++, ++2++… no lugar das variáveis, na ordem do array (regra da página do Serpro). */
+export function corpoCaixaPostal(corpoModelo: unknown, variaveis: unknown): string {
+  const lista = Array.isArray(variaveis) ? variaveis.map(String) : [];
+  return String(corpoModelo ?? '').replace(/\+\+(\d{1,2})\+\+/g, (todo, n) => lista[Number(n) - 1] ?? todo);
+}
+function mensagem(m: Record<string, unknown>): MensagemCaixaPostal {
+  const env = data8(m.dataEnvio); const hora = hora6(m.horaEnvio);
+  // Na página do Serpro o domínio "0 – Não lida / 1 – Lida" aparece na linha do favorito; a leitura só é afirmada quando o indicador é 0 ou 1.
+  const ind = String(m.indicadorLeitura ?? '');
+  return {
+    isn: String(m.isn ?? ''), numeroControle: String(m.numeroControle ?? ''), enviadaEm: env ? `${env}${hora ? ` ${hora}` : ''}` : '—',
+    assunto: assuntoCaixaPostal(m.assuntoModelo, m.valorParametroAssunto) || '—', lida: ind === '1' ? true : ind === '0' ? false : null,
+    dataLeitura: data8(m.dataLeitura), cienciaEm: data8(m.dataCiencia), origem: String(m.descricaoOrigem ?? '').trim(),
+    relevante: String(m.relevancia ?? '') === '2' ? true : String(m.relevancia ?? '') === '1' ? false : null, validade: data8(m.dataValidade ?? m.dataExpiracao), codigoModelo: String(m.codigoModelo ?? ''),
+  };
+}
+export function lerListaCaixaPostal(bruto: unknown): ListaCaixaPostal | null {
+  const d = dadosDoGateway(bruto); if (!d || !Array.isArray(d.listaMensagens)) return null;
+  const mensagens = (d.listaMensagens as Record<string, unknown>[]).filter(m => m && typeof m === 'object').map(mensagem);
+  const prox = String(d.ponteiroProximaPagina ?? '').trim();
+  return { quantidade: mensagens.length, ultimaPagina: String(d.indicadorUltimaPagina ?? '') !== 'N', proximaPagina: /^\d+$/.test(prox) && prox !== '0' ? prox : null, mensagens };
+}
+export function lerDetalheCaixaPostal(bruto: unknown): DetalheCaixaPostal | null {
+  const d = dadosDoGateway(bruto); if (!d || !Array.isArray(d.conteudo) || !d.conteudo[0] || typeof d.conteudo[0] !== 'object') return null;
+  const m = d.conteudo[0] as Record<string, unknown>;
+  return { ...mensagem(m), corpo: corpoCaixaPostal(m.corpoModelo, m.variaveis) };
+}
+/** 0 = nenhuma, 1 = uma, 2 = várias; null se a resposta não vier no formato do Serpro. */
+export function lerIndicadorNovasCaixaPostal(bruto: unknown): 0 | 1 | 2 | null {
+  const d = dadosDoGateway(bruto); const v = String(d?.indicadorMensagensNovas ?? '');
+  return v === '0' ? 0 : v === '1' ? 1 : v === '2' ? 2 : null;
+}

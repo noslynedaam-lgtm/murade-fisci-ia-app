@@ -2,7 +2,7 @@ import { Router } from 'express';
 import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
-import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosDctfweb } from '../services/serpro/integraContador';
+import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosCaixaPostal, validarDadosDctfweb } from '../services/serpro/integraContador';
 import { acharPdfBase64, lerProtocoloSitfis, lerXmlDeclaracao, lerReciboTransmissao } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
@@ -198,7 +198,7 @@ router.get('/prontidao', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = await obterUsuarioDaSessao(req).catch(() => null);
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
+  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null, daCiencia: s.daCiencia === true })) });
 });
 
 // Quantas consultas a empresa já fez, limite e aviso (regra: 1 gratuita/semana por empresa, sem acúmulo).
@@ -251,7 +251,7 @@ router.get('/consumo', async (req, res) => {
   }
 });
 
-interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; escritorio?: OrigemConsulta }
+interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta }
 const resp = (status: number, corpo: unknown) => ({ status, corpo });
 
 /** Núcleo da consulta paga: mesma regra de cota/custo para a tela do Fisco IA e para a ponte do DP. */
@@ -260,6 +260,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     const servico = CATALOGO_SERVICOS[e.servico];
     if (!servico) return resp(400, { mensagem: 'Serviço desconhecido.' });
     if (servico.soFluxoSeguro) return resp(400, { mensagem: 'Este serviço altera dados na Receita e só roda pelo fluxo seguro de transmissão.' });
+    if (servico.daCiencia && e.confirmarCiencia !== true) return resp(409, { consultado: false, exigeCiencia: true, mensagem: 'Abrir esta mensagem conta como CIÊNCIA da intimação e começa a contar os prazos, igual a abrir no e-CAC. Confirme que quer abrir. Nada foi consultado nem cobrado.' });
     const { tenantId, companyId } = e;
     if (!UUID.test(tenantId) || !UUID.test(companyId)) return resp(400, { mensagem: 'Escritório ou empresa inválidos.' });
     const prontidao = avaliarProntidao(process.env);
@@ -275,6 +276,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     }
 
     if (servico.idSistema === 'DCTFWEB') { const erroDados = validarDadosDctfweb(dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
+    if (servico.idSistema === 'CAIXAPOSTAL') { const erroDados = validarDadosCaixaPostal(servico.idServico, dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
 
     // 1) Confere a cota da empresa sem gastar nada.
     const previa = await comContextoTenant(e.userId, tenantId, async client => {
@@ -375,7 +377,7 @@ router.post('/consulta', async (req, res) => {
   try { user = await obterUsuarioDaSessao(req); } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
   if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora.' });
-  const r = await executarConsulta({ userId: user.id, tenantId: String(req.body?.tenantId ?? ''), companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCusto: req.body?.confirmarCusto === true });
+  const r = await executarConsulta({ userId: user.id, tenantId: String(req.body?.tenantId ?? ''), companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true });
   return res.status(r.status).json(r.corpo);
 });
 
@@ -432,7 +434,7 @@ router.get('/ponte/cota', async (req, res) => {
     const e = await localizarEmpresaDaDona(cnpj);
     // Empresa ainda sem registro central: tem a consulta grátis da semana inteira.
     const cota = avaliarCota(e ? e.cota : { consultas: [] });
-    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null })) });
+    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null, daCiencia: s.daCiencia === true })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a cota.' }); }
 });
 
@@ -448,7 +450,7 @@ router.post('/ponte/consulta', async (req, res) => {
     const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
-    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
+    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });

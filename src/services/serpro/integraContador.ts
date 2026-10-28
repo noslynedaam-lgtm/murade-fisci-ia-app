@@ -13,13 +13,17 @@ export interface ServicoIntegra {
   idServico: string;
   versaoSistema: string;
   /** Endpoint do gateway: Consultar, Apoiar, Emitir, Declarar */
-  operacao: 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar';
+  operacao: 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar' | 'Monitorar';
   /** Campos que o serviço exige dentro de "dados" (o formulário pede ao usuário). */
   campos?: { nome: string; rotulo: string; exemplo: string; opcional?: boolean }[];
   /** Procuração eletrônica no e-CAC que a empresa precisa dar ao escritório (tabela "Serviços x Procurações" do Serpro). */
   procuracao?: { codigo: string; nome: string; observacao?: string };
   /** Serviço que muda dados na Receita: só roda pelo fluxo seguro (conferência, confirmação e assinatura), nunca pela consulta genérica. */
   soFluxoSeguro?: boolean;
+  /** Executar o serviço tem efeito legal (ex.: abrir mensagem da Caixa Postal conta como ciência da intimação): exige confirmação expressa e nunca roda por robô. */
+  daCiencia?: boolean;
+  /** O Serpro manda o campo "dados" vazio (""), não "{}" (ex.: INNOVAMSG63). */
+  dadosVazio?: boolean;
 }
 
 /** Catálogo editável: ajuste os códigos conforme o contrato assim que as chaves chegarem. */
@@ -37,6 +41,12 @@ export const CATALOGO_SERVICOS: Record<string, ServicoIntegra> = {
   dctfwebGuiaAndamento: { chave: 'dctfwebGuiaAndamento', descricao: 'DCTFWeb: gerar a guia (DARF) de declaração em andamento', idSistema: 'DCTFWEB', idServico: 'GERARGUIAANDAMENTO313', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb', observacao: 'Este serviço não aparece na tabela do Serpro; presume-se a mesma procuração da DCTFWeb.' } },
   // TRANSDECLARACAO310 (Declarar, R$ 0,40): transmite a declaração em andamento assinada. Catálogo do Serpro confirma o tipo "Declarar". Não aparece na tabela de procurações; presume-se a 00103.
   dctfwebTransmitir: { chave: 'dctfwebTransmitir', descricao: 'DCTFWeb: transmitir a declaração em andamento (assinada)', idSistema: 'DCTFWEB', idServico: 'TRANSDECLARACAO310', versaoSistema: '1.0', operacao: 'Declarar', soFluxoSeguro: true, procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
+  // CAIXAPOSTAL (páginas oficiais do Serpro, versão 1.0, tipo Consultar). Procuração 00006 (Caixa Postal - Mensagens).
+  caixaPostalLista: { chave: 'caixaPostalLista', descricao: 'Caixa Postal: lista de mensagens da Receita', idSistema: 'CAIXAPOSTAL', idServico: 'MSGCONTRIBUINTE61', versaoSistema: '1.0', operacao: 'Consultar', campos: [{ nome: 'statusLeitura', rotulo: 'Mensagens (0 = todas, 1 = lidas, 2 = não lidas)', exemplo: '2' }, { nome: 'indicadorPagina', rotulo: 'Página (0 = mais recentes, 1 = página seguinte)', exemplo: '0' }, { nome: 'ponteiroPagina', rotulo: 'Ponteiro da página seguinte (só se a página for 1)', exemplo: '', opcional: true }], procuracao: { codigo: '00006', nome: 'Caixa Postal - Mensagens' } },
+  // INNOVAMSG63 (tipo Monitorar no catálogo): sem campos de entrada, "dados":"". Resposta: indicadorMensagensNovas 0, 1 ou 2.
+  caixaPostalNovas: { chave: 'caixaPostalNovas', descricao: 'Caixa Postal: há mensagens novas?', idSistema: 'CAIXAPOSTAL', idServico: 'INNOVAMSG63', versaoSistema: '1.0', operacao: 'Monitorar', dadosVazio: true, procuracao: { codigo: '00006', nome: 'Caixa Postal - Mensagens' } },
+  // MSGDETALHAMENTO62: a execução caracteriza CIÊNCIA da intimação (art. 23, §2º, III, Decreto 70.235/1972), como abrir a mensagem no e-CAC.
+  caixaPostalDetalhe: { chave: 'caixaPostalDetalhe', descricao: 'Caixa Postal: abrir uma mensagem (CONTA COMO CIÊNCIA da intimação)', idSistema: 'CAIXAPOSTAL', idServico: 'MSGDETALHAMENTO62', versaoSistema: '1.0', operacao: 'Consultar', daCiencia: true, campos: [{ nome: 'isn', rotulo: 'Identificador (ISN) da mensagem, da lista', exemplo: '0000082838' }], procuracao: { codigo: '00006', nome: 'Caixa Postal - Mensagens' } },
   dctfwebGuia: { chave: 'dctfwebGuia', descricao: 'DCTFWeb: gerar a guia de arrecadação (DARF)', idSistema: 'DCTFWEB', idServico: 'GERARGUIA31', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
 };
 
@@ -52,6 +62,17 @@ export function validarDadosDctfweb(dados: Record<string, string>): string | nul
   const treze = codigo === 41 || codigo === 51;
   if (!treze && !/^(0[1-9]|1[0-2])$/.test(String(dados.mesPA ?? ''))) return 'Informe o mês da apuração com 2 dígitos (01 a 12). Só o 13º salário (categorias 41 e 51) não leva mês.';
   if (treze && dados.mesPA) return 'O 13º salário não leva mês de apuração: deixe o mês em branco.';
+  return null;
+}
+
+/** Confere os dados da Caixa Postal antes de gastar uma consulta paga. Devolve o texto do erro ou null se estiver certo. */
+export function validarDadosCaixaPostal(idServico: string, dados: Record<string, string>): string | null {
+  if (idServico === 'INNOVAMSG63') return null;
+  if (idServico === 'MSGDETALHAMENTO62') return /^\d{1,10}$/.test(String(dados.isn ?? '')) ? null : 'Informe o identificador (ISN) da mensagem: só números, até 10 dígitos.';
+  if (!['0', '1', '2'].includes(String(dados.statusLeitura ?? ''))) return 'Escolha quais mensagens listar: 0 (todas), 1 (lidas) ou 2 (não lidas).';
+  if (!['0', '1'].includes(String(dados.indicadorPagina ?? ''))) return 'Escolha a página: 0 (mais recentes) ou 1 (página seguinte).';
+  if (dados.indicadorPagina === '1' && !/^\d{1,24}$/.test(String(dados.ponteiroPagina ?? ''))) return 'Para a página seguinte, informe o ponteiro devolvido pela lista anterior.';
+  if (dados.indicadorPagina === '0' && dados.ponteiroPagina) return 'A página inicial não leva ponteiro: deixe-o em branco.';
   return null;
 }
 
@@ -71,7 +92,7 @@ export function montarPedido(servico: ServicoIntegra, cnpjContratante: string, c
     contratante: { numero: contratante, tipo: 2 },
     autorPedidoDados: { numero: contratante, tipo: 2 },
     contribuinte: { numero: contribuinte, tipo: 2 },
-    pedidoDados: { idSistema: servico.idSistema, idServico: servico.idServico, versaoSistema: servico.versaoSistema, dados: JSON.stringify(dados) },
+    pedidoDados: { idSistema: servico.idSistema, idServico: servico.idServico, versaoSistema: servico.versaoSistema, dados: servico.dadosVazio ? '' : JSON.stringify(dados) },
   };
 }
 

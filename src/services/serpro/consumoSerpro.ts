@@ -7,8 +7,8 @@
  */
 import type { RegistroConsulta } from './cotaSemanal';
 
-export type OperacaoSerpro = 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar';
-export const PRECO_POR_OPERACAO: Record<OperacaoSerpro, number> = { Consultar: 0.24, Apoiar: 0.24, Emitir: 0.32, Declarar: 0.4 };
+export type OperacaoSerpro = 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar' | 'Monitorar';
+export const PRECO_POR_OPERACAO: Record<OperacaoSerpro, number> = { Consultar: 0.24, Apoiar: 0.24, Emitir: 0.32, Declarar: 0.4, /* PREÇO A CONFIRMAR: a página do INNOVAMSG63 não informa o valor; estimado igual ao de Consultar até o Serpro confirmar. */ Monitorar: 0.24 };
 
 export interface EmpresaConsumo { id: string; cnpj: string; nome: string; consultas: RegistroConsulta[] }
 export interface LinhaConsumo { escritorio: string; escritorioId: string; empresaId: string; cnpj: string; nome: string; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
-import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
-interface Campo { nome: string; rotulo: string; exemplo: string }
+interface Campo { nome: string; rotulo: string; exemplo: string; opcional?: boolean }
 interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: Campo[] }[] }
 interface Resposta { ok: boolean; titulo: string; texto: string; bruto?: unknown; relatorio?: unknown; servico?: string; consultadoEm?: string }
 
@@ -39,9 +39,10 @@ function imprimir(linhas: LinhaDeclaracao[], empresa: string, quando: string) {
 export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, cnpj }: { companyId?: string; tenantId?: string; razaoSocial?: string; cnpj?: string }) {
   const [prontidao, setProntidao] = useState<Prontidao | null>(null);
   const [servico, setServico] = useState('');
-  const [dados, setDados] = useState<Record<string, string>>({ anoCalendario: String(new Date().getFullYear()) });
+  const [dados, setDados] = useState<Record<string, string>>({ anoCalendario: String(new Date().getFullYear()), statusLeitura: '2', indicadorPagina: '0' });
   const [carregando, setCarregando] = useState(false);
   const [exigeConfirmar, setExigeConfirmar] = useState<string | null>(null);
+  const [exigeCiencia, setExigeCiencia] = useState<string | null>(null);
   const [resposta, setResposta] = useState<Resposta | null>(null);
   const [mostrarTecnico, setMostrarTecnico] = useState(false);
   const [versaoCota, setVersaoCota] = useState(0);
@@ -56,21 +57,30 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   }, []);
 
   const pdfBase64 = useMemo(() => (resposta?.ok ? acharPdfBase64(resposta.relatorio) : null), [resposta]);
+  const listaCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalLista' ? lerListaCaixaPostal(resposta.bruto) : null), [resposta]);
+  const detalheCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalDetalhe' ? lerDetalheCaixaPostal(resposta.bruto) : null), [resposta]);
+  const novasCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalNovas' ? lerIndicadorNovasCaixaPostal(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
   if (!companyId || !tenantId) {
     return <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">Selecione uma empresa já cadastrada no Fisco IA (banco permanente) para fazer a consulta oficial ao SERPRO.</div>;
   }
 
-  async function consultar(confirmarCusto: boolean) {
-    setCarregando(true); setResposta(null); setMostrarTecnico(false);
+  function abrirMensagem(isn: string) {
+    setServico('caixaPostalDetalhe'); setDados(d => ({ ...d, isn }));
+    setExigeCiencia('Abrir esta mensagem pelo sistema conta como CIÊNCIA da intimação e passa a contar os prazos, igual a abrir no e-CAC. Só abra se for o momento certo. Esta consulta usa a cota de consultas da empresa.');
+  }
+
+  async function consultar(confirmarCusto: boolean, confirmarCiencia = false) {
+    setCarregando(true); setExigeCiencia(null); setResposta(null); setMostrarTecnico(false);
     try {
       const r = await fetch('/api/serpro/consulta', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto, dados }),
+        body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto, confirmarCiencia, dados }),
       });
       const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; relatorio?: unknown; cabecalhos?: unknown; statusGateway?: number; consultadoEm?: string };
+      if (r.status === 409 && (d as { exigeCiencia?: boolean }).exigeCiencia) { setExigeCiencia(d.mensagem || 'Abrir esta mensagem conta como ciência da intimação.'); return; }
       if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta será cobrada à parte pelo SERPRO (contrato: cerca de R$ 0,24 por consulta).'); return; }
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
@@ -121,7 +131,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
             <input value={dados[c.nome] ?? ''} onChange={e => setDados(d => ({ ...d, [c.nome]: e.target.value }))} placeholder={c.exemplo} className="px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-xl w-52" />
           </label>
         ))}
-        <button type="button" disabled={carregando || !servico || faltando.length > 0 || campos.some(c => !(dados[c.nome] ?? '').trim())} onClick={() => consultar(false)}
+        <button type="button" disabled={carregando || !servico || faltando.length > 0 || campos.some(c => !c.opcional && !(dados[c.nome] ?? '').trim())} onClick={() => consultar(false)}
           className="px-5 py-2.5 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded-xl text-sm font-black cursor-pointer">
           {carregando ? 'Consultando…' : 'Fazer consulta'}
         </button>
@@ -131,8 +141,18 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 space-y-3" role="alertdialog">
           <p>{exigeConfirmar}</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => consultar(true)} className="px-4 py-2 bg-amber-700 text-white rounded-lg font-bold cursor-pointer">Confirmo o custo e quero consultar</button>
+            <button type="button" onClick={() => consultar(true, servico === 'caixaPostalDetalhe')} className="px-4 py-2 bg-amber-700 text-white rounded-lg font-bold cursor-pointer">Confirmo o custo e quero consultar</button>
             <button type="button" onClick={() => setExigeConfirmar(null)} className="px-4 py-2 bg-white border border-slate-300 rounded-lg font-bold cursor-pointer">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {exigeCiencia && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950 space-y-3" role="alertdialog">
+          <p><strong>Atenção — ciência da intimação.</strong> {exigeCiencia}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => consultar(false, true)} className="px-4 py-2 bg-red-700 text-white rounded-lg font-bold cursor-pointer">Entendo e quero abrir a mensagem</button>
+            <button type="button" onClick={() => setExigeCiencia(null)} className="px-4 py-2 bg-white border border-slate-300 rounded-lg font-bold cursor-pointer">Cancelar</button>
           </div>
         </div>
       )}
@@ -179,6 +199,44 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => baixarArquivo(new Blob([JSON.stringify({ empresa: razaoSocial, cnpj, consultadoEm: resposta.consultadoEm, resposta: resposta.bruto, relatorio: resposta.relatorio }, null, 2)], { type: 'application/json' }), `consulta-serpro-${nomeBase}.json`)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-sm font-bold cursor-pointer">Baixar resposta completa (.json)</button>
           </div>
+
+          {novasCP !== null && (
+            <div className={`rounded-xl border p-4 text-sm ${novasCP === 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-amber-300 bg-amber-50 text-amber-950'}`}>
+              <p className="font-black text-base">{novasCP === 0 ? 'Nenhuma mensagem nova na Caixa Postal.' : novasCP === 1 ? 'Há 1 mensagem nova na Caixa Postal.' : 'Há mensagens novas na Caixa Postal.'}</p>
+              {novasCP !== 0 && <p className="mt-1">Use "Caixa Postal: lista de mensagens" para ver o assunto de cada uma. Ver a lista não dá ciência; só abrir a mensagem dá.</p>}
+            </div>
+          )}
+
+          {listaCP && (
+            <div className="space-y-3">
+              <p className="text-sm font-bold">{listaCP.quantidade} mensagem(ns) nesta página{listaCP.ultimaPagina ? ' (última página)' : ''}.{listaCP.proximaPagina ? ` Para ver mais, use a página 1 com o ponteiro ${listaCP.proximaPagina}.` : ''}</p>
+              <p className="text-xs text-slate-600">A lista não dá ciência. Só o botão "Abrir" pede confirmação e conta como ciência da intimação.</p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Enviada em</th><th className="p-3">Assunto</th><th className="p-3">Origem</th><th className="p-3">Situação</th><th className="p-3"></th></tr></thead>
+                  <tbody>
+                    {listaCP.mensagens.map((m, i) => (
+                      <tr key={`${m.isn}-${i}`} className="border-t border-slate-100">
+                        <td className="p-3 whitespace-nowrap">{m.enviadaEm}</td>
+                        <td className="p-3">{m.assunto}{m.relevante ? <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-900">relevante</span> : null}</td>
+                        <td className="p-3">{m.origem || '—'}</td>
+                        <td className="p-3">{m.lida === true ? `Lida${m.dataLeitura ? ` em ${m.dataLeitura}` : ''}` : m.lida === false ? 'Não lida' : '—'}</td>
+                        <td className="p-3"><button type="button" onClick={() => abrirMensagem(m.isn)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Abrir (dá ciência)</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {detalheCP && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+              <p className="font-black text-base">{detalheCP.assunto}</p>
+              <p className="text-xs text-slate-600">Enviada em {detalheCP.enviadaEm} · {detalheCP.origem || 'origem não informada'}{detalheCP.cienciaEm ? ` · ciência em ${detalheCP.cienciaEm}` : ''}{detalheCP.validade ? ` · validade ${detalheCP.validade}` : ''}</p>
+              <pre className="whitespace-pre-wrap break-words text-sm bg-white border border-slate-200 rounded-lg p-3">{detalheCP.corpo || 'Sem texto.'}</pre>
+            </div>
+          )}
 
           {linhas && (
             <>
