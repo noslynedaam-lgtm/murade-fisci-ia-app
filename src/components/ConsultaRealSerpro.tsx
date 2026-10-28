@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
-import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
 interface Campo { nome: string; rotulo: string; exemplo: string; opcional?: boolean }
 interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: Campo[] }[] }
 interface Resposta { ok: boolean; titulo: string; texto: string; bruto?: unknown; relatorio?: unknown; servico?: string; consultadoEm?: string }
 
+const reaisPS = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
 function baixarCsv(linhas: LinhaDeclaracao[], nome: string) {
@@ -60,11 +61,18 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const listaCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalLista' ? lerListaCaixaPostal(resposta.bruto) : null), [resposta]);
   const detalheCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalDetalhe' ? lerDetalheCaixaPostal(resposta.bruto) : null), [resposta]);
   const novasCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalNovas' ? lerIndicadorNovasCaixaPostal(resposta.bruto) : null), [resposta]);
+  const pedidosPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPedidos' || resposta.servico === 'parcsnEspPedidos') ? lerPedidosParcsn(resposta.bruto) : null), [resposta]);
+  const detalhePS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDetalhe' || resposta.servico === 'parcsnEspDetalhe') ? lerDetalheParcsn(resposta.bruto) : null), [resposta]);
+  const pagamentoPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPagamento' || resposta.servico === 'parcsnEspPagamento') ? lerPagamentoParcsn(resposta.bruto) : null), [resposta]);
+  const parcelasPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnParcelas' || resposta.servico === 'parcsnEspParcelas') ? lerParcelasParaGerarParcsn(resposta.bruto) : null), [resposta]);
+  const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
   if (!companyId || !tenantId) {
     return <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">Selecione uma empresa já cadastrada no Fisco IA (banco permanente) para fazer a consulta oficial ao SERPRO.</div>;
   }
+
+  function prepararConsulta(chave: string, novos: Record<string, string>) { setServico(chave); setDados(d => ({ ...d, ...novos })); setResposta(null); }
 
   function abrirMensagem(isn: string) {
     setServico('caixaPostalDetalhe'); setDados(d => ({ ...d, isn }));
@@ -199,6 +207,87 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => baixarArquivo(new Blob([JSON.stringify({ empresa: razaoSocial, cnpj, consultadoEm: resposta.consultadoEm, resposta: resposta.bruto, relatorio: resposta.relatorio }, null, 2)], { type: 'application/json' }), `consulta-serpro-${nomeBase}.json`)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-sm font-bold cursor-pointer">Baixar resposta completa (.json)</button>
           </div>
+
+          {pedidosPS && (
+            <div className="space-y-2">
+              <p className="text-sm font-bold">{pedidosPS.length} pedido(s) de parcelamento.</p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Nº</th><th className="p-3">Pedido em</th><th className="p-3">Situação</th><th className="p-3">Desde</th><th className="p-3"></th></tr></thead>
+                  <tbody>{pedidosPS.map((p, i) => (
+                    <tr key={`${p.numero}-${i}`} className="border-t border-slate-100"><td className="p-3 font-mono">{p.numero}</td><td className="p-3">{p.pedidoEm}</td><td className="p-3 font-bold">{p.situacao}</td><td className="p-3">{p.situacaoEm || '—'}</td>
+                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspPedidos' ? 'parcsnEspDetalhe' : 'parcsnDetalhe', { numeroParcelamento: p.numero })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe</button></td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-xs text-slate-600">O botão só preenche o número; o detalhe usa uma nova consulta (cota da semana) quando você clicar em "Fazer consulta".</p>
+            </div>
+          )}
+
+          {parcelasPS && (
+            <div className="space-y-2">
+              <p className="text-sm font-bold">{parcelasPS.length} parcela(s) disponível(is) para emitir o DAS.</p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Parcela</th><th className="p-3">Valor</th><th className="p-3"></th></tr></thead>
+                  <tbody>{parcelasPS.map((p, i) => (
+                    <tr key={`${p.parcela}-${i}`} className="border-t border-slate-100"><td className="p-3 font-bold">{p.parcela}</td><td className="p-3">{p.valor === null ? '—' : reaisPS(p.valor)}</td>
+                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspParcelas' ? 'parcsnEspDas' : 'parcsnDas', { parcelaParaEmitir: p.parcela.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar DAS</button></td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {pdfDas && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <p className="font-black text-base">DAS do parcelamento</p>
+              <p className="text-sm text-slate-700">Confira valor e vencimento no PDF antes de pagar.</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => window.open(URL.createObjectURL(pdfDeBase64(pdfDas)), '_blank')} className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-sm font-bold cursor-pointer">Abrir DAS (PDF)</button>
+                <button type="button" onClick={() => baixarArquivo(pdfDeBase64(pdfDas), `das-parcelamento-${nomeBase}.pdf`)} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-sm font-bold cursor-pointer">Baixar PDF</button>
+              </div>
+            </div>
+          )}
+
+          {detalhePS && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <p className="font-black text-base">Parcelamento nº {detalhePS.numero} — {detalhePS.situacao}</p>
+              <p className="text-xs text-slate-600">Pedido em {detalhePS.pedidoEm}{detalhePS.situacaoEm ? ` · situação desde ${detalhePS.situacaoEm}` : ''}{detalhePS.alteracoesDivida ? ` · ${detalhePS.alteracoesDivida} alteração(ões) de dívida (veja a resposta técnica)` : ''}</p>
+              {detalhePS.consolidacao && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-lg bg-white border border-slate-200 p-2"><div className="text-xs font-bold">Total consolidado</div><div className="font-black">{detalhePS.consolidacao.valorTotal === null ? '—' : reaisPS(detalhePS.consolidacao.valorTotal)}</div></div>
+                  <div className="rounded-lg bg-white border border-slate-200 p-2"><div className="text-xs font-bold">Parcelas</div><div className="font-black">{detalhePS.consolidacao.quantidadeParcelas ?? '—'}</div></div>
+                  <div className="rounded-lg bg-white border border-slate-200 p-2"><div className="text-xs font-bold">1ª parcela</div><div className="font-black">{detalhePS.consolidacao.primeiraParcela === null ? '—' : reaisPS(detalhePS.consolidacao.primeiraParcela)}</div></div>
+                  <div className="rounded-lg bg-white border border-slate-200 p-2"><div className="text-xs font-bold">Parcela básica</div><div className="font-black">{detalhePS.consolidacao.parcelaBasica === null ? '—' : reaisPS(detalhePS.consolidacao.parcelaBasica)}</div></div>
+                </div>
+              )}
+              {detalhePS.pagamentos.length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Parcela</th><th className="p-3">Vencimento do DAS</th><th className="p-3">Arrecadado em</th><th className="p-3">Valor pago</th><th className="p-3"></th></tr></thead>
+                    <tbody>{detalhePS.pagamentos.map((p, i) => (
+                      <tr key={`${p.mes}-${i}`} className="border-t border-slate-100"><td className="p-3 font-bold">{p.mes}</td><td className="p-3">{p.vencimentoDas || '—'}</td><td className="p-3">{p.arrecadadoEm || '—'}</td><td className="p-3">{p.valorPago === null ? '—' : reaisPS(p.valorPago)}</td>
+                        <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspDetalhe' ? 'parcsnEspPagamento' : 'parcsnPagamento', { numeroParcelamento: detalhePS.numero, anoMesParcela: p.mes.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe do pagamento</button></td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {pagamentoPS && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-sm">
+              <p className="font-black text-base">Pagamento da parcela {pagamentoPS.parcela} do parcelamento {pagamentoPS.parcelamento}</p>
+              <p>DAS nº {pagamentoPS.numeroDas || '—'} · vencimento {pagamentoPS.vencimento || '—'} · pago em {pagamentoPS.pagoEm || '—'} · {pagamentoPS.bancoAgencia || 'banco não informado'} · arrecadado {pagamentoPS.valorArrecadado === null ? '—' : reaisPS(pagamentoPS.valorArrecadado)}</p>
+              {pagamentoPS.debitos.map((d, i) => (
+                <div key={i} className="rounded-lg bg-white border border-slate-200 p-2">
+                  <p className="text-xs font-bold">Débito de {d.periodo || '—'}{d.processo ? ` · processo ${d.processo}` : ''}</p>
+                  {d.itens.map((it, j) => <p key={j} className="text-xs">{it.tributo}: principal {it.principal === null ? '—' : reaisPS(it.principal)} · multa {it.multa === null ? '—' : reaisPS(it.multa)} · juros {it.juros === null ? '—' : reaisPS(it.juros)} · total {it.total === null ? '—' : reaisPS(it.total)}{it.ente ? ` · ${it.ente}` : ''}</p>)}
+                </div>
+              ))}
+            </div>
+          )}
 
           {novasCP !== null && (
             <div className={`rounded-xl border p-4 text-sm ${novasCP === 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-amber-300 bg-amber-50 text-amber-950'}`}>

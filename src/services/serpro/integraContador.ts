@@ -24,6 +24,8 @@ export interface ServicoIntegra {
   daCiencia?: boolean;
   /** O Serpro manda o campo "dados" vazio (""), não "{}" (ex.: INNOVAMSG63). */
   dadosVazio?: boolean;
+  /** Campos que o Serpro espera como número no JSON de "dados" (o exemplo oficial usa 1, não "1"). */
+  camposNumericos?: string[];
 }
 
 /** Catálogo editável: ajuste os códigos conforme o contrato assim que as chaves chegarem. */
@@ -41,6 +43,19 @@ export const CATALOGO_SERVICOS: Record<string, ServicoIntegra> = {
   dctfwebGuiaAndamento: { chave: 'dctfwebGuiaAndamento', descricao: 'DCTFWeb: gerar a guia (DARF) de declaração em andamento', idSistema: 'DCTFWEB', idServico: 'GERARGUIAANDAMENTO313', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }], procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb', observacao: 'Este serviço não aparece na tabela do Serpro; presume-se a mesma procuração da DCTFWeb.' } },
   // TRANSDECLARACAO310 (Declarar, R$ 0,40): transmite a declaração em andamento assinada. Catálogo do Serpro confirma o tipo "Declarar". Não aparece na tabela de procurações; presume-se a 00103.
   dctfwebTransmitir: { chave: 'dctfwebTransmitir', descricao: 'DCTFWeb: transmitir a declaração em andamento (assinada)', idSistema: 'DCTFWEB', idServico: 'TRANSDECLARACAO310', versaoSistema: '1.0', operacao: 'Declarar', soFluxoSeguro: true, procuracao: { codigo: '00103', nome: 'Acessar o sistema DCTFWeb' } },
+  // PARCSN (Parcelamento do Simples Nacional ordinário), páginas oficiais, versão 1.0, tipo Consultar. Procuração 00076 (Parcelamento de Débitos do Simples Nacional).
+  parcsnPedidos: { chave: 'parcsnPedidos', descricao: 'Parcelamento Simples (ordinário): lista de pedidos', idSistema: 'PARCSN', idServico: 'PEDIDOSPARC163', versaoSistema: '1.0', operacao: 'Consultar', dadosVazio: true, procuracao: { codigo: '00076', nome: 'Parcelamento de Débitos do Simples Nacional' } },
+  parcsnDetalhe: { chave: 'parcsnDetalhe', descricao: 'Parcelamento Simples (ordinário): detalhes de um parcelamento', idSistema: 'PARCSN', idServico: 'OBTERPARC164', versaoSistema: '1.0', operacao: 'Consultar', camposNumericos: ['numeroParcelamento'], campos: [{ nome: 'numeroParcelamento', rotulo: 'Número do parcelamento (veja na lista de pedidos)', exemplo: '1' }], procuracao: { codigo: '00076', nome: 'Parcelamento de Débitos do Simples Nacional' } },
+  parcsnPagamento: { chave: 'parcsnPagamento', descricao: 'Parcelamento Simples (ordinário): pagamento de uma parcela', idSistema: 'PARCSN', idServico: 'DETPAGTOPARC165', versaoSistema: '1.0', operacao: 'Consultar', camposNumericos: ['numeroParcelamento', 'anoMesParcela'], campos: [{ nome: 'numeroParcelamento', rotulo: 'Número do parcelamento', exemplo: '1' }, { nome: 'anoMesParcela', rotulo: 'Mês da parcela paga (AAAAMM)', exemplo: '202609' }], procuracao: { codigo: '00076', nome: 'Parcelamento de Débitos do Simples Nacional' } },
+  parcsnParcelas: { chave: 'parcsnParcelas', descricao: 'Parcelamento Simples (ordinário): parcelas disponíveis para emitir o DAS', idSistema: 'PARCSN', idServico: 'PARCELASPARAGERAR162', versaoSistema: '1.0', operacao: 'Consultar', dadosVazio: true, procuracao: { codigo: '00076', nome: 'Parcelamento de Débitos do Simples Nacional' } },
+  // GERARDAS161 é do tipo Emitir (R$ 0,32): devolve o DAS em PDF (docArrecadacaoPdfB64).
+  parcsnDas: { chave: 'parcsnDas', descricao: 'Parcelamento Simples (ordinário): emitir o DAS de uma parcela (PDF)', idSistema: 'PARCSN', idServico: 'GERARDAS161', versaoSistema: '1.0', operacao: 'Emitir', camposNumericos: ['parcelaParaEmitir'], campos: [{ nome: 'parcelaParaEmitir', rotulo: 'Parcela a emitir (AAAAMM, veja nas parcelas disponíveis)', exemplo: '202609' }], procuracao: { codigo: '00076', nome: 'Parcelamento de Débitos do Simples Nacional' } },
+  // PARCSN-ESP (Parcelamento Especial do Simples Nacional), versão 1.0. Procuração 00125. Entram aqui só os serviços cujas páginas oficiais já foram conferidas.
+  parcsnEspPedidos: { chave: 'parcsnEspPedidos', descricao: 'Parcelamento Simples (especial): lista de pedidos', idSistema: 'PARCSN-ESP', idServico: 'PEDIDOSPARC173', versaoSistema: '1.0', operacao: 'Consultar', dadosVazio: true, procuracao: { codigo: '00125', nome: 'Parcelamento Especial Simples Nacional' } },
+  parcsnEspDetalhe: { chave: 'parcsnEspDetalhe', descricao: 'Parcelamento Simples (especial): detalhes de um parcelamento', idSistema: 'PARCSN-ESP', idServico: 'OBTERPARC174', versaoSistema: '1.0', operacao: 'Consultar', camposNumericos: ['numeroParcelamento'], campos: [{ nome: 'numeroParcelamento', rotulo: 'Número do parcelamento (veja na lista de pedidos)', exemplo: '9001' }], procuracao: { codigo: '00125', nome: 'Parcelamento Especial Simples Nacional' } },
+  parcsnEspPagamento: { chave: 'parcsnEspPagamento', descricao: 'Parcelamento Simples (especial): pagamento de uma parcela', idSistema: 'PARCSN-ESP', idServico: 'DETPAGTOPARC175', versaoSistema: '1.0', operacao: 'Consultar', camposNumericos: ['numeroParcelamento', 'anoMesParcela'], campos: [{ nome: 'numeroParcelamento', rotulo: 'Número do parcelamento', exemplo: '9001' }, { nome: 'anoMesParcela', rotulo: 'Mês da parcela paga (AAAAMM)', exemplo: '202609' }], procuracao: { codigo: '00125', nome: 'Parcelamento Especial Simples Nacional' } },
+  parcsnEspParcelas: { chave: 'parcsnEspParcelas', descricao: 'Parcelamento Simples (especial): parcelas disponíveis para emitir o DAS', idSistema: 'PARCSN-ESP', idServico: 'PARCELASPARAGERAR172', versaoSistema: '1.0', operacao: 'Consultar', dadosVazio: true, procuracao: { codigo: '00125', nome: 'Parcelamento Especial Simples Nacional' } },
+  parcsnEspDas: { chave: 'parcsnEspDas', descricao: 'Parcelamento Simples (especial): emitir o DAS de uma parcela (PDF)', idSistema: 'PARCSN-ESP', idServico: 'GERARDAS171', versaoSistema: '1.0', operacao: 'Emitir', camposNumericos: ['parcelaParaEmitir'], campos: [{ nome: 'parcelaParaEmitir', rotulo: 'Parcela a emitir (AAAAMM, veja nas parcelas disponíveis)', exemplo: '202609' }], procuracao: { codigo: '00125', nome: 'Parcelamento Especial Simples Nacional' } },
   // CAIXAPOSTAL (páginas oficiais do Serpro, versão 1.0, tipo Consultar). Procuração 00006 (Caixa Postal - Mensagens).
   caixaPostalLista: { chave: 'caixaPostalLista', descricao: 'Caixa Postal: lista de mensagens da Receita', idSistema: 'CAIXAPOSTAL', idServico: 'MSGCONTRIBUINTE61', versaoSistema: '1.0', operacao: 'Consultar', campos: [{ nome: 'statusLeitura', rotulo: 'Mensagens (0 = todas, 1 = lidas, 2 = não lidas)', exemplo: '2' }, { nome: 'indicadorPagina', rotulo: 'Página (0 = mais recentes, 1 = página seguinte)', exemplo: '0' }, { nome: 'ponteiroPagina', rotulo: 'Ponteiro da página seguinte (só se a página for 1)', exemplo: '', opcional: true }], procuracao: { codigo: '00006', nome: 'Caixa Postal - Mensagens' } },
   // INNOVAMSG63 (tipo Monitorar no catálogo): sem campos de entrada, "dados":"". Resposta: indicadorMensagensNovas 0, 1 ou 2.
@@ -65,6 +80,15 @@ export function validarDadosDctfweb(dados: Record<string, string>): string | nul
   return null;
 }
 
+/** Confere os dados do parcelamento do Simples antes de gastar uma consulta paga. Devolve o texto do erro ou null se estiver certo. */
+export function validarDadosParcsn(idServico: string, dados: Record<string, string>): string | null {
+  if (['PEDIDOSPARC163', 'PEDIDOSPARC173', 'PARCELASPARAGERAR162', 'PARCELASPARAGERAR172'].includes(idServico)) return null;
+  if (['GERARDAS161', 'GERARDAS171'].includes(idServico)) return /^(19|20)\d{2}(0[1-9]|1[0-2])$/.test(String(dados.parcelaParaEmitir ?? '')) ? null : 'Informe a parcela como AAAAMM, por exemplo 202609 (veja nas parcelas disponíveis).';
+  if (!/^\d{1,10}$/.test(String(dados.numeroParcelamento ?? ''))) return 'Informe o número do parcelamento: só números (veja na lista de pedidos).';
+  if (['DETPAGTOPARC165', 'DETPAGTOPARC175'].includes(idServico) && !/^(19|20)\d{2}(0[1-9]|1[0-2])$/.test(String(dados.anoMesParcela ?? ''))) return 'Informe o mês da parcela como AAAAMM, por exemplo 202609.';
+  return null;
+}
+
 /** Confere os dados da Caixa Postal antes de gastar uma consulta paga. Devolve o texto do erro ou null se estiver certo. */
 export function validarDadosCaixaPostal(idServico: string, dados: Record<string, string>): string | null {
   if (idServico === 'INNOVAMSG63') return null;
@@ -83,6 +107,13 @@ export interface PedidoIntegra {
   pedidoDados: { idSistema: string; idServico: string; versaoSistema: string; dados: string };
 }
 
+function numerar(servico: ServicoIntegra, dados: Record<string, unknown>): Record<string, unknown> {
+  if (!servico.camposNumericos?.length) return dados;
+  const saida: Record<string, unknown> = { ...dados };
+  for (const k of servico.camposNumericos) if (k in saida && /^\d+$/.test(String(saida[k]))) saida[k] = Number(saida[k]);
+  return saida;
+}
+
 export function montarPedido(servico: ServicoIntegra, cnpjContratante: string, cnpjContribuinte: string, dados: Record<string, unknown> = {}): PedidoIntegra {
   const contratante = normalizarCnpj(cnpjContratante);
   const contribuinte = normalizarCnpj(cnpjContribuinte);
@@ -92,7 +123,7 @@ export function montarPedido(servico: ServicoIntegra, cnpjContratante: string, c
     contratante: { numero: contratante, tipo: 2 },
     autorPedidoDados: { numero: contratante, tipo: 2 },
     contribuinte: { numero: contribuinte, tipo: 2 },
-    pedidoDados: { idSistema: servico.idSistema, idServico: servico.idServico, versaoSistema: servico.versaoSistema, dados: servico.dadosVazio ? '' : JSON.stringify(dados) },
+    pedidoDados: { idSistema: servico.idSistema, idServico: servico.idServico, versaoSistema: servico.versaoSistema, dados: servico.dadosVazio ? '' : JSON.stringify(numerar(servico, dados)) },
   };
 }
 

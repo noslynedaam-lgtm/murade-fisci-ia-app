@@ -148,3 +148,54 @@ export function lerIndicadorNovasCaixaPostal(bruto: unknown): 0 | 1 | 2 | null {
   const d = dadosDoGateway(bruto); const v = String(d?.indicadorMensagensNovas ?? '');
   return v === '0' ? 0 : v === '1' ? 1 : v === '2' ? 2 : null;
 }
+
+// ---------------------------------------------------------------- Parcelamento do Simples Nacional ordinário (PARCSN, páginas oficiais)
+const dia8 = (v: unknown) => { const m = /^(\d{4})(\d{2})(\d{2})$/.exec(String(v ?? '')); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+const mes6 = (v: unknown) => { const m = /^(\d{4})(\d{2})$/.exec(String(v ?? '')); return m ? `${m[2]}/${m[1]}` : ''; };
+const dh14 = (v: unknown) => { const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(String(v ?? '')); return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}` : ''; };
+const num = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+
+export interface PedidoParcsn { numero: string; pedidoEm: string; situacao: string; situacaoEm: string }
+export function lerPedidosParcsn(bruto: unknown): PedidoParcsn[] | null {
+  const d = dadosDoGateway(bruto); if (!d || !Array.isArray(d.parcelamentos)) return null;
+  return (d.parcelamentos as Record<string, unknown>[]).filter(p => p && typeof p === 'object').map(p => ({ numero: String(p.numero ?? ''), pedidoEm: dia8(p.dataDoPedido) || '—', situacao: String(p.situacao ?? '—'), situacaoEm: dia8(p.dataDaSituacao) }));
+}
+
+export interface PagamentoParcsn { mes: string; vencimentoDas: string; arrecadadoEm: string; valorPago: number | null }
+export interface DetalheParcsn {
+  numero: string; pedidoEm: string; situacao: string; situacaoEm: string;
+  consolidacao: { valorTotal: number | null; quantidadeParcelas: number | null; primeiraParcela: number | null; parcelaBasica: number | null; em: string; debitos: { periodo: string; vencimento: string; processo: string; saldoOriginal: number | null; valorAtualizado: number | null }[] } | null;
+  alteracoesDivida: number; pagamentos: PagamentoParcsn[];
+}
+export function lerDetalheParcsn(bruto: unknown): DetalheParcsn | null {
+  const d = dadosDoGateway(bruto); if (!d || d.numero === undefined) return null;
+  const c = d.consolidacaoOriginal && typeof d.consolidacaoOriginal === 'object' ? d.consolidacaoOriginal as Record<string, unknown> : null;
+  return {
+    numero: String(d.numero), pedidoEm: dia8(d.dataDoPedido) || '—', situacao: String(d.situacao ?? '—'), situacaoEm: dia8(d.dataDaSituacao),
+    consolidacao: c ? {
+      valorTotal: num(c.valorTotalConsolidado), quantidadeParcelas: num(c.quantidadeParcelas), primeiraParcela: num(c.primeiraParcela), parcelaBasica: num(c.parcelaBasica), em: dh14(c.dataConsolidacao),
+      debitos: (Array.isArray(c.detalhesConsolidacao) ? c.detalhesConsolidacao as Record<string, unknown>[] : []).map(x => ({ periodo: mes6(x.periodoApuracao), vencimento: dia8(x.vencimento), processo: String(x.numeroProcesso ?? ''), saldoOriginal: num(x.saldoDevedorOriginal), valorAtualizado: num(x.valorAtualizado) })),
+    } : null,
+    alteracoesDivida: Array.isArray(d.alteracoesDivida) ? d.alteracoesDivida.length : 0,
+    pagamentos: (Array.isArray(d.demonstrativoPagamentos) ? d.demonstrativoPagamentos as Record<string, unknown>[] : []).map(x => ({ mes: mes6(x.mesDaParcela), vencimentoDas: dia8(x.vencimentoDoDas), arrecadadoEm: dia8(x.dataDeArrecadacao), valorPago: num(x.valorPago) })),
+  };
+}
+
+export interface DebitoPagoParcsn { periodo: string; processo: string; itens: { tributo: string; principal: number | null; multa: number | null; juros: number | null; total: number | null; ente: string }[] }
+export interface PagamentoDetalhadoParcsn { numeroDas: string; vencimento: string; paDas: string; geradoEm: string; parcelamento: string; parcela: string; limiteAcolhimento: string; pagoEm: string; bancoAgencia: string; valorArrecadado: number | null; debitos: DebitoPagoParcsn[] }
+export function lerPagamentoParcsn(bruto: unknown): PagamentoDetalhadoParcsn | null {
+  const d = dadosDoGateway(bruto); if (!d || (d.numeroDas === undefined && d.numeroParcela === undefined)) return null;
+  return {
+    numeroDas: String(d.numeroDas ?? ''), vencimento: dia8(d.dataVencimento), paDas: mes6(d.paDasGerado), geradoEm: dh14(d.geradoEm), parcelamento: String(d.numeroParcelamento ?? ''), parcela: String(d.numeroParcela ?? ''),
+    limiteAcolhimento: dia8(d.dataLimiteAcolhimento), pagoEm: dia8(d.dataPagamento), bancoAgencia: String(d.bancoAgencia ?? ''), valorArrecadado: num(d.valorPagoArrecadacao),
+    debitos: (Array.isArray(d.pagamentoDebitos) ? d.pagamentoDebitos as Record<string, unknown>[] : []).map(x => ({ periodo: mes6(x.paDebito), processo: String(x.processo ?? ''),
+      itens: (Array.isArray(x.discriminacoesDebito) ? x.discriminacoesDebito as Record<string, unknown>[] : []).map(i => ({ tributo: String(i.tributo ?? ''), principal: num(i.principal), multa: num(i.multa), juros: num(i.juros), total: num(i.total), ente: String(i.enteFederadoDestino ?? '') })) })),
+  };
+}
+
+export interface ParcelaParaGerar { parcela: string; valor: number | null }
+/** PARCELASPARAGERAR162: dados = {"listaParcela":[{"parcela":AAAAMM,"valor":n}]}. */
+export function lerParcelasParaGerarParcsn(bruto: unknown): ParcelaParaGerar[] | null {
+  const d = dadosDoGateway(bruto); if (!d || !Array.isArray(d.listaParcela)) return null;
+  return (d.listaParcela as Record<string, unknown>[]).filter(p => p && typeof p === 'object').map(p => ({ parcela: mes6(p.parcela) || String(p.parcela ?? ''), valor: num(p.valor) }));
+}
