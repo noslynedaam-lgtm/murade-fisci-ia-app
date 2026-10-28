@@ -69,12 +69,12 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto, dados }),
       });
-      const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; relatorio?: unknown; statusGateway?: number; consultadoEm?: string };
+      const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; relatorio?: unknown; cabecalhos?: unknown; statusGateway?: number; consultadoEm?: string };
       if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta será cobrada à parte pelo SERPRO (contrato: cerca de R$ 0,24 por consulta).'); return; }
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
       else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
-      else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `Resposta do SERPRO: HTTP ${d.statusGateway}` : ''].filter(Boolean).join(' · ') || `Erro HTTP ${r.status}.`, bruto: d.bruto });
+      else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `(resposta do SERPRO: HTTP ${d.statusGateway})` : ''].filter(Boolean).join(' ') || `Erro HTTP ${r.status}.`, bruto: d.bruto ? { resposta: d.bruto, cabecalhos: d.cabecalhos } : undefined });
       setVersaoCota(v => v + 1);
     } catch {
       setResposta({ ok: false, titulo: 'Consulta não concluída', texto: 'Não foi possível falar com o servidor. Nada foi consultado.' });
@@ -85,7 +85,9 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const faltando = prontidao?.itens.filter(i => !i.ok) ?? [];
   const quando = resposta?.consultadoEm ? new Date(resposta.consultadoEm).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
   const nomeArquivo = `declaracoes-pgdasd-${(cnpj || companyId).replace(/\D/g, '')}-${dados.anoCalendario || ''}.csv`;
-  const mensagensSerpro = (resposta?.bruto as { mensagens?: { codigo?: string; texto?: string }[] } | undefined)?.mensagens;
+  type Msgs = { mensagens?: { codigo?: string; texto?: string }[] };
+  const brutoMsgs = resposta?.bruto as (Msgs & { resposta?: Msgs }) | undefined;
+  const mensagensSerpro = brutoMsgs?.mensagens ?? brutoMsgs?.resposta?.mensagens;
   const nomeBase = `${(cnpj || companyId).replace(/\D/g, '')}-${new Date().toISOString().slice(0, 10)}`;
   const tituloServico = prontidao?.servicos.find(sv => sv.chave === resposta?.servico)?.descricao ?? 'Consulta SERPRO';
 
@@ -137,6 +139,12 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950" role="status">
           <strong>{resposta.titulo}.</strong> {resposta.texto}
           {mensagensSerpro?.map((m, i) => <p key={i} className="mt-2 font-semibold">{m.texto}</p>)}
+          {resposta.bruto !== undefined && (
+            <div className="mt-3">
+              <button type="button" onClick={() => setMostrarTecnico(v => !v)} className="text-xs font-bold underline cursor-pointer">{mostrarTecnico ? 'Esconder' : 'Ver'} detalhes técnicos</button>
+              {mostrarTecnico && <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-white border border-red-200 p-3 text-xs">{JSON.stringify(resposta.bruto, null, 2)}</pre>}
+            </div>
+          )}
         </div>
       )}
 

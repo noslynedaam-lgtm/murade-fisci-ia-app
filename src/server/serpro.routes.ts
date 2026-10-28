@@ -177,12 +177,12 @@ router.post('/token-check', async (req, res) => {
   }
 });
 
-function chamarHttps(url: string, opcoes: https.RequestOptions, corpo: string): Promise<{ status: number; texto: string }> {
+function chamarHttps(url: string, opcoes: https.RequestOptions, corpo: string): Promise<{ status: number; texto: string; cabecalhos: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     const req = https.request(url, { ...opcoes, timeout: 20_000 }, resposta => {
       const partes: Buffer[] = [];
       resposta.on('data', c => partes.push(c));
-      resposta.on('end', () => resolve({ status: resposta.statusCode ?? 0, texto: Buffer.concat(partes).toString('utf8') }));
+      resposta.on('end', () => resolve({ status: resposta.statusCode ?? 0, texto: Buffer.concat(partes).toString('utf8'), cabecalhos: Object.fromEntries(Object.entries(resposta.headers).filter(([k]) => /^(etag|content-type|retry-after|x-request-id|date)$/i.test(k)).map(([k, v]) => [k, String(v)])) }));
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
     req.on('error', reject);
@@ -244,7 +244,7 @@ router.post('/consulta', async (req, res) => {
     // 1) Confere a cota da empresa sem gastar nada.
     const previa = await comContextoTenant(user.id, tenantId, async client => {
       const q = await client.query('SELECT cnpj, metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL', [companyId, tenantId]);
-      return q.rows[0] ? { cnpj: String(q.rows[0].cnpj), cota: (q.rows[0].metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] } } : null;
+      return q.rows[0] ? { cnpj: String(q.rows[0].cnpj), cota: (q.rows[0].metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] }, sitfis: q.rows[0].metadata?.serproSitfis as { protocolo?: string; em?: string } | undefined } : null;
     }, PAPEIS_CONSULTA);
     if (!previa.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!('resultado' in previa)) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador pode fazer consultas oficiais.' });
@@ -286,12 +286,26 @@ router.post('/consulta', async (req, res) => {
     }, corpo);
     let bruto: unknown = r.texto;
     try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
-    if (r.status < 200 || r.status >= 300) return res.status(502).json({ consultado: true, statusGateway: r.status, mensagem: 'SERPRO respondeu com erro (verifique procuração do cliente no e-CAC).', bruto });
+    const sitfis = servico.chave === 'situacaoFiscal';
+    // 304 na situação fiscal: o SERPRO já tem uma solicitação recente; usa o protocolo guardado, se houver.
+    let protocolo = sitfis ? lerProtocoloSitfis(bruto) : null;
+    if (sitfis && r.status === 304 && !protocolo && previa.resultado.sitfis?.protocolo) protocolo = { protocolo: previa.resultado.sitfis.protocolo, esperaMs: 1000 };
+    if (sitfis && r.status === 304 && !protocolo) {
+      return res.status(409).json({ consultado: true, statusGateway: 304, mensagem: 'O SERPRO informou que já existe uma solicitação recente de situação fiscal para esta empresa e não reenviou o protocolo. Aguarde alguns minutos e tente de novo.', bruto, cabecalhos: r.cabecalhos });
+    }
+    const geralOk = (r.status >= 200 && r.status < 300) || (sitfis && r.status === 304 && protocolo);
+    if (!geralOk) {
+      const motivo = r.status === 403 ? 'O SERPRO negou o acesso: confira a procuração do cliente no e-CAC.' : r.status === 400 ? 'O SERPRO recusou os dados do pedido.' : `O SERPRO respondeu com erro (HTTP ${r.status}).`;
+      return res.status(502).json({ consultado: true, statusGateway: r.status, mensagem: motivo, bruto, cabecalhos: r.cabecalhos });
+    }
     // Situação fiscal tem duas etapas: protocolo (acima) e, após a espera, o relatório em PDF (Emitir).
     let relatorio: unknown = undefined;
-    if (servico.chave === 'situacaoFiscal') {
-      const prot = lerProtocoloSitfis(bruto);
-      if (prot) {
+    if (sitfis && protocolo) {
+      const prot = protocolo;
+      await comContextoTenant(user.id, tenantId, async client => {
+        await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproSitfis}', $3::jsonb, true) WHERE id = $1 AND tenant_id = $2`, [companyId, tenantId, JSON.stringify({ protocolo: prot.protocolo, em: new Date().toISOString() })]);
+      }, PAPEIS_CONSULTA).catch(() => undefined);
+      {
         let espera = Math.min(Math.max(prot.esperaMs, 1000), 8000);
         for (let tentativa = 0; tentativa < 3; tentativa += 1) {
           await new Promise(ok => setTimeout(ok, espera));
