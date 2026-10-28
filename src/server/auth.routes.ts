@@ -721,6 +721,58 @@ router.post('/accept-invite', async (req, res) => {
   }
 });
 
+// Recuperação da administradora (dona do sistema) quando ela perde a senha e o e-mail do sistema não está ativo.
+// Só funciona se existir FISCOIA_CHAVE_RECUPERACAO no Render (frase secreta que só a dona conhece). Sem ela, fica desligada.
+const tentativasRecuperacao: number[] = [];
+const tentativasRecuperacaoPorIp = new Map<string, number[]>();
+router.post('/recuperar-admin', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const chaveEsperada = process.env.FISCOIA_CHAVE_RECUPERACAO || '';
+  if (chaveEsperada.length < 16) return res.status(503).json({ mensagem: 'A recuperação de administradora está desligada. Cadastre FISCOIA_CHAVE_RECUPERACAO (mínimo 16 caracteres) no Render.' });
+  const agora = Date.now();
+  const recentes = tentativasRecuperacao.filter((t) => agora - t < 60 * 60_000);
+  tentativasRecuperacao.length = 0; tentativasRecuperacao.push(...recentes);
+  const ipChave = req.ip || 'x';
+  const doIp = (tentativasRecuperacaoPorIp.get(ipChave) || []).filter((t) => agora - t < 15 * 60_000);
+  if (doIp.length >= 5 || recentes.length >= 15) return res.status(429).json({ mensagem: 'Muitas tentativas. Aguarde 15 minutos.' });
+  doIp.push(agora); tentativasRecuperacaoPorIp.set(ipChave, doIp); tentativasRecuperacao.push(agora);
+  if (tentativasRecuperacaoPorIp.size > 2000) tentativasRecuperacaoPorIp.clear();
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const chave = typeof req.body?.chave === 'string' ? req.body.chave : '';
+  const novaSenha = typeof req.body?.novaSenha === 'string' ? req.body.novaSenha : '';
+  if (!email || email.length > 254 || !chave || chave.length > 512) return res.status(400).json({ mensagem: 'Informe o e-mail e a chave de recuperação.' });
+  if (novaSenha.length < 12 || novaSenha.length > 1024) return res.status(400).json({ mensagem: 'A nova senha precisa ter entre 12 e 1024 caracteres.' });
+  const a = createHash('sha256').update(chave).digest();
+  const b = createHash('sha256').update(chaveEsperada).digest();
+  if (!timingSafeEqual(a, b)) return res.status(401).json({ mensagem: 'Chave de recuperação ou e-mail inválidos.' });
+  try {
+    const passwordHash = await criarHash(novaSenha);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const atualizado = await client.query(
+        `UPDATE fiscoia.users SET password_hash = $1, must_change_password = false, updated_at = now()
+          WHERE lower(email) = $2 AND active = true AND (is_admin = true OR account_type = 'ADMIN') RETURNING id`,
+        [passwordHash, email],
+      );
+      if (!atualizado.rowCount) { await client.query('ROLLBACK'); return res.status(401).json({ mensagem: 'Chave de recuperação ou e-mail inválidos.' }); }
+      await client.query('UPDATE fiscoia.auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [atualizado.rows[0].id]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    console.warn('Recuperação de administradora usada: senha redefinida e sessões encerradas.');
+    return res.json({ sucesso: true, mensagem: 'Senha redefinida. Entre com a nova senha. Depois, apague FISCOIA_CHAVE_RECUPERACAO do Render.' });
+  } catch {
+    return res.status(503).json({ mensagem: 'Não foi possível redefinir a senha no banco.' });
+  }
+});
+
 router.post('/users/reset-password', async (req, res) => {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
