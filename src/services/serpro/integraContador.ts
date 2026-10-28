@@ -34,6 +34,21 @@ export const CATALOGO_SERVICOS: Record<string, ServicoIntegra> = {
   dctfwebGuia: { chave: 'dctfwebGuia', descricao: 'DCTFWeb: gerar a guia de arrecadação (DARF)', idSistema: 'DCTFWEB', idServico: 'GERARGUIA31', versaoSistema: '1.0', operacao: 'Emitir', campos: [{ nome: 'categoria', rotulo: 'Categoria (ex.: GERAL_MENSAL ou GERAL_13o_SALARIO)', exemplo: 'GERAL_MENSAL' }, { nome: 'anoPA', rotulo: 'Ano da apuração', exemplo: '2026' }, { nome: 'mesPA', rotulo: 'Mês da apuração (não use no 13º)', exemplo: '09', opcional: true }] },
 };
 
+/** Domínio de categorias da DCTFWeb (página "Dados de domínio" do Serpro): nome e código aceitos. */
+export const CATEGORIAS_DCTFWEB: Record<string, number> = { GERAL_MENSAL: 40, GERAL_13o_SALARIO: 41, AFERICAO: 44, ESPETACULO_DESPORTIVO: 45, RECLAMATORIA_TRABALHISTA: 46, PF_MENSAL: 50, PF_13o_SALARIO: 51 };
+
+/** Confere categoria e período antes de gastar uma consulta paga. Devolve o texto do erro ou null se estiver certo. */
+export function validarDadosDctfweb(dados: Record<string, string>): string | null {
+  const cat = String(dados.categoria ?? '');
+  const codigo = /^\d+$/.test(cat) ? Number(cat) : CATEGORIAS_DCTFWEB[cat];
+  if (!codigo || !Object.values(CATEGORIAS_DCTFWEB).includes(codigo)) return `Categoria inválida. Use uma destas: ${Object.entries(CATEGORIAS_DCTFWEB).map(([n, c]) => `${n} (${c})`).join(', ')}.`;
+  if (!/^20\d{2}$/.test(String(dados.anoPA ?? ''))) return 'Informe o ano da apuração com 4 dígitos.';
+  const treze = codigo === 41 || codigo === 51;
+  if (!treze && !/^(0[1-9]|1[0-2])$/.test(String(dados.mesPA ?? ''))) return 'Informe o mês da apuração com 2 dígitos (01 a 12). Só o 13º salário (categorias 41 e 51) não leva mês.';
+  if (treze && dados.mesPA) return 'O 13º salário não leva mês de apuração: deixe o mês em branco.';
+  return null;
+}
+
 export interface PedidoIntegra {
   contratante: { numero: string; tipo: 2 };
   autorPedidoDados: { numero: string; tipo: 2 };

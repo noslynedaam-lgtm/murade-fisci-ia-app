@@ -2,7 +2,7 @@ import { Router } from 'express';
 import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
-import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
+import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosDctfweb } from '../services/serpro/integraContador';
 import { acharPdfBase64, lerProtocoloSitfis } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
@@ -271,6 +271,8 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
       if (!/^[0-9A-Za-z._/-]{1,40}$/.test(valor)) return resp(400, { mensagem: `Informe o campo "${campo.rotulo}" (letras e números, sem espaços).` });
       dadosEntrada[campo.nome] = valor;
     }
+
+    if (servico.idSistema === 'DCTFWEB') { const erroDados = validarDadosDctfweb(dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
 
     // 1) Confere a cota da empresa sem gastar nada.
     const previa = await comContextoTenant(e.userId, tenantId, async client => {

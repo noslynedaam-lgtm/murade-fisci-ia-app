@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ControleCusto, CATALOGO_SERVICOS, avaliarProntidao, compararComFiscal, montarPedido } from './integraContador';
+import { ControleCusto, CATALOGO_SERVICOS, avaliarProntidao, compararComFiscal, montarPedido, validarDadosDctfweb } from './integraContador';
 
 const A = '11222333000181';
 const B = '11444777000161';
@@ -60,4 +60,15 @@ test('DCTFWeb guia de declaração em andamento: GERARGUIAANDAMENTO313 no format
   assert.equal(p.pedidoDados.idServico, 'GERARGUIAANDAMENTO313');
   assert.equal(p.pedidoDados.versaoSistema, '1.0');
   assert.equal(p.pedidoDados.dados, '{"categoria":"GERAL_MENSAL","anoPA":"2025","mesPA":"01"}');
+});
+
+test('DCTFWeb: validação do domínio de categorias e do período antes de gastar consulta', () => {
+  assert.equal(validarDadosDctfweb({ categoria: 'GERAL_MENSAL', anoPA: '2026', mesPA: '09' }), null);
+  assert.equal(validarDadosDctfweb({ categoria: '40', anoPA: '2026', mesPA: '09' }), null);
+  assert.equal(validarDadosDctfweb({ categoria: 'GERAL_13o_SALARIO', anoPA: '2026' }), null);
+  assert.equal(validarDadosDctfweb({ categoria: '51', anoPA: '2026' }), null);
+  assert.match(validarDadosDctfweb({ categoria: 'MENSAL', anoPA: '2026', mesPA: '09' })!, /Categoria inválida/);
+  assert.match(validarDadosDctfweb({ categoria: 'GERAL_MENSAL', anoPA: '2026' })!, /mês/);
+  assert.match(validarDadosDctfweb({ categoria: 'GERAL_MENSAL', anoPA: '26', mesPA: '09' })!, /ano/);
+  assert.match(validarDadosDctfweb({ categoria: 'GERAL_13o_SALARIO', anoPA: '2026', mesPA: '12' })!, /13º/);
 });
