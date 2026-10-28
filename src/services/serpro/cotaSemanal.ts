@@ -6,7 +6,8 @@
  */
 export const LIMITE_GRATIS_SEMANAL = 1;
 
-export interface RegistroConsulta { em: string; semana: string; cobrada: boolean; servico: string }
+export interface OrigemConsulta { id: string; nome: string }
+export interface RegistroConsulta { em: string; semana: string; cobrada: boolean; servico: string; escritorio?: OrigemConsulta }
 export interface CotaEmpresa { consultas: RegistroConsulta[] }
 
 /** Segunda-feira (AAAA-MM-DD) da semana da data, no fuso de Brasília. */
@@ -74,8 +75,8 @@ export function decidirConsulta(cota: CotaEmpresa | null | undefined, confirmouC
   return { liberada: true, cobrada: true };
 }
 
-export function registrarConsulta(cota: CotaEmpresa | null | undefined, cobrada: boolean, servico: string, agora = new Date()): CotaEmpresa {
+export function registrarConsulta(cota: CotaEmpresa | null | undefined, cobrada: boolean, servico: string, agora = new Date(), escritorio?: OrigemConsulta): CotaEmpresa {
   const semana = semanaDe(agora);
   const manter = (cota?.consultas ?? []).slice(-200);
-  return { consultas: [...manter, { em: agora.toISOString(), semana, cobrada, servico }] };
+  return { consultas: [...manter, { em: agora.toISOString(), semana, cobrada, servico, ...(escritorio ? { escritorio } : {}) }] };
 }

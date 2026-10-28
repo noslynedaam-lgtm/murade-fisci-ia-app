@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 
-interface Linha { empresaId: string; cnpj: string; nome: string; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }
-interface Extrato { ciclo: string; de: string; ate: string; linhas: Linha[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
+interface Linha { escritorio: string; escritorioId: string; empresaId: string; cnpj: string; nome: string; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number; custoAbsorvido: number }
+interface PorEsc { escritorioId: string; escritorio: string; empresas: number; consultas: number; gratuitas: number; cobradas: number; valorCobrado: number }
+interface Extrato { ciclo: string; de: string; ate: string; linhas: Linha[]; porEscritorio: PorEsc[]; totalConsultas: number; totalGratuitas: number; totalCobradas: number; valorACobrar: number; custoAbsorvido: number }
 
 const reais = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dia = (iso: string) => iso.split('-').reverse().join('/');
@@ -56,12 +57,23 @@ export default function ConsumoSerproMensal({ tenantId }: { tenantId?: string })
             <div className="rounded-lg bg-slate-50 p-2"><div className="text-xs font-bold">Cobradas</div><div className="text-lg font-extrabold">{extrato.totalCobradas}</div></div>
             <div className="rounded-lg bg-slate-50 p-2"><div className="text-xs font-bold">Gratuitas (custo seu)</div><div className="text-lg font-extrabold">{extrato.totalGratuitas} · {reais(extrato.custoAbsorvido)}</div></div>
           </div>
+          {extrato.porEscritorio.length > 0 && (
+            <div className="overflow-x-auto">
+              <h4 className="text-sm font-extrabold text-slate-900 mb-1">Por escritório (para o boleto)</h4>
+              <table className="w-full text-sm">
+                <thead><tr className="text-left border-b border-slate-300"><th className="py-1 pr-2">Escritório</th><th className="pr-2 text-right">Empresas</th><th className="pr-2 text-right">Consultas</th><th className="pr-2 text-right">Gratuitas</th><th className="pr-2 text-right">Cobradas</th><th className="text-right">Valor do boleto</th></tr></thead>
+                <tbody>{extrato.porEscritorio.map(o => (
+                  <tr key={o.escritorioId} className="border-b border-slate-100"><td className="py-1 pr-2 font-semibold">{o.escritorio}</td><td className="pr-2 text-right">{o.empresas}</td><td className="pr-2 text-right">{o.consultas}</td><td className="pr-2 text-right">{o.gratuitas}</td><td className="pr-2 text-right">{o.cobradas}</td><td className="text-right font-bold">{reais(o.valorCobrado)}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
           {extrato.linhas.length === 0 ? <p className="text-sm text-slate-700">Nenhuma consulta neste ciclo.</p> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="text-left border-b border-slate-300"><th className="py-1 pr-2">Empresa</th><th className="pr-2">CNPJ</th><th className="pr-2 text-right">Consultas</th><th className="pr-2 text-right">Gratuitas</th><th className="pr-2 text-right">Cobradas</th><th className="text-right">A cobrar</th></tr></thead>
+                <thead><tr className="text-left border-b border-slate-300"><th className="py-1 pr-2">Escritório</th><th className="pr-2">Empresa</th><th className="pr-2">CNPJ</th><th className="pr-2 text-right">Consultas</th><th className="pr-2 text-right">Gratuitas</th><th className="pr-2 text-right">Cobradas</th><th className="text-right">A cobrar</th></tr></thead>
                 <tbody>{extrato.linhas.map(l => (
-                  <tr key={l.empresaId} className="border-b border-slate-100"><td className="py-1 pr-2 font-semibold">{l.nome}</td><td className="pr-2">{l.cnpj}</td><td className="pr-2 text-right">{l.consultas}</td><td className="pr-2 text-right">{l.gratuitas}</td><td className="pr-2 text-right">{l.cobradas}</td><td className="text-right font-bold">{reais(l.valorCobrado)}</td></tr>
+                  <tr key={l.escritorioId + l.empresaId} className="border-b border-slate-100"><td className="py-1 pr-2">{l.escritorio}</td><td className="pr-2 font-semibold">{l.nome}</td><td className="pr-2">{l.cnpj}</td><td className="pr-2 text-right">{l.consultas}</td><td className="pr-2 text-right">{l.gratuitas}</td><td className="pr-2 text-right">{l.cobradas}</td><td className="text-right font-bold">{reais(l.valorCobrado)}</td></tr>
                 ))}</tbody>
               </table>
             </div>

@@ -28,3 +28,14 @@ test('extrato soma só o ciclo, separa gratuitas de cobradas e usa preço da ope
   assert.equal(ex.custoAbsorvido, 0.24);
   assert.match(extratoParaCsv(ex), /0,56/);
 });
+
+test('extrato separa por escritório para o boleto de cada um', () => {
+  const c = (esc?: { id: string; nome: string }, cobrada = true) => ({ em: '2026-10-05T15:00:00Z', semana: 'x', cobrada, servico: 'a', ...(esc ? { escritorio: esc } : {}) });
+  const ex = montarExtrato([
+    { id: '1', cnpj: '1', nome: 'A', consultas: [c({ id: 'e1', nome: 'Contadora' }), c({ id: 'e1', nome: 'Contadora' }, false), c({ id: 'e2', nome: 'Outro' })] },
+    { id: '2', cnpj: '2', nome: 'B', consultas: [c({ id: 'e1', nome: 'Contadora' })] },
+  ], '2026-10', () => 'Consultar');
+  const e1 = ex.porEscritorio.find((x) => x.escritorioId === 'e1')!;
+  assert.equal(e1.empresas, 2); assert.equal(e1.cobradas, 2); assert.equal(e1.gratuitas, 1); assert.equal(e1.valorCobrado, 0.48);
+  assert.equal(ex.porEscritorio.length, 2);
+});

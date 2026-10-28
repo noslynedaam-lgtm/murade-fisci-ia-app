@@ -4,7 +4,7 @@ import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
 import { acharPdfBase64, lerProtocoloSitfis } from '../services/serpro/resultadoSerpro';
-import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
+import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
@@ -250,7 +250,7 @@ router.get('/consumo', async (req, res) => {
   }
 });
 
-interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean }
+interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; escritorio?: OrigemConsulta }
 const resp = (status: number, corpo: unknown) => ({ status, corpo });
 
 /** Núcleo da consulta paga: mesma regra de cota/custo para a tela do Fisco IA e para a ponte do DP. */
@@ -304,7 +304,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
       const atual = (q.rows[0]?.metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] };
       const dec = decidirConsulta(atual, confirmouCusto);
       if (dec.liberada === false) return { ok: false as const, cota: avaliarCota(atual) };
-      const nova = registrarConsulta(atual, dec.cobrada, servico.chave);
+      const nova = registrarConsulta(atual, dec.cobrada, servico.chave, new Date(), e.escritorio);
       await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproCota}', $3::jsonb, true), updated_at = now() WHERE id = $1 AND tenant_id = $2`, [companyId, tenantId, JSON.stringify(nova)]);
       return { ok: true as const, cobrada: dec.cobrada, cota: avaliarCota(nova) };
     }, PAPEIS_CONSULTA);
@@ -377,7 +377,7 @@ router.post('/consulta', async (req, res) => {
 // ---- Ponte DP → Fisco IA (credencial de integração) ----
 // O DP pede consulta de uma empresa pelo CNPJ. Só atende empresas cadastradas no Fisco IA da conta
 // administradora (a dona); a regra de cota e de confirmação de custo é a mesma da tela.
-async function localizarEmpresaDaDona(cnpj: string): Promise<{ userId: string; tenantId: string; companyId: string; cota: CotaEmpresa } | null> {
+async function localizarEmpresaDaDona(cnpj: string, criar?: { razaoSocial: string; escritorio?: OrigemConsulta }): Promise<{ userId: string; tenantId: string; companyId: string; cota: CotaEmpresa } | null> {
   const pool = obterPoolBanco();
   if (!pool) return null;
   const admins = await pool.query(`SELECT id FROM fiscoia.users WHERE active = true AND (is_admin = true OR account_type = 'ADMIN') ORDER BY id LIMIT 5`);
@@ -400,6 +400,19 @@ async function localizarEmpresaDaDona(cnpj: string): Promise<{ userId: string; t
       }, PAPEIS_CONSULTA);
       if (r.autorizado && 'resultado' in r && r.resultado) return { userId, tenantId, ...r.resultado };
     }
+    // Empresa de escritório cliente (vem do DP): a conta central guarda o registro para controlar a cota
+    // semanal por CNPJ. O registro nasce só quando a consulta é de fato pedida.
+    if (criar && tenants[0]) {
+      const tenantId = tenants[0];
+      const nova = await comContextoTenant(userId, tenantId, async client => {
+        const q = await client.query(
+          `INSERT INTO fiscoia.companies (tenant_id, cnpj, legal_name, metadata) VALUES ($1, $2, $3, $4::jsonb)
+           ON CONFLICT (tenant_id, cnpj) DO UPDATE SET updated_at = now() RETURNING id, metadata->'serproCota' AS cota`,
+          [tenantId, cnpj, criar.razaoSocial.slice(0, 200) || cnpj, JSON.stringify({ origem: 'ponte-dp', ...(criar.escritorio ? { escritorioOrigem: criar.escritorio } : {}) })]);
+        return { companyId: String(q.rows[0].id), cota: (q.rows[0].cota as CotaEmpresa | null) ?? { consultas: [] } };
+      }, PAPEIS_CONSULTA);
+      if (nova.autorizado && 'resultado' in nova && nova.resultado) return { userId, tenantId, ...nova.resultado };
+    }
   }
   return null;
 }
@@ -412,8 +425,9 @@ router.get('/ponte/cota', async (req, res) => {
   if (!validarCnpj(cnpj)) return res.status(400).json({ mensagem: 'CNPJ inválido.' });
   try {
     const e = await localizarEmpresaDaDona(cnpj);
-    if (!e) return res.status(404).json({ cadastrada: false, mensagem: 'Esta empresa não está cadastrada no Fisco IA.' });
-    return res.json({ cadastrada: true, cota: avaliarCota(e.cota), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [] })) });
+    // Empresa ainda sem registro central: tem a consulta grátis da semana inteira.
+    const cota = avaliarCota(e ? e.cota : { consultas: [] });
+    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [] })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a cota.' }); }
 });
 
@@ -424,9 +438,12 @@ router.post('/ponte/consulta', async (req, res) => {
   const cnpj = normalizarCnpj(String(req.body?.cnpj ?? ''));
   if (!validarCnpj(cnpj)) return res.status(400).json({ consultado: false, mensagem: 'CNPJ inválido.' });
   try {
-    const e = await localizarEmpresaDaDona(cnpj);
-    if (!e) return res.status(404).json({ consultado: false, mensagem: 'Esta empresa não está cadastrada no Fisco IA. Nada foi consultado nem cobrado.' });
-    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCusto: req.body?.confirmarCusto === true });
+    const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
+    const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
+    const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
+    const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
+    if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
+    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });
