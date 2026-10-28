@@ -14,12 +14,15 @@ export interface ServicoIntegra {
   versaoSistema: string;
   /** Endpoint do gateway: Consultar, Apoiar, Emitir, Declarar */
   operacao: 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar';
+  /** Campos que o serviço exige dentro de "dados" (o formulário pede ao usuário). */
+  campos?: { nome: string; rotulo: string; exemplo: string }[];
 }
 
 /** Catálogo editável: ajuste os códigos conforme o contrato assim que as chaves chegarem. */
 export const CATALOGO_SERVICOS: Record<string, ServicoIntegra> = {
   situacaoFiscal: { chave: 'situacaoFiscal', descricao: 'Situação fiscal / pendências do contribuinte', idSistema: 'SITFIS', idServico: 'SOLICITARPROTOCOLO91', versaoSistema: '2.0', operacao: 'Apoiar' },
-  guiasPagas: { chave: 'guiasPagas', descricao: 'Pagamentos / arrecadação (DAS e DARF)', idSistema: 'PGDASD', idServico: 'CONSEXTRATO16', versaoSistema: '1.0', operacao: 'Consultar' },
+  declaracoesSimples: { chave: 'declaracoesSimples', descricao: 'Simples Nacional: declarações do ano (PGDAS-D)', idSistema: 'PGDASD', idServico: 'CONSDECLARACAO13', versaoSistema: '1.0', operacao: 'Consultar', campos: [{ nome: 'anoCalendario', rotulo: 'Ano-calendário', exemplo: '2026' }] },
+  guiasPagas: { chave: 'guiasPagas', descricao: 'Simples Nacional: extrato de um DAS (informe o número do DAS)', idSistema: 'PGDASD', idServico: 'CONSEXTRATO16', versaoSistema: '1.0', operacao: 'Consultar', campos: [{ nome: 'numeroDas', rotulo: 'Número do DAS', exemplo: '07202636999999999' }] },
 };
 
 export interface PedidoIntegra {

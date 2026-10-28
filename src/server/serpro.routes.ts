@@ -194,7 +194,7 @@ router.get('/prontidao', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = await obterUsuarioDaSessao(req).catch(() => null);
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao })) });
+  return res.json({ ...avaliarProntidao(process.env), servicos: Object.values(CATALOGO_SERVICOS).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [] })) });
 });
 
 // Quantas consultas a empresa já fez, limite e aviso (regra: 1 gratuita/semana por empresa, sem acúmulo).
@@ -232,6 +232,13 @@ router.post('/consulta', async (req, res) => {
     const prontidao = avaliarProntidao(process.env);
     if (!prontidao.pronto) return res.status(503).json({ consultado: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi consultado nem cobrado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
     const confirmouCusto = req.body?.confirmarCusto === true;
+    // "dados" só aceita os campos do serviço, com texto curto e seguro.
+    const dadosEntrada: Record<string, string> = {};
+    for (const campo of servico.campos ?? []) {
+      const valor = String((req.body?.dados as Record<string, unknown> | undefined)?.[campo.nome] ?? '').trim();
+      if (!/^[0-9A-Za-z./-]{1,40}$/.test(valor)) return res.status(400).json({ mensagem: `Informe o campo "${campo.rotulo}" (letras e números, sem espaços).` });
+      dadosEntrada[campo.nome] = valor;
+    }
 
     // 1) Confere a cota da empresa sem gastar nada.
     const previa = await comContextoTenant(user.id, tenantId, async client => {
@@ -244,7 +251,7 @@ router.post('/consulta', async (req, res) => {
     const decisao = decidirConsulta(previa.resultado.cota, confirmouCusto);
     if (decisao.liberada === false) return res.status(402).json({ consultado: false, exigeConfirmacao: true, cota: avaliarCota(previa.resultado.cota), mensagem: decisao.mensagem });
     let pedido;
-    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, req.body?.dados ?? {}); }
+    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, dadosEntrada); }
     catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
 
     const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);

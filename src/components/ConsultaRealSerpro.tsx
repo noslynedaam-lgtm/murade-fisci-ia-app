@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 
-interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string }[] }
+interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: { nome: string; rotulo: string; exemplo: string }[] }[] }
 
 /** Consulta oficial real ao SERPRO (Integra Contador) para a empresa ativa. Só a conta administradora; o servidor trava o custo. */
 export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial }: { companyId?: string; tenantId?: string; razaoSocial?: string }) {
   const [prontidao, setProntidao] = useState<Prontidao | null>(null);
   const [servico, setServico] = useState('');
+  const [dados, setDados] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState(false);
   const [exigeConfirmar, setExigeConfirmar] = useState<string | null>(null);
   const [resposta, setResposta] = useState<{ ok: boolean; titulo: string; texto: string; bruto?: unknown } | null>(null);
@@ -31,7 +32,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial }:
       const r = await fetch('/api/serpro/consulta', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto }),
+        body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto, dados }),
       });
       const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; statusGateway?: number };
       if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta será cobrada à parte pelo SERPRO.'); return; }
@@ -44,6 +45,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial }:
     } finally { setCarregando(false); }
   }
 
+  const campos = prontidao?.servicos.find(s => s.chave === servico)?.campos ?? [];
   const faltando = prontidao?.itens.filter(i => !i.ok) ?? [];
   return (
     <div className="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-3 text-sm text-slate-900">
@@ -64,7 +66,12 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial }:
             {(prontidao?.servicos ?? []).map(s => <option key={s.chave} value={s.chave}>{s.descricao}</option>)}
           </select>
         </label>
-        <button type="button" disabled={carregando || !servico || faltando.length > 0} onClick={() => consultar(false)}
+        {campos.map(c => (
+          <label key={c.nome} className="flex flex-col text-[11px] font-bold text-slate-700 gap-1">{c.rotulo}
+            <input value={dados[c.nome] ?? ''} onChange={e => setDados(d => ({ ...d, [c.nome]: e.target.value }))} placeholder={c.exemplo} className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl w-48" />
+          </label>
+        ))}
+        <button type="button" disabled={carregando || !servico || faltando.length > 0 || campos.some(c => !(dados[c.nome] ?? '').trim())} onClick={() => consultar(false)}
           className="px-4 py-2.5 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded-xl text-xs font-black cursor-pointer">
           {carregando ? 'Consultando…' : 'Fazer consulta real'}
         </button>
