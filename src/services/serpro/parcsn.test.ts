@@ -82,3 +82,16 @@ test('PARCSN especial: parcelas disponíveis e emissão do DAS (páginas 17.2 e 
   assert.equal(validarDadosParcsn('GERARDAS171', { parcelaParaEmitir: '202306' }), null);
   assert.match(validarDadosParcsn('GERARDAS171', {})!, /AAAAMM/);
 });
+
+test('PARCMEI: 5 serviços das páginas oficiais 20.1 a 20.5, procuração 00134', () => {
+  const c = CATALOGO_SERVICOS;
+  assert.deepEqual([c.parcmeiPedidos, c.parcmeiDetalhe, c.parcmeiPagamento, c.parcmeiParcelas, c.parcmeiDas].map(x => x.idServico), ['PEDIDOSPARC203', 'OBTERPARC204', 'DETPAGTOPARC205', 'PARCELASPARAGERAR202', 'GERARDAS201']);
+  assert.ok([c.parcmeiPedidos, c.parcmeiDetalhe, c.parcmeiPagamento, c.parcmeiParcelas, c.parcmeiDas].every(x => x.idSistema === 'PARCMEI' && x.procuracao?.codigo === '00134'));
+  assert.equal(c.parcmeiDas.operacao, 'Emitir');
+  assert.equal(montarPedido(c.parcmeiPedidos, '11222333000181', '11222333000181', {}).pedidoDados.dados, '');
+  assert.equal(montarPedido(c.parcmeiPagamento, '11222333000181', '11222333000181', { numeroParcelamento: '1', anoMesParcela: '202107' }).pedidoDados.dados, '{"numeroParcelamento":1,"anoMesParcela":202107}');
+  assert.equal(montarPedido(c.parcmeiDas, '11222333000181', '11222333000181', { parcelaParaEmitir: '202107' }).pedidoDados.dados, '{"parcelaParaEmitir":202107}');
+  assert.match(validarDadosParcsn('DETPAGTOPARC205', { numeroParcelamento: '1' })!, /AAAAMM/);
+  assert.equal(validarDadosParcsn('PEDIDOSPARC203', {}), null);
+  assert.match(validarDadosParcsn('GERARDAS201', {})!, /AAAAMM/);
+});

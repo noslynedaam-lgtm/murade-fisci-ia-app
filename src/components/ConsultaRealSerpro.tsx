@@ -61,11 +61,11 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const listaCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalLista' ? lerListaCaixaPostal(resposta.bruto) : null), [resposta]);
   const detalheCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalDetalhe' ? lerDetalheCaixaPostal(resposta.bruto) : null), [resposta]);
   const novasCP = useMemo(() => (resposta?.ok && resposta.servico === 'caixaPostalNovas' ? lerIndicadorNovasCaixaPostal(resposta.bruto) : null), [resposta]);
-  const pedidosPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPedidos' || resposta.servico === 'parcsnEspPedidos') ? lerPedidosParcsn(resposta.bruto) : null), [resposta]);
-  const detalhePS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDetalhe' || resposta.servico === 'parcsnEspDetalhe') ? lerDetalheParcsn(resposta.bruto) : null), [resposta]);
-  const pagamentoPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPagamento' || resposta.servico === 'parcsnEspPagamento') ? lerPagamentoParcsn(resposta.bruto) : null), [resposta]);
-  const parcelasPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnParcelas' || resposta.servico === 'parcsnEspParcelas') ? lerParcelasParaGerarParcsn(resposta.bruto) : null), [resposta]);
-  const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
+  const pedidosPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPedidos' || resposta.servico === 'parcsnEspPedidos' || resposta.servico === 'parcmeiPedidos') ? lerPedidosParcsn(resposta.bruto) : null), [resposta]);
+  const detalhePS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDetalhe' || resposta.servico === 'parcsnEspDetalhe' || resposta.servico === 'parcmeiDetalhe') ? lerDetalheParcsn(resposta.bruto) : null), [resposta]);
+  const pagamentoPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnPagamento' || resposta.servico === 'parcsnEspPagamento' || resposta.servico === 'parcmeiPagamento') ? lerPagamentoParcsn(resposta.bruto) : null), [resposta]);
+  const parcelasPS = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnParcelas' || resposta.servico === 'parcsnEspParcelas' || resposta.servico === 'parcmeiParcelas') ? lerParcelasParaGerarParcsn(resposta.bruto) : null), [resposta]);
+  const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas' || resposta.servico === 'parcmeiDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
   if (!companyId || !tenantId) {
@@ -216,7 +216,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
                   <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Nº</th><th className="p-3">Pedido em</th><th className="p-3">Situação</th><th className="p-3">Desde</th><th className="p-3"></th></tr></thead>
                   <tbody>{pedidosPS.map((p, i) => (
                     <tr key={`${p.numero}-${i}`} className="border-t border-slate-100"><td className="p-3 font-mono">{p.numero}</td><td className="p-3">{p.pedidoEm}</td><td className="p-3 font-bold">{p.situacao}</td><td className="p-3">{p.situacaoEm || '—'}</td>
-                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspPedidos' ? 'parcsnEspDetalhe' : 'parcsnDetalhe', { numeroParcelamento: p.numero })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe</button></td></tr>
+                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspPedidos' ? 'parcsnEspDetalhe' : resposta?.servico === 'parcmeiPedidos' ? 'parcmeiDetalhe' : 'parcsnDetalhe', { numeroParcelamento: p.numero })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe</button></td></tr>
                   ))}</tbody>
                 </table>
               </div>
@@ -232,7 +232,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
                   <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Parcela</th><th className="p-3">Valor</th><th className="p-3"></th></tr></thead>
                   <tbody>{parcelasPS.map((p, i) => (
                     <tr key={`${p.parcela}-${i}`} className="border-t border-slate-100"><td className="p-3 font-bold">{p.parcela}</td><td className="p-3">{p.valor === null ? '—' : reaisPS(p.valor)}</td>
-                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspParcelas' ? 'parcsnEspDas' : 'parcsnDas', { parcelaParaEmitir: p.parcela.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar DAS</button></td></tr>
+                      <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspParcelas' ? 'parcsnEspDas' : resposta?.servico === 'parcmeiParcelas' ? 'parcmeiDas' : 'parcsnDas', { parcelaParaEmitir: p.parcela.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar DAS</button></td></tr>
                   ))}</tbody>
                 </table>
               </div>
@@ -268,7 +268,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
                     <thead className="bg-slate-100 text-left text-slate-700"><tr><th className="p-3">Parcela</th><th className="p-3">Vencimento do DAS</th><th className="p-3">Arrecadado em</th><th className="p-3">Valor pago</th><th className="p-3"></th></tr></thead>
                     <tbody>{detalhePS.pagamentos.map((p, i) => (
                       <tr key={`${p.mes}-${i}`} className="border-t border-slate-100"><td className="p-3 font-bold">{p.mes}</td><td className="p-3">{p.vencimentoDas || '—'}</td><td className="p-3">{p.arrecadadoEm || '—'}</td><td className="p-3">{p.valorPago === null ? '—' : reaisPS(p.valorPago)}</td>
-                        <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspDetalhe' ? 'parcsnEspPagamento' : 'parcsnPagamento', { numeroParcelamento: detalhePS.numero, anoMesParcela: p.mes.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe do pagamento</button></td></tr>
+                        <td className="p-3"><button type="button" onClick={() => prepararConsulta(resposta?.servico === 'parcsnEspDetalhe' ? 'parcsnEspPagamento' : resposta?.servico === 'parcmeiDetalhe' ? 'parcmeiPagamento' : 'parcsnPagamento', { numeroParcelamento: detalhePS.numero, anoMesParcela: p.mes.split('/').reverse().join('') })} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer">Preparar detalhe do pagamento</button></td></tr>
                     ))}</tbody>
                   </table>
                 </div>
