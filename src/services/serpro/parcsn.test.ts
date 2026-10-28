@@ -109,3 +109,17 @@ test('PERT-MEI: 5 serviços das páginas 22.1 a 22.5, procuração 00152, e deta
   assert.deepEqual(d?.consolidacao?.entrada, { valorEntrada: 100, parcelasEntrada: 2, parcelaEntrada: 50, valorDivida: 900 });
   assert.equal(d?.restanteDivida, 1);
 });
+
+test('RELPSN: 5 serviços das páginas 19.1 a 19.5, procuração 00210, e detalhe com entrada', () => {
+  const c = CATALOGO_SERVICOS;
+  const l = [c.relpsnPedidos, c.relpsnDetalhe, c.relpsnPagamento, c.relpsnParcelas, c.relpsnDas];
+  assert.deepEqual(l.map(x => x.idServico), ['PEDIDOSPARC193', 'OBTERPARC194', 'DETPAGTOPARC195', 'PARCELASPARAGERAR192', 'GERARDAS191']);
+  assert.ok(l.every(x => x.idSistema === 'RELPSN' && x.procuracao?.codigo === '00210'));
+  assert.equal(validarDadosParcsn('PEDIDOSPARC193', {}), null);
+  assert.equal(validarDadosParcsn('PARCELASPARAGERAR192', {}), null);
+  assert.equal(validarDadosParcsn('GERARDAS191', { parcelaParaEmitir: '202308' }), null);
+  assert.match(validarDadosParcsn('DETPAGTOPARC195', { numeroParcelamento: '9131' })!, /AAAAMM/);
+  assert.equal(montarPedido(c.relpsnDetalhe, '11222333000181', '11222333000181', { numeroParcelamento: '9131' }).pedidoDados.idServico, 'OBTERPARC194');
+  const d = lerDetalheParcsn({ dados: JSON.stringify({ numero: 9131, situacao: 'Em parcelamento', consolidacaoOriginal: { valorTotalConsolidadoDaEntrada: 10, quantidadeParcelasDeEntrada: 1, parcelaDeEntrada: 10, valorConsolidadoDivida: 500 } }) });
+  assert.deepEqual(d?.consolidacao?.entrada, { valorEntrada: 10, parcelasEntrada: 1, parcelaEntrada: 10, valorDivida: 500 });
+});
