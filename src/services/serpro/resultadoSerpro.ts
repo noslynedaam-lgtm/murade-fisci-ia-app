@@ -174,8 +174,8 @@ export function lerDetalheParcsn(bruto: unknown): DetalheParcsn | null {
     numero: String(d.numero), pedidoEm: dia8(d.dataDoPedido) || '—', situacao: String(d.situacao ?? '—'), situacaoEm: dia8(d.dataDaSituacao),
     consolidacao: c ? {
       valorTotal: num(c.valorTotalConsolidado), quantidadeParcelas: num(c.quantidadeParcelas), primeiraParcela: num(c.primeiraParcela), parcelaBasica: num(c.parcelaBasica), em: dh14(c.dataConsolidacao),
-      // PERTMEI (OBTERPARC224) e RELPSN (OBTERPARC194): a consolidação traz entrada e dívida em campos próprios
-      ...(c.valorTotalConsolidadoDaEntrada !== undefined || c.valorTotalConsolidadoDaDivida !== undefined || c.valorConsolidadoDivida !== undefined ? { entrada: { valorEntrada: num(c.valorTotalConsolidadoDaEntrada), parcelasEntrada: num(c.quantidadeParcelasDaEntrada ?? c.quantidadeParcelasDeEntrada), parcelaEntrada: num(c.parcelaBasicaDaEntrada ?? c.parcelaDeEntrada), valorDivida: num(c.valorTotalConsolidadoDaDivida ?? c.valorConsolidadoDivida) } } : {}),
+      // PERTMEI (OBTERPARC224) , RELPSN (OBTERPARC194) e PERTSN (OBTERPARC184): a consolidação traz entrada e dívida em campos próprios
+      ...(c.valorTotalConsolidadoDaEntrada !== undefined || c.valorTotalConsolidadoDaDivida !== undefined || c.valorConsolidadoDivida !== undefined || c.valorConsolidadoDaDivida !== undefined ? { entrada: { valorEntrada: num(c.valorTotalConsolidadoDaEntrada), parcelasEntrada: num(c.quantidadeParcelasDaEntrada ?? c.quantidadeParcelasDeEntrada ?? c.parcelasRemanescentes), parcelaEntrada: num(c.parcelaBasicaDaEntrada ?? c.parcelaDeEntrada), valorDivida: num(c.valorTotalConsolidadoDaDivida ?? c.valorConsolidadoDivida ?? c.valorConsolidadoDaDivida) } } : {}),
       debitos: (Array.isArray(c.detalhesConsolidacao) ? c.detalhesConsolidacao as Record<string, unknown>[] : []).map(x => ({ periodo: mes6(x.periodoApuracao), vencimento: dia8(x.vencimento), processo: String(x.numeroProcesso ?? ''), saldoOriginal: num(x.saldoDevedorOriginal), valorAtualizado: num(x.valorAtualizado) })),
     } : null,
     alteracoesDivida: Array.isArray(d.alteracoesDivida) ? d.alteracoesDivida.length : 0,

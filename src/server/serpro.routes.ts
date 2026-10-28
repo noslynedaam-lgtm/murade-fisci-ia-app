@@ -277,7 +277,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
 
     if (servico.idSistema === 'DCTFWEB') { const erroDados = validarDadosDctfweb(dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
     if (servico.idSistema === 'PGMEI') { const erroDados = validarDadosPgmei(servico.idServico, dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
-    if (servico.idSistema === 'PARCSN' || servico.idSistema === 'PARCSN-ESP' || servico.idSistema === 'PARCMEI' || servico.idSistema === 'PERTMEI' || servico.idSistema === 'RELPSN' || servico.idSistema === 'PARCMEI-ESP') { const erroDados = validarDadosParcsn(servico.idServico, dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
+    if (servico.idSistema === 'PARCSN' || servico.idSistema === 'PARCSN-ESP' || servico.idSistema === 'PARCMEI' || servico.idSistema === 'PERTMEI' || servico.idSistema === 'RELPSN' || servico.idSistema === 'PARCMEI-ESP' || servico.idSistema === 'PERTSN') { const erroDados = validarDadosParcsn(servico.idServico, dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
     if (servico.idSistema === 'CAIXAPOSTAL') { const erroDados = validarDadosCaixaPostal(servico.idServico, dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
 
     // 1) Confere a cota da empresa sem gastar nada.

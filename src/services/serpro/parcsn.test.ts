@@ -167,3 +167,16 @@ test('PARCMEI-ESP: 5 serviços das páginas 21.1 a 21.5, procuração 00133', ()
   assert.match(validarDadosParcsn('DETPAGTOPARC215', { numeroParcelamento: '9001' })!, /AAAAMM/);
   assert.equal(montarPedido(c.parcmeiEspPagamento, '11222333000181', '11222333000181', { numeroParcelamento: '9001', anoMesParcela: '202111' }).pedidoDados.dados, '{"numeroParcelamento":9001,"anoMesParcela":202111}');
 });
+
+test('PERT-SN: 5 serviços das páginas 18.1 a 18.5, procuração 00149, e detalhe com entrada e dívida', () => {
+  const c = CATALOGO_SERVICOS;
+  const l = [c.pertsnPedidos, c.pertsnDetalhe, c.pertsnPagamento, c.pertsnParcelas, c.pertsnDas];
+  assert.deepEqual(l.map(x => x.idServico), ['PEDIDOSPARC183', 'OBTERPARC184', 'DETPAGTOPARC185', 'PARCELASPARAGERAR182', 'GERARDAS181']);
+  assert.ok(l.every(x => x.idSistema === 'PERTSN' && x.procuracao?.codigo === '00149'));
+  assert.equal(validarDadosParcsn('PEDIDOSPARC183', {}), null);
+  assert.equal(validarDadosParcsn('PARCELASPARAGERAR182', {}), null);
+  assert.equal(validarDadosParcsn('GERARDAS181', { parcelaParaEmitir: '202301' }), null);
+  assert.match(validarDadosParcsn('DETPAGTOPARC185', { numeroParcelamento: '9102' })!, /AAAAMM/);
+  const d = lerDetalheParcsn({ dados: JSON.stringify({ numero: 9102, situacao: 'Em parcelamento', consolidacaoOriginal: { valorTotalConsolidadoDaEntrada: 20, parcelasRemanescentes: 4, parcelaBasicaDaEntrada: 5, valorConsolidadoDaDivida: 800 } }) });
+  assert.deepEqual(d?.consolidacao?.entrada, { valorEntrada: 20, parcelasEntrada: 4, parcelaEntrada: 5, valorDivida: 800 });
+});
