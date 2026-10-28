@@ -55,3 +55,30 @@ export function declaracoesParaCsv(linhas: LinhaDeclaracao[]): string {
   const corpo = linhas.map(l => [l.periodo, l.numero, l.tipo, l.transmitidoEm, l.malha || '—', l.das, l.dasPago === null ? '—' : l.dasPago ? 'Sim' : 'Não']);
   return '﻿' + [cab, ...corpo].map(r => r.map(aspas).join(';')).join('\r\n');
 }
+
+function dadosComoObjeto(bruto: unknown): unknown {
+  let d: unknown = (bruto as { dados?: unknown } | null)?.dados;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return null; } }
+  return d;
+}
+
+/** Situação fiscal (SITFIS), etapa 1: o SERPRO devolve um protocolo e o tempo de espera em ms. */
+export function lerProtocoloSitfis(bruto: unknown): { protocolo: string; esperaMs: number } | null {
+  const d = dadosComoObjeto(bruto) as { protocoloRelatorio?: unknown; tempoEspera?: unknown } | null;
+  if (!d || typeof d.protocoloRelatorio !== 'string' || !d.protocoloRelatorio) return null;
+  const t = Number(d.tempoEspera);
+  return { protocolo: d.protocoloRelatorio, esperaMs: Number.isFinite(t) && t > 0 ? t : 4000 };
+}
+
+/** Procura em qualquer ponto da resposta um PDF em base64 (começa com "JVBERi"). */
+export function acharPdfBase64(valor: unknown, nivel = 0): string | null {
+  if (nivel > 6 || valor === null || valor === undefined) return null;
+  if (typeof valor === 'string') {
+    if (/^JVBERi[A-Za-z0-9+/=\s]{100,}$/.test(valor)) return valor.replace(/\s/g, '');
+    if (valor.startsWith('{') || valor.startsWith('[')) { try { return acharPdfBase64(JSON.parse(valor), nivel + 1); } catch { return null; } }
+    return null;
+  }
+  if (Array.isArray(valor)) { for (const v of valor) { const r = acharPdfBase64(v, nivel + 1); if (r) return r; } return null; }
+  if (typeof valor === 'object') { for (const v of Object.values(valor as Record<string, unknown>)) { const r = acharPdfBase64(v, nivel + 1); if (r) return r; } }
+  return null;
+}

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
-import { declaracoesParaCsv, lerDeclaracoes, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
+import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
 interface Campo { nome: string; rotulo: string; exemplo: string }
 interface Prontidao { pronto: boolean; itens: { chave: string; ok: boolean; descricao: string }[]; servicos: { chave: string; descricao: string; campos?: Campo[] }[] }
-interface Resposta { ok: boolean; titulo: string; texto: string; bruto?: unknown; servico?: string; consultadoEm?: string }
+interface Resposta { ok: boolean; titulo: string; texto: string; bruto?: unknown; relatorio?: unknown; servico?: string; consultadoEm?: string }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
@@ -13,6 +13,17 @@ function baixarCsv(linhas: LinhaDeclaracao[], nome: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = nome; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function baixarArquivo(blob: Blob, nome: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function pdfDeBase64(b64: string): Blob {
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'application/pdf' });
 }
 
 function imprimir(linhas: LinhaDeclaracao[], empresa: string, quando: string) {
@@ -43,6 +54,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
     return () => { ativo = false; };
   }, []);
 
+  const pdfBase64 = useMemo(() => (resposta?.ok ? acharPdfBase64(resposta.relatorio) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
   if (!companyId || !tenantId) {
@@ -57,11 +69,11 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ servico, tenantId, companyId, confirmarCusto, dados }),
       });
-      const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; statusGateway?: number; consultadoEm?: string };
+      const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; relatorio?: unknown; statusGateway?: number; consultadoEm?: string };
       if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta será cobrada à parte pelo SERPRO (contrato: cerca de R$ 0,24 por consulta).'); return; }
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
-      else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, servico, consultadoEm: d.consultadoEm });
+      else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
       else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `Resposta do SERPRO: HTTP ${d.statusGateway}` : ''].filter(Boolean).join(' · ') || `Erro HTTP ${r.status}.`, bruto: d.bruto });
       setVersaoCota(v => v + 1);
     } catch {
@@ -74,6 +86,8 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const quando = resposta?.consultadoEm ? new Date(resposta.consultadoEm).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
   const nomeArquivo = `declaracoes-pgdasd-${(cnpj || companyId).replace(/\D/g, '')}-${dados.anoCalendario || ''}.csv`;
   const mensagensSerpro = (resposta?.bruto as { mensagens?: { codigo?: string; texto?: string }[] } | undefined)?.mensagens;
+  const nomeBase = `${(cnpj || companyId).replace(/\D/g, '')}-${new Date().toISOString().slice(0, 10)}`;
+  const tituloServico = prontidao?.servicos.find(sv => sv.chave === resposta?.servico)?.descricao ?? 'Consulta SERPRO';
 
   return (
     <section className="rounded-2xl border border-indigo-200 bg-white p-4 sm:p-6 space-y-4 shadow-xs text-slate-900">
@@ -128,9 +142,32 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
 
       {resposta?.ok && (
         <div className="space-y-4" role="status">
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
-            <strong>{resposta.titulo}.</strong> {resposta.texto}
-            {mensagensSerpro?.[0]?.texto && <span className="block mt-1 text-xs">Mensagem do SERPRO: {mensagensSerpro[0].texto}</span>}
+          <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-950">
+            <p className="font-black text-base">{resposta.titulo}</p>
+            <p className="mt-1">{tituloServico} · {razaoSocial || 'empresa ativa'} · {quando}</p>
+            <p className="mt-1 text-xs">{resposta.texto}</p>
+            {mensagensSerpro?.map((m, i) => m.texto && <p key={i} className="mt-1 text-xs">Aviso do SERPRO: {m.texto}</p>)}
+          </div>
+
+          {resposta.servico === 'situacaoFiscal' && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+              <p className="font-black text-base">Relatório de Situação Fiscal</p>
+              {pdfBase64 ? (
+                <>
+                  <p className="text-sm text-slate-700">O relatório oficial da Receita Federal está pronto em PDF. Nele constam as pendências e a situação do contribuinte.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => window.open(URL.createObjectURL(pdfDeBase64(pdfBase64)), '_blank')} className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-sm font-bold cursor-pointer">Abrir relatório (PDF)</button>
+                    <button type="button" onClick={() => baixarArquivo(pdfDeBase64(pdfBase64), `situacao-fiscal-${nomeBase}.pdf`)} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-sm font-bold cursor-pointer">Baixar PDF</button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-amber-900">O SERPRO aceitou o pedido e gerou o protocolo, mas o relatório em PDF ainda não veio nesta tentativa. Aguarde alguns segundos e consulte de novo (a tela abaixo mostra a resposta técnica).</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => baixarArquivo(new Blob([JSON.stringify({ empresa: razaoSocial, cnpj, consultadoEm: resposta.consultadoEm, resposta: resposta.bruto, relatorio: resposta.relatorio }, null, 2)], { type: 'application/json' }), `consulta-serpro-${nomeBase}.json`)} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-sm font-bold cursor-pointer">Baixar resposta completa (.json)</button>
           </div>
 
           {linhas && (
@@ -170,7 +207,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
           )}
 
           <button type="button" onClick={() => setMostrarTecnico(v => !v)} className="text-xs font-bold text-indigo-800 underline cursor-pointer">{mostrarTecnico ? 'Esconder' : 'Ver'} resposta técnica completa</button>
-          {(mostrarTecnico || !linhas) && <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs">{typeof resposta.bruto === 'string' ? resposta.bruto : JSON.stringify(resposta.bruto, null, 2)}</pre>}
+          {mostrarTecnico && <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs">{typeof resposta.bruto === 'string' ? resposta.bruto : JSON.stringify(resposta.bruto, null, 2)}</pre>}
         </div>
       )}
     </section>

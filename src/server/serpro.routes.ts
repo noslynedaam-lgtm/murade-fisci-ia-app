@@ -3,6 +3,7 @@ import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido } from '../services/serpro/integraContador';
+import { acharPdfBase64, lerProtocoloSitfis } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa } from '../services/serpro/cotaSemanal';
 import { comContextoTenant } from './persistence';
 import { tokenValido } from './agentesEntreSistemas';
@@ -286,7 +287,31 @@ router.post('/consulta', async (req, res) => {
     let bruto: unknown = r.texto;
     try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
     if (r.status < 200 || r.status >= 300) return res.status(502).json({ consultado: true, statusGateway: r.status, mensagem: 'SERPRO respondeu com erro (verifique procuração do cliente no e-CAC).', bruto });
-    return res.json({ consultado: true, cobradaAparte: reserva.resultado.cobrada, cota: reserva.resultado.cota, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
+    // Situação fiscal tem duas etapas: protocolo (acima) e, após a espera, o relatório em PDF (Emitir).
+    let relatorio: unknown = undefined;
+    if (servico.chave === 'situacaoFiscal') {
+      const prot = lerProtocoloSitfis(bruto);
+      if (prot) {
+        let espera = Math.min(Math.max(prot.esperaMs, 1000), 8000);
+        for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+          await new Promise(ok => setTimeout(ok, espera));
+          const pedido2 = { ...pedido, pedidoDados: { idSistema: 'SITFIS', idServico: 'RELATORIOSITFIS92', versaoSistema: '2.0', dados: JSON.stringify({ protocoloRelatorio: prot.protocolo }) } };
+          const corpo2 = JSON.stringify(pedido2);
+          const r2 = await chamarHttps(`${GATEWAY_BY_ENVIRONMENT.producao}/integra-contador/v1/Emitir`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo2) },
+          }, corpo2);
+          let b2: unknown = r2.texto;
+          try { b2 = JSON.parse(r2.texto); } catch { /* mantém texto */ }
+          relatorio = { status: r2.status, ...(typeof b2 === 'object' && b2 !== null ? b2 as Record<string, unknown> : { texto: b2 }) };
+          if (acharPdfBase64(b2)) break;
+          const novaEspera = lerProtocoloSitfis(b2)?.esperaMs;
+          if (r2.status >= 200 && r2.status < 300 && novaEspera) { espera = Math.min(Math.max(novaEspera, 1000), 8000); continue; }
+          break;
+        }
+      }
+    }
+    return res.json({ relatorio, consultado: true, cobradaAparte: reserva.resultado.cobrada, cota: reserva.resultado.cota, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
   } catch {
     return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' });
   }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lerDeclaracoes, declaracoesParaCsv } from './resultadoSerpro';
+import { lerDeclaracoes, declaracoesParaCsv, lerProtocoloSitfis, acharPdfBase64 } from './resultadoSerpro';
 
 const bruto = { dados: JSON.stringify([{ anoCalendario: 2026, periodos: [
   { periodoApuracao: 202606, operacoes: [{ tipoOperacao: 'Original', indiceDeclaracao: { numeroDeclaracao: '15267243202606001', dataHoraTransmissao: '20260720161919', malha: '', indiceDas: null } }] },
@@ -21,4 +21,15 @@ test('CSV tem BOM e ponto e vírgula', () => {
   const csv = declaracoesParaCsv(lerDeclaracoes(bruto)!);
   assert.ok(csv.startsWith('﻿"Período";'));
   assert.ok(csv.includes('"15267243202606001"'));
+});
+
+test('SITFIS: lê protocolo e espera', () => {
+  const r = lerProtocoloSitfis({ dados: JSON.stringify({ protocoloRelatorio: 'abc', tempoEspera: 4000 }) })!;
+  assert.equal(r.protocolo, 'abc'); assert.equal(r.esperaMs, 4000);
+  assert.equal(lerProtocoloSitfis({ dados: '' }), null);
+});
+test('acha PDF em base64 dentro de dados', () => {
+  const pdf = 'JVBERi0xLjQK' + 'A'.repeat(200);
+  assert.equal(acharPdfBase64({ dados: JSON.stringify({ pdf }) }), pdf);
+  assert.equal(acharPdfBase64({ dados: '{"x":"texto"}' }), null);
 });
