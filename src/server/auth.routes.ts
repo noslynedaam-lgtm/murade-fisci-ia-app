@@ -748,7 +748,8 @@ router.post('/recuperar-admin', async (req, res) => {
   if (novaSenha.length < 12 || novaSenha.length > 1024) return res.status(400).json({ mensagem: 'A nova senha precisa ter entre 12 e 1024 caracteres.' });
   const a = createHash('sha256').update(limparChave(chave)).digest();
   const b = createHash('sha256').update(chaveEsperada).digest();
-  if (!timingSafeEqual(a, b)) return res.status(401).json({ mensagem: 'Chave de recuperação ou e-mail inválidos.' });
+  const chaveRecebida = limparChave(chave);
+  if (!timingSafeEqual(a, b)) return res.status(401).json({ mensagem: `A chave de recuperação não confere com a cadastrada no Render (recebi ${chaveRecebida.length} caracteres). Confira o valor da variável FISCOIA_CHAVE_RECUPERACAO.` });
   try {
     const passwordHash = await criarHash(novaSenha);
     const client = await pool.connect();
@@ -759,7 +760,7 @@ router.post('/recuperar-admin', async (req, res) => {
           WHERE lower(email) = $2 AND active = true AND (is_admin = true OR account_type = 'ADMIN') RETURNING id`,
         [passwordHash, email],
       );
-      if (!atualizado.rowCount) { await client.query('ROLLBACK'); return res.status(401).json({ mensagem: 'Chave de recuperação ou e-mail inválidos.' }); }
+      if (!atualizado.rowCount) { await client.query('ROLLBACK'); return res.status(404).json({ mensagem: 'A chave está correta, mas não existe uma conta de administradora ativa com este e-mail.' }); }
       await client.query('UPDATE fiscoia.auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [atualizado.rows[0].id]);
       await client.query('COMMIT');
     } catch (error) {
