@@ -53,7 +53,7 @@ export function montarExtrato(empresas: EmpresaConsumo[], ciclo: string, operaca
       const chave = `${orig.id}|${e.id}`;
       let l = mapa.get(chave);
       if (!l) { l = { escritorio: orig.nome, escritorioId: orig.id, empresaId: e.id, cnpj: e.cnpj, nome: e.nome, consultas: 0, gratuitas: 0, cobradas: 0, valorCobrado: 0, custoAbsorvido: 0 }; mapa.set(chave, l); }
-      const preco = PRECO_POR_OPERACAO[operacaoDoServico(c.servico)] ?? PRECO_POR_OPERACAO.Consultar;
+      const preco = PRECO_POR_OPERACAO[c.operacao ?? operacaoDoServico(c.servico)] ?? PRECO_POR_OPERACAO.Consultar; // operação gravada no registro (uso vindo do Fiscal) vale mais que o catálogo
       eventos.push({ em: c.em, escritorio: orig.nome, escritorioId: orig.id, cnpj: e.cnpj, nome: e.nome, servico: c.servico, cobrada: c.cobrada, valor: c.cobrada ? preco : 0 });
       l.consultas++;
       if (c.cobrada) { l.cobradas++; l.valorCobrado += preco; } else { l.gratuitas++; l.custoAbsorvido += preco; }

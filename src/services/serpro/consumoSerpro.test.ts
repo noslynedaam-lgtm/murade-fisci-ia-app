@@ -52,3 +52,13 @@ test('extrato traz cada consulta do ciclo, com situação e valor, e o CSV leva 
   const csv = extratoParaCsv(ex);
   assert.match(csv, /DETALHE/); assert.match(csv, /COBRADA;0,32/); assert.match(csv, /grátis;0,00/);
 });
+test('uso vindo do Fiscal: a operação gravada no registro define o preço (Declarar R$ 0,40)', () => {
+  const ex = montarExtrato([
+    { id: 'a', cnpj: '1', nome: 'A', consultas: [
+      { em: '2026-10-05T15:00:00Z', semana: 'x', cobrada: true, servico: 'PGDASD.TRANSDECLARACAO11', operacao: 'Declarar', escritorio: { id: 'esc1', nome: 'Escritório 1' } },
+      { em: '2026-10-06T15:00:00Z', semana: 'x', cobrada: true, servico: 'PGDASD.CONSULTIMADECREC14', operacao: 'Consultar', escritorio: { id: 'esc1', nome: 'Escritório 1' } },
+    ] },
+  ], '2026-10', () => 'Consultar');
+  assert.equal(ex.valorACobrar, 0.64);
+  assert.equal(ex.porEscritorio[0].escritorio, 'Escritório 1');
+});

@@ -457,6 +457,38 @@ router.post('/ponte/consulta', async (req, res) => {
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });
 
+// ---- Uso do Serpro feito por OUTRO sistema (Fiscal): só registra, na mesma conta de cota e de cobrança ----
+// A chamada ao Serpro já foi feita pelo sistema de origem; aqui só se conta (1 grátis/semana por empresa; o resto é cobrado).
+const OPERACOES_USO = ['Consultar', 'Emitir', 'Apoiar', 'Declarar', 'Monitorar'] as const;
+router.post('/ponte/uso', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) return res.status(503).json({ registrado: false, mensagem: 'Integração não configurada.' });
+  if (!tokenValido(req.get('authorization'))) return res.status(401).json({ registrado: false, mensagem: 'Credencial de integração inválida.' });
+  const cnpj = normalizarCnpj(String(req.body?.cnpj ?? ''));
+  if (!validarCnpj(cnpj)) return res.status(400).json({ registrado: false, mensagem: 'CNPJ inválido.' });
+  const operacao = OPERACOES_USO.find(o => o === req.body?.operacao);
+  if (!operacao) return res.status(400).json({ registrado: false, mensagem: 'Operação inválida.' });
+  const servico = String(req.body?.servico ?? '').replace(/[^A-Za-z0-9._ -]/g, '').slice(0, 80);
+  if (!servico) return res.status(400).json({ registrado: false, mensagem: 'Serviço não informado.' });
+  const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
+  const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
+  const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
+  try {
+    const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
+    if (!e) return res.status(503).json({ registrado: false, mensagem: 'Não foi possível localizar a empresa para registrar o uso.' });
+    const r = await comContextoTenant(e.userId, e.tenantId, async client => {
+      const q = await client.query('SELECT metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [e.companyId, e.tenantId]);
+      const atual = (q.rows[0]?.metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] };
+      const cobrada = avaliarCota(atual).proximaConsultaCobrada; // a chamada já ocorreu: não há o que "bloquear", só contar certo
+      const nova = registrarConsulta(atual, cobrada, servico, new Date(), escritorio, operacao);
+      await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproCota}', $3::jsonb, true), updated_at = now() WHERE id = $1 AND tenant_id = $2`, [e.companyId, e.tenantId, JSON.stringify(nova)]);
+      return { cobrada };
+    }, PAPEIS_CONSULTA);
+    if (!r.autorizado || !('resultado' in r) || !r.resultado) return res.status(503).json({ registrado: false, mensagem: 'Não foi possível gravar o uso.' });
+    return res.json({ registrado: true, cobrada: r.resultado.cobrada });
+  } catch { return res.status(503).json({ registrado: false, mensagem: 'Falha ao gravar o uso.' }); }
+});
+
 // ---- Transmissão da DCTFWeb (TRANSDECLARACAO310) ----
 // Fase "preparar": busca o XML da declaração em andamento (consulta) e devolve para conferência, com o hash.
 // Fase "confirmar": só com hash conferido, custo confirmado e interruptor ligado; assina o MESMO XML e transmite.
