@@ -135,10 +135,15 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       </>)}
 
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col text-sm font-bold text-slate-800 gap-1">Tipo de consulta
-          <select value={servico} onChange={e => setServico(e.target.value)} className="px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-xl min-w-64">
-            {(prontidao?.servicos ?? []).map(s => <option key={s.chave} value={s.chave}>{s.descricao}</option>)}
-          </select>
+        <label className="flex flex-col text-sm font-bold text-slate-800 gap-1 w-full min-w-0 sm:w-auto">Tipo de consulta
+          <span className="relative block w-full min-w-0">
+            <select value={servico} onChange={e => setServico(e.target.value)} className="appearance-none w-full max-w-full min-w-0 sm:min-w-64 pl-3 pr-12 py-2.5 text-sm bg-white border border-slate-300 rounded-xl truncate cursor-pointer">
+              {(prontidao?.servicos ?? []).map(s => <option key={s.chave} value={s.chave}>{s.descricao}</option>)}
+            </select>
+            <span aria-hidden="true" className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-700 text-white shadow-sm">
+              <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8l5 5 5-5" /></svg>
+            </span>
+          </span>
         </label>
         {campos.map(c => (
           <label key={c.nome} className="flex flex-col text-sm font-bold text-slate-800 gap-1">{c.rotulo}
