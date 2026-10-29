@@ -78,3 +78,14 @@ test('procuração do e-CAC por serviço (tabela Serviços x Procurações do Se
   assert.equal(CATALOGO_SERVICOS.declaracoesSimples.procuracao!.codigo, '00146');
   for (const k of ['dctfwebRecibo', 'dctfwebDeclaracao', 'dctfwebXml', 'dctfwebGuia', 'dctfwebGuiaAndamento']) assert.equal(CATALOGO_SERVICOS[k].procuracao!.codigo, '00103');
 });
+
+test('montarPedido: autor é o escritório informado; sem informar, é o contratante; autor inválido é recusado', () => {
+  const sv = Object.values(CATALOGO_SERVICOS)[0];
+  const contratante = A, contribuinte = B, escritorio = '11111111000191';
+  assert.equal(montarPedido(sv, contratante, contribuinte, {}).autorPedidoDados.numero, contratante);
+  assert.equal(montarPedido(sv, contratante, contribuinte, {}, null).autorPedidoDados.numero, contratante);
+  const p = montarPedido(sv, contratante, contribuinte, {}, escritorio);
+  assert.equal(p.autorPedidoDados.numero, escritorio);
+  assert.equal(p.contratante.numero, contratante);
+  assert.throws(() => montarPedido(sv, contratante, contribuinte, {}, '123'), /autor/);
+});

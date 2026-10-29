@@ -161,14 +161,17 @@ function numerar(servico: ServicoIntegra, dados: Record<string, unknown>): Recor
   return saida;
 }
 
-export function montarPedido(servico: ServicoIntegra, cnpjContratante: string, cnpjContribuinte: string, dados: Record<string, unknown> = {}): PedidoIntegra {
+/** cnpjAutor: escritório que tem a autorização do contribuinte no e-CAC (autor do pedido). Sem ele, o autor é o contratante. */
+export function montarPedido(servico: ServicoIntegra, cnpjContratante: string, cnpjContribuinte: string, dados: Record<string, unknown> = {}, cnpjAutor?: string | null): PedidoIntegra {
   const contratante = normalizarCnpj(cnpjContratante);
+  const autor = cnpjAutor ? normalizarCnpj(cnpjAutor) : contratante;
+  if (cnpjAutor && !validarCnpj(autor)) throw new Error('CNPJ do escritório (autor do pedido) inválido.');
   const contribuinte = normalizarCnpj(cnpjContribuinte);
   if (!validarCnpj(contratante)) throw new Error('CNPJ do escritório (contratante) inválido.');
   if (!validarCnpj(contribuinte)) throw new Error('CNPJ do cliente inválido.');
   return {
     contratante: { numero: contratante, tipo: 2 },
-    autorPedidoDados: { numero: contratante, tipo: 2 },
+    autorPedidoDados: { numero: autor, tipo: 2 },
     contribuinte: { numero: contribuinte, tipo: 2 },
     pedidoDados: { idSistema: servico.idSistema, idServico: servico.idServico, versaoSistema: servico.versaoSistema, dados: servico.dadosVazio ? '' : JSON.stringify(numerar(servico, dados)) },
   };

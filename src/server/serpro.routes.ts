@@ -251,7 +251,7 @@ router.get('/consumo', async (req, res) => {
   }
 });
 
-interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta }
+interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta; escritorioCnpj?: string }
 const resp = (status: number, corpo: unknown) => ({ status, corpo });
 
 /** Núcleo da consulta paga: mesma regra de cota/custo para a tela do Fisco IA e para a ponte do DP. */
@@ -291,7 +291,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     const decisao = decidirConsulta(previa.resultado.cota, confirmouCusto);
     if (decisao.liberada === false) return resp(402, { consultado: false, exigeConfirmacao: true, cota: avaliarCota(previa.resultado.cota), mensagem: decisao.mensagem });
     let pedido;
-    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, dadosEntrada); }
+    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, dadosEntrada, e.escritorioCnpj ?? null); }
     catch (e) { return resp(400, { mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
 
     const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
@@ -450,9 +450,12 @@ router.post('/ponte/consulta', async (req, res) => {
     const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
     const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
     const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
+    // CNPJ do escritório cliente (autor do pedido): só vale se válido; sem ele, vale o contratante (comportamento antigo)
+    const bruto = normalizarCnpj(String((esc as { cnpj?: unknown } | undefined)?.cnpj ?? ''));
+    const escritorioCnpj = bruto && validarCnpj(bruto) ? bruto : undefined;
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
-    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
+    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });
