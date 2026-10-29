@@ -9,6 +9,7 @@ import { useEmpresa } from '../../context/EmpresaContext';
 import CadastroEmpresaScreen from '../CadastroEmpresa';
 import GeracaoGuiasScreen from '../GeracaoGuiasScreen';
 import ModalCertificadoEmpresa from './ModalCertificadoEmpresa';
+import { confirmarNaTela } from '../../utils/dialogoNaTela';
 
 interface EmpresasScreenProps {
   maxCnpjs?: number;
@@ -16,7 +17,7 @@ interface EmpresasScreenProps {
 }
 
 export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: EmpresasScreenProps) {
-  const { empresas, empresaAtiva, erroEmpresas, selecionarEmpresa, removerEmpresa, salvarNovaEmpresa, limparTodasEmpresas } = useEmpresa();
+  const { empresas, empresaAtiva, erroEmpresas, selecionarEmpresa, removerEmpresa, salvarNovaEmpresa } = useEmpresa();
   const [busca, setBusca] = useState('');
   const [telaAtiva, setTelaAtiva] = useState<'lista' | 'novo' | 'editar' | 'guias'>('lista');
   const [empresaEmEdicao, setEmpresaEmEdicao] = useState<EmpresaDados | null>(null);
@@ -70,6 +71,9 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
     if (!empresaParaDeletar || !empresaParaDeletar.id) return;
     const nome = empresaParaDeletar.razaoSocial;
     const cadastroCentral = Boolean(empresaParaDeletar.idCentral);
+    // Segunda confirmação, dentro da página (no celular ninguém apaga sem querer).
+    const certeza = await confirmarNaTela(`EXCLUIR – ÚLTIMA CONFIRMAÇÃO\n\n${cadastroCentral ? 'Arquivar' : 'Apagar de verdade'} a empresa "${nome}"?${cadastroCentral ? '' : ' Isso não pode ser desfeito.'}`);
+    if (!certeza) { setEmpresaParaDeletar(null); return; }
     const sucesso = await removerEmpresa(empresaParaDeletar.id);
     if (sucesso) {
       mostrarToast(cadastroCentral
@@ -176,23 +180,16 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
           {empresas.length > 0 && (
             <button
               type="button"
-              disabled={empresas.some(empresa => Boolean(empresa.idCentral))}
               onClick={() => {
-                if (window.confirm('Apagar todas as empresas e os dados fiscais locais associados neste navegador, incluindo livros, Radar, XMLs originais, guias e lembretes? Esta ação não pode ser desfeita.')) {
-                  void limparTodasEmpresas().then(sucesso => {
-                    mostrarToast(sucesso
-                      ? 'Empresas, registros fiscais e XMLs locais foram removidos deste navegador.'
-                      : 'Não foi possível confirmar a limpeza de todos os XMLs. A carteira foi preservada.');
-                  });
-                }
+                const ativa = empresas.find(e => e.id === empresaAtiva?.id);
+                if (!ativa) { mostrarToast('Escolha primeiro a empresa que você quer apagar (clique nela na lista).'); return; }
+                setEmpresaParaDeletar(ativa);
               }}
-              className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-300 hover:border-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              title={empresas.some(empresa => Boolean(empresa.idCentral))
-                ? 'Limpeza em massa bloqueada para proteger a carteira central e os documentos vinculados.'
-                : 'Limpar empresas e arquivos somente deste navegador'}
+              className="px-3 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-300 hover:border-rose-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Apaga somente a empresa ativa, com duas confirmações"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-              <span>Limpar dados locais</span>
+              <span>Apagar empresa</span>
             </button>
           )}
           <button
