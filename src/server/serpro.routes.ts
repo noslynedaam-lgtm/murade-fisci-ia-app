@@ -10,6 +10,7 @@ import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
+import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -240,7 +241,7 @@ router.get('/consumo', async (req, res) => {
     if (!('resultado' in r)) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador.' });
     const operacao = (chave: string): OperacaoSerpro => CATALOGO_SERVICOS[chave]?.operacao ?? 'Consultar';
     let extrato;
-    try { extrato = montarExtrato(r.resultado, ciclo, operacao); } catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Ciclo inválido.' }); }
+    try { extrato = montarExtrato([...r.resultado, ...(await usoDosEscritorios(user.id))], ciclo, operacao); } catch (e) { return res.status(400).json({ mensagem: e instanceof Error ? e.message : 'Ciclo inválido.' }); }
     if (req.query.formato === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="consumo-serpro-${ciclo}.csv"`);
@@ -379,14 +380,51 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
 
 
 
+
+/** O que cada escritório cliente consultou dentro do Fisco IA (para a cobrança). Só a conta administradora; vazio se a atualização 016 ainda não foi aplicada. */
+async function usoDosEscritorios(adminId: string): Promise<EmpresaConsumo[]> {
+  const pool = obterPoolBanco();
+  if (!pool) return [];
+  try {
+    const q = await pool.query('SELECT * FROM fiscoia.platform_serpro_usage($1::uuid)', [adminId]);
+    return q.rows.map((x): EmpresaConsumo => {
+      const origem: OrigemConsulta = { id: String(x.tenant_id), nome: String(x.tenant_name) };
+      const consultas = Array.isArray(x.consultas) ? x.consultas : [];
+      return { id: String(x.company_id), cnpj: String(x.cnpj), nome: String(x.legal_name), consultas: consultas.map((c: any) => (c?.escritorio ? c : { ...c, escritorio: origem })) };
+    });
+  } catch { return []; }
+}
+
+/** Nome, CNPJ do escritório e se é o escritório do próprio dono do sistema. Nulo se a atualização 016 do banco ainda não foi aplicada. */
+export async function infoDoEscritorio(tenantId: string): Promise<{ nome: string; cnpj: string | null; donoDoSistema: boolean } | null> {
+  const pool = obterPoolBanco();
+  if (!pool) return null;
+  try {
+    const q = await pool.query('SELECT * FROM fiscoia.tenant_office_info($1::uuid)', [tenantId]);
+    const x = q.rows[0];
+    return x ? { nome: String(x.name), cnpj: x.office_cnpj ? String(x.office_cnpj) : null, donoDoSistema: x.is_platform_owner === true } : null;
+  } catch { return null; }
+}
+
 // Consulta paga (Integra Contador). Recusa tudo enquanto a prontidão não estiver completa.
 router.post('/consulta', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   let user;
   try { user = await obterUsuarioDaSessao(req); } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
   if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
-  if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora.' });
-  const r = await executarConsulta({ userId: user.id, tenantId: String(req.body?.tenantId ?? ''), companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true });
+  const tenantId = String(req.body?.tenantId ?? '');
+  let decisao: DecisaoAcesso;
+  if (user.ehAdmin) decisao = decidirAcessoConsulta({ ehAdmin: true, tenantId, vinculado: true, info: null });
+  else {
+    if (!UUID.test(tenantId)) return res.status(400).json({ consultado: false, mensagem: 'Escritório inválido.' });
+    try {
+      const vinculo = await comContextoTenant(user.id, tenantId, async () => true, PAPEIS_CONSULTA);
+      decisao = decidirAcessoConsulta({ ehAdmin: false, tenantId, vinculado: vinculo.autorizado, info: vinculo.autorizado ? await infoDoEscritorio(tenantId) : null });
+    } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao validar o escritório. Nada foi consultado nem cobrado.' }); }
+  }
+  if (decisao.ok === false) return res.status(decisao.http).json({ consultado: false, mensagem: decisao.mensagem });
+  const { escritorio, escritorioCnpj } = decisao;
+  const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj });
   return res.status(r.status).json(r.corpo);
 });
 

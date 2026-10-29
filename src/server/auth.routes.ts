@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { pbkdf2 as pbkdf2Callback } from 'node:crypto';
 import { obterPoolBanco } from './persistence';
 import { emailConfigurado, enviarEmail } from './emailMurade';
+import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 
 const pbkdf2 = promisify(pbkdf2Callback);
 const router = Router();
@@ -116,6 +117,17 @@ async function consultarComoUsuario(pool: NonNullable<ReturnType<typeof obterPoo
     return result;
   } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; }
   finally { client.release(); }
+}
+
+let cnpjEscritorioAplicado: boolean | null = null;
+/** True quando a migração 016 (CNPJ do escritório) já foi aplicada. */
+async function cnpjEscritorioDisponivel(pool: NonNullable<ReturnType<typeof obterPoolBanco>>): Promise<boolean> {
+  if (cnpjEscritorioAplicado === true) return true;
+  try {
+    const r = await pool.query("SELECT to_regprocedure('fiscoia.platform_set_office_cnpj(uuid, uuid, text)') IS NOT NULL AS ok");
+    cnpjEscritorioAplicado = r.rows[0]?.ok === true;
+  } catch { cnpjEscritorioAplicado = false; }
+  return cnpjEscritorioAplicado;
 }
 
 let limiteUsuariosAplicado: boolean | null = null;
@@ -843,9 +855,14 @@ router.get('/escritorios', async (req, res) => {
       const l = await pool.query('SELECT * FROM fiscoia.platform_list_office_limits($1::uuid)', [session.user.id]);
       for (const row of l.rows) limites.set(String(row.id), row.max_users == null ? null : Number(row.max_users));
     }
+    const cnpjs = new Map<string, string | null>();
+    if (await cnpjEscritorioDisponivel(pool)) {
+      const c = await pool.query('SELECT * FROM fiscoia.platform_list_office_cnpjs($1::uuid)', [session.user.id]);
+      for (const row of c.rows) cnpjs.set(String(row.id), row.office_cnpj ? String(row.office_cnpj) : null);
+    }
     return res.json({ disponivel: true, escritorios: r.rows.map((row) => ({
       id: String(row.id), nome: String(row.name), responsavel: row.owner_email ? String(row.owner_email) : '',
-      limiteUsuarios: limites.get(String(row.id)) ?? null,
+      limiteUsuarios: limites.get(String(row.id)) ?? null, cnpj: cnpjs.get(String(row.id)) ?? null,
       usuarios: Number(row.users), bloqueado: row.blocked_at != null, criadoEm: new Date(row.created_at).toISOString(),
     })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível listar os escritórios.' }); }
@@ -919,6 +936,29 @@ router.post('/escritorios/:id/bloqueio', async (req, res) => {
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora não pode ser bloqueado.' });
     return res.status(503).json({ mensagem: 'Não foi possível alterar o bloqueio.' });
+  }
+});
+
+// CNPJ do escritório contratante: autor do pedido nas consultas ao Serpro (as empresas dele autorizam ESTE CNPJ no e-CAC). Só o dono do sistema.
+router.post('/escritorios/:id/cnpj', async (req, res) => {
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
+  const id = String(req.params.id || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  const bruto = req.body?.cnpj; const vazio = bruto === null || String(bruto ?? '').trim() === '';
+  const cnpj = vazio ? null : normalizarCnpj(String(bruto));
+  if (cnpj !== null && !validarCnpj(cnpj)) return res.status(400).json({ mensagem: 'CNPJ inválido. Confira os números.' });
+  try {
+    const session = await obterSessao(req);
+    if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema define o CNPJ do escritório.' });
+    if (!(await cnpjEscritorioDisponivel(pool))) return res.status(409).json({ mensagem: 'O banco ainda não recebeu a atualização 016 (CNPJ do escritório). Ela é aplicada sozinha quando o Fisco IA reinicia; tente de novo em instantes.' });
+    const r = await pool.query('SELECT fiscoia.platform_set_office_cnpj($1::uuid, $2::uuid, $3::text) AS ok', [session.user.id, id, cnpj]);
+    if (r.rows[0]?.ok !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
+    return res.json({ sucesso: true, cnpj });
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: 'O escritório da própria conta administradora usa o CNPJ do contratante.' });
+    return res.status(503).json({ mensagem: 'Não foi possível salvar o CNPJ do escritório.' });
   }
 });
 

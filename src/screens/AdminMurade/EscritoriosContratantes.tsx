@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
 
-type Escritorio = { id: string; nome: string; responsavel: string; usuarios: number; limiteUsuarios?: number | null; bloqueado: boolean; criadoEm: string };
+type Escritorio = { id: string; nome: string; responsavel: string; usuarios: number; limiteUsuarios?: number | null; cnpj?: string | null; bloqueado: boolean; criadoEm: string };
 
 // Painel do dono do sistema: contrata e bloqueia escritórios. Só mostra dados de contratação;
 // as empresas, notas e certificados de cada escritório ficam fora do alcance desta conta.
@@ -54,6 +54,12 @@ export default function EscritoriosContratantes() {
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/limite`, { limite: resp.trim() === '' ? null : Number(resp) }); await carregar(); }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível definir o limite.'); }
   };
+  const definirCnpj = async (x: Escritorio) => {
+    const resp = window.prompt(`CNPJ do escritório ${x.nome}. As empresas dele devem autorizar ESTE CNPJ no e-CAC (é ele que consulta a Receita). Se este escritório tiver outro CNPJ que não o seu, ele também precisa cadastrar o certificado e-CNPJ A1 dele no Murade Fiscal. Deixe vazio para NÃO liberar as consultas à Receita deste escritório.`, x.cnpj ?? '');
+    if (resp === null) return;
+    try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/cnpj`, { cnpj: resp.trim() === '' ? null : resp.trim() }); await carregar(); }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível salvar o CNPJ.'); }
+  };
   const alternar = async (x: Escritorio) => {
     if (!window.confirm(x.bloqueado ? `Liberar o escritório ${x.nome}?` : `Bloquear o escritório ${x.nome}? Ninguém dele (equipe e clientes) consegue entrar; nada é apagado.`)) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/bloqueio`, { bloqueado: !x.bloqueado }); await carregar(); }
@@ -76,6 +82,7 @@ export default function EscritoriosContratantes() {
         <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 border-t py-2 text-sm">
           <span><strong>{x.nome}</strong> · {x.responsavel || 'sem responsável'} · {x.usuarios} de {x.limiteUsuarios ?? 'sem limite'} usuário(s) · {x.bloqueado ? <span className="font-semibold text-red-700">BLOQUEADO</span> : <span className="text-emerald-700">ativo</span>}</span>
           <button onClick={() => void definirLimite(x)} className="rounded bg-slate-700 px-3 py-1 text-white">Limite</button>
+          <button onClick={() => void definirCnpj(x)} title="CNPJ do escritório: autor das consultas à Receita (Serpro)" className="rounded bg-slate-700 px-3 py-1 text-white">{x.cnpj ? `CNPJ ${x.cnpj}` : 'CNPJ do escritório'}</button>
           <button onClick={() => void alternar(x)} className={x.bloqueado ? 'rounded bg-emerald-700 px-3 py-1 text-white' : 'rounded bg-red-700 px-3 py-1 text-white'}>{x.bloqueado ? 'Liberar' : 'Bloquear (falta de pagamento)'}</button>
           <button onClick={() => void excluir(x)} className="rounded bg-red-900 px-3 py-1 font-semibold text-white">Excluir</button>
         </div>))}</div>}
