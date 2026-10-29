@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from 'react';
+import { confirmarNaTela, perguntarNaTela } from '../../utils/dialogoNaTela';
 
 type Escritorio = { id: string; nome: string; responsavel: string; usuarios: number; limiteUsuarios?: number | null; cnpj?: string | null; bloqueado: boolean; criadoEm: string };
 
@@ -38,30 +39,30 @@ export default function EscritoriosContratantes() {
     }
   };
   const excluirConta = async (c: { email: string }) => {
-    if (!window.confirm(`EXCLUIR a conta ${c.email}? Ela perde o acesso e não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
+    if (!await confirmarNaTela(`EXCLUIR a conta ${c.email}? Ela perde o acesso e não tem volta. Os dados das empresas não são apagados. Depois o e-mail fica livre para cadastrar de novo.`)) return;
     try { await chamar('/api/auth/contas/excluir', { email: c.email, confirmar: true }); setConta(null); setMsg(''); await criar(); } catch (x) { setMsg(x instanceof Error ? x.message : 'Não foi possível excluir a conta.'); }
   };
   const excluir = async (x: Escritorio) => {
-    if (!window.confirm(`EXCLUIR de vez o escritório ${x.nome}? As contas do responsável e da equipe são apagadas e não tem volta. Os e-mails ficam livres para cadastrar de novo.`)) return;
-    if (window.prompt(`Para confirmar, digite o nome do escritório: ${x.nome}`)?.trim().toLowerCase() !== x.nome.trim().toLowerCase()) { setMsg('Exclusão cancelada: o nome digitado não confere.'); return; }
+    if (!await confirmarNaTela(`EXCLUIR de vez o escritório ${x.nome}? As contas do responsável e da equipe são apagadas e não tem volta. Os e-mails ficam livres para cadastrar de novo.`)) return;
+    if ((await perguntarNaTela(`Para confirmar, digite o nome do escritório: ${x.nome}`))?.trim().toLowerCase() !== x.nome.trim().toLowerCase()) { setMsg('Exclusão cancelada: o nome digitado não confere.'); return; }
     setMsg('');
     try { const d = await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/excluir`, { confirmar: true }); setMsg(d.mensagem || 'Escritório excluído.'); await carregar(); }
     catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível excluir.'); }
   };
   const definirLimite = async (x: Escritorio) => {
-    const resp = window.prompt(`Quantos usuários o escritório ${x.nome} contratou (dono incluso)? Deixe vazio para sem limite.`, x.limiteUsuarios == null ? '' : String(x.limiteUsuarios));
+    const resp = await perguntarNaTela(`Quantos usuários o escritório ${x.nome} contratou (dono incluso)? Deixe vazio para sem limite.`, x.limiteUsuarios == null ? '' : String(x.limiteUsuarios));
     if (resp === null) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/limite`, { limite: resp.trim() === '' ? null : Number(resp) }); await carregar(); }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível definir o limite.'); }
   };
   const definirCnpj = async (x: Escritorio) => {
-    const resp = window.prompt(`CNPJ do escritório ${x.nome}. As empresas dele devem autorizar ESTE CNPJ no e-CAC (é ele que consulta a Receita). Se este escritório tiver outro CNPJ que não o seu, ele também precisa cadastrar o certificado e-CNPJ A1 dele no Murade Fiscal. Deixe vazio para NÃO liberar as consultas à Receita deste escritório.`, x.cnpj ?? '');
+    const resp = await perguntarNaTela(`CNPJ do escritório ${x.nome}. As empresas dele devem autorizar ESTE CNPJ no e-CAC (é ele que consulta a Receita). Se este escritório tiver outro CNPJ que não o seu, ele também precisa cadastrar o certificado e-CNPJ A1 dele no Murade Fiscal. Deixe vazio para NÃO liberar as consultas à Receita deste escritório.`, x.cnpj ?? '');
     if (resp === null) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/cnpj`, { cnpj: resp.trim() === '' ? null : resp.trim() }); await carregar(); }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível salvar o CNPJ.'); }
   };
   const alternar = async (x: Escritorio) => {
-    if (!window.confirm(x.bloqueado ? `Liberar o escritório ${x.nome}?` : `Bloquear o escritório ${x.nome}? Ninguém dele (equipe e clientes) consegue entrar; nada é apagado.`)) return;
+    if (!await confirmarNaTela(x.bloqueado ? `Liberar o escritório ${x.nome}?` : `Bloquear o escritório ${x.nome}? Ninguém dele (equipe e clientes) consegue entrar; nada é apagado.`)) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/bloqueio`, { bloqueado: !x.bloqueado }); await carregar(); }
     catch (c) { setMsg(c instanceof Error ? c.message : 'Falha.'); }
   };
