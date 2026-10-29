@@ -170,12 +170,12 @@ export default function Navbar({
         </div>
       )}
       {usuarioAtual && (
-        <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 bg-slate-950 px-4 py-1 text-xs text-white">
-          <span>Conta: <strong>{usuarioAtual.nome}</strong> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 rounded px-3 py-1 font-semibold cursor-pointer ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
-            {podeGerenciar && <button type="button" onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Usuários e licenças</button>}
-            {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-3 py-1 hover:bg-white/25 cursor-pointer">Sair</button>}
+        <div className="flex min-h-7 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-slate-950 px-3 py-0.5 text-xs text-white md:min-h-9 md:flex-wrap md:overflow-visible md:px-4 md:py-1">
+          <span className="min-w-0 truncate">Conta: <strong>{usuarioAtual.nome}</strong><span className="hidden md:inline"> · {Array.isArray(empresasDoContexto) ? empresasDoContexto.length : 0} empresa(s) autorizada(s)</span></span>
+          <div className="flex shrink-0 gap-2 md:flex-wrap">
+            <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 font-semibold cursor-pointer md:px-3 md:py-1 ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
+            {podeGerenciar && <button type="button" onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 cursor-pointer whitespace-nowrap md:px-3 md:py-1"><span className="md:hidden">Usuários</span><span className="hidden md:inline">Usuários e licenças</span></button>}
+            {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 cursor-pointer whitespace-nowrap md:px-3 md:py-1">Sair</button>}
           </div>
         </div>
       )}
