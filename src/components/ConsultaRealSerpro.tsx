@@ -71,9 +71,8 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const pdfDas = useMemo(() => (resposta?.ok && (resposta.servico === 'pgmeiDasPdf' || resposta.servico === 'parcsnDas' || resposta.servico === 'parcsnEspDas' || resposta.servico === 'parcmeiDas' || resposta.servico === 'pertmeiDas' || resposta.servico === 'relpsnDas' || resposta.servico === 'parcmeiEspDas' || resposta.servico === 'pertsnDas') ? acharPdfBase64(resposta.bruto) : null), [resposta]);
   const linhas = useMemo(() => (resposta?.ok && resposta.servico === 'declaracoesSimples' ? lerDeclaracoes(resposta.bruto) : null), [resposta]);
 
-  if (!companyId || !tenantId) {
-    return <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">Selecione uma empresa já cadastrada no Fisco IA (banco permanente) para fazer a consulta oficial ao SERPRO.</div>;
-  }
+  // Sem empresa escolhida o painel continua na tela (tipo de consulta à vista); o botão só libera com uma empresa cadastrada.
+  const semEmpresa = !companyId || !tenantId;
 
   function prepararConsulta(chave: string, novos: Record<string, string>) { setServico(chave); setDados(d => ({ ...d, ...novos })); setResposta(null); }
 
@@ -106,11 +105,11 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
   const campos = prontidao?.servicos.find(s => s.chave === servico)?.campos ?? [];
   const faltando = prontidao?.itens.filter(i => !i.ok) ?? [];
   const quando = resposta?.consultadoEm ? new Date(resposta.consultadoEm).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
-  const nomeArquivo = `declaracoes-pgdasd-${(cnpj || companyId).replace(/\D/g, '')}-${dados.anoCalendario || ''}.csv`;
+  const nomeArquivo = `declaracoes-pgdasd-${(cnpj || companyId || '').replace(/\D/g, '')}-${dados.anoCalendario || ''}.csv`;
   type Msgs = { mensagens?: { codigo?: string; texto?: string }[] };
   const brutoMsgs = resposta?.bruto as (Msgs & { resposta?: Msgs }) | undefined;
   const mensagensSerpro = brutoMsgs?.mensagens ?? brutoMsgs?.resposta?.mensagens;
-  const nomeBase = `${(cnpj || companyId).replace(/\D/g, '')}-${new Date().toISOString().slice(0, 10)}`;
+  const nomeBase = `${(cnpj || companyId || '').replace(/\D/g, '')}-${new Date().toISOString().slice(0, 10)}`;
   const tituloServico = prontidao?.servicos.find(sv => sv.chave === resposta?.servico)?.descricao ?? 'Consulta SERPRO';
 
   return (
@@ -128,8 +127,12 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         </div>
       )}
 
-      <CotaConsultasSerpro key={versaoCota} companyId={companyId} tenantId={tenantId} />
-      <ConsumoSerproMensal key={`c${versaoCota}`} tenantId={tenantId} />
+      {semEmpresa ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">Selecione uma empresa já cadastrada no Fisco IA (banco permanente) para fazer a consulta oficial ao SERPRO. A consulta só acontece quando você clica em &quot;Fazer consulta&quot;; nenhum robô consulta sozinho.</div>
+      ) : (<>
+        <CotaConsultasSerpro key={versaoCota} companyId={companyId} tenantId={tenantId} />
+        <ConsumoSerproMensal key={`c${versaoCota}`} tenantId={tenantId} />
+      </>)}
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col text-sm font-bold text-slate-800 gap-1">Tipo de consulta
@@ -142,7 +145,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
             <input value={dados[c.nome] ?? ''} onChange={e => setDados(d => ({ ...d, [c.nome]: e.target.value }))} placeholder={c.exemplo} className="px-3 py-2.5 text-sm bg-white border border-slate-300 rounded-xl w-52" />
           </label>
         ))}
-        <button type="button" disabled={carregando || !servico || faltando.length > 0 || campos.some(c => !c.opcional && !(dados[c.nome] ?? '').trim())} onClick={() => consultar(false)}
+        <button type="button" disabled={semEmpresa || carregando || !servico || faltando.length > 0 || campos.some(c => !c.opcional && !(dados[c.nome] ?? '').trim())} onClick={() => consultar(false)}
           className="px-5 py-2.5 bg-indigo-700 hover:bg-indigo-800 disabled:opacity-50 text-white rounded-xl text-sm font-black cursor-pointer">
           {carregando ? 'Consultando…' : 'Fazer consulta'}
         </button>
