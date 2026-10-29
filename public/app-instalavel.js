@@ -52,6 +52,56 @@
   window.addEventListener('appinstalled', function () { var b = document.getElementById('murade-instalar'); if (b) b.remove(); });
 })();
 
+// Ajuda para achar e fixar o aplicativo. O navegador só oferece "Instalar" quando o aplicativo ainda NÃO está instalado; depois de instalado
+// ele não aparece mais e a pessoa não sabe onde o aplicativo foi parar. Este botão pequeno explica onde achar, como fixar na barra de tarefas,
+// criar o atalho na área de trabalho e como ver as opções de novo. Não aparece dentro do aplicativo instalado nem quando o botão de instalar já está na tela.
+(function () {
+  var CH = 'murade_ajuda_instalar_fechada';
+  function standalone() { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; } catch (e) { return false; } }
+  function fechadaHa30Dias() { try { var t = Number(localStorage.getItem(CH) || 0); return t && Date.now() - t < 30 * 24 * 3600 * 1000; } catch (e) { return false; } }
+  function passos() {
+    var ua = navigator.userAgent || '';
+    if (/iPhone|iPad|iPod/i.test(ua)) return ['No iPhone/iPad, abra este endereço no Safari.', 'Toque no botão Compartilhar (quadrado com seta para cima).', 'Escolha "Adicionar à Tela de Início". O ícone fica na tela do aparelho.'];
+    if (/Android/i.test(ua)) return ['Toque nos três pontinhos do navegador.', 'Escolha "Instalar aplicativo" (ou "Adicionar à tela inicial").', 'O ícone fica na tela inicial do celular ou tablet.'];
+    return [
+      'Se você já instalou, o aplicativo está neste computador: clique no menu Iniciar do Windows, digite o nome do sistema e abra.',
+      'Para fixar na barra de tarefas: com o aplicativo aberto, clique com o botão direito no ícone dele na barra de tarefas e escolha "Fixar na barra de tarefas".',
+      'Para o atalho na área de trabalho: no menu Iniciar, arraste o ícone do aplicativo para a área de trabalho (normalmente funciona assim).',
+      'Para ver de novo as opções de instalação (barra de tarefas e atalho): no Edge, abra o endereço edge://apps, clique no aplicativo e desinstale; volte aqui, clique em "Instalar aplicativo no computador" e marque as opções.'
+    ];
+  }
+  function abrir() {
+    if (document.getElementById('murade-ajuda-instalar-painel')) return;
+    var fundo = document.createElement('div'); fundo.id = 'murade-ajuda-instalar-painel'; fundo.setAttribute('role', 'dialog'); fundo.setAttribute('aria-modal', 'true');
+    fundo.style.cssText = 'position:fixed;inset:0;z-index:2147483100;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+    var caixa = document.createElement('div');
+    caixa.style.cssText = 'background:#fff;color:#0f172a;max-width:520px;width:100%;max-height:90vh;overflow:auto;border-radius:16px;padding:20px;font:14px/1.5 system-ui,sans-serif;box-shadow:0 20px 50px rgba(0,0,0,.4)';
+    var h = document.createElement('h2'); h.textContent = 'Como achar e fixar o aplicativo'; h.style.cssText = 'margin:0 0 10px;font-size:18px';
+    var ol = document.createElement('ol'); ol.style.cssText = 'margin:0;padding-left:20px';
+    passos().forEach(function (t) { var li = document.createElement('li'); li.textContent = t; li.style.marginBottom = '8px'; ol.appendChild(li); });
+    var linha = document.createElement('div'); linha.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap';
+    var naoMostrar = document.createElement('button'); naoMostrar.type = 'button'; naoMostrar.textContent = 'Não mostrar de novo';
+    naoMostrar.style.cssText = 'border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:10px 14px;font:600 13px system-ui,sans-serif;cursor:pointer';
+    var ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Entendi';
+    ok.style.cssText = 'border:0;background:#0f2444;color:#fff;border-radius:10px;padding:10px 16px;font:700 13px system-ui,sans-serif;cursor:pointer';
+    function fechar() { fundo.remove(); }
+    ok.onclick = fechar;
+    naoMostrar.onclick = function () { try { localStorage.setItem(CH, String(Date.now())); } catch (e) {} fechar(); var b = document.getElementById('murade-ajuda-instalar'); if (b) b.remove(); };
+    fundo.addEventListener('click', function (e) { if (e.target === fundo) fechar(); });
+    linha.appendChild(naoMostrar); linha.appendChild(ok); caixa.appendChild(h); caixa.appendChild(ol); caixa.appendChild(linha); fundo.appendChild(caixa); document.body.appendChild(fundo);
+    try { ok.focus(); } catch (e) {}
+  }
+  function botao() {
+    if (standalone() || fechadaHa30Dias() || document.getElementById('murade-instalar') || document.getElementById('murade-ajuda-instalar') || !document.body) return;
+    var b = document.createElement('button'); b.id = 'murade-ajuda-instalar'; b.type = 'button'; b.textContent = 'Aplicativo: como achar e fixar';
+    b.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147482500;background:#0f2444;color:#fff;border:1px solid #F2D26E;border-radius:10px;padding:8px 12px;font:600 12px system-ui,sans-serif;cursor:pointer;opacity:.92';
+    b.onclick = abrir; document.body.appendChild(b);
+  }
+  // espera o navegador decidir se oferece a instalação; se não ofereceu, mostra a ajuda
+  window.addEventListener('load', function () { setTimeout(botao, 8000); });
+  window.addEventListener('appinstalled', function () { var b = document.getElementById('murade-ajuda-instalar'); if (b) b.remove(); });
+})();
+
 // Atualização automática: se o Render publicou versão nova, recarrega sozinho (ao abrir e ao voltar para a janela).
 (function () {
   function atual() { return Array.prototype.map.call(document.scripts, function (s) { return s.src; }).filter(function (s) { return /\/assets\//.test(s); }).join('|'); }
