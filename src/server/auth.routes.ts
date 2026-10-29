@@ -10,6 +10,11 @@ const pbkdf2 = promisify(pbkdf2Callback);
 const router = Router();
 const COOKIE_NAME = 'fiscoia_session';
 const SESSION_SECONDS = 8 * 60 * 60;
+const SESSION_LONGA_SECONDS = 90 * 24 * 60 * 60;
+/** Celular/tablet: a senha é pedida só no primeiro acesso (sessão de 90 dias), a menos que a pessoa ligue "pedir senha ao abrir". */
+export function ehCelularUA(ua: string): boolean { return /Android|iPhone|iPad|iPod|Mobile/i.test(ua || ''); }
+function exigeSenhaAoAbrir(req: Request): boolean { return /(?:^|;\s*)murade_exigir_senha=1(?:;|$)/.test(req.headers.cookie || ''); }
+export function duracaoSessao(req: Request): number { return ehCelularUA(String(req.headers['user-agent'] || '')) && !exigeSenhaAoAbrir(req) ? SESSION_LONGA_SECONDS : SESSION_SECONDS; }
 const PASSWORD_ITERATIONS = 210_000;
 const PASSWORD_HASH_PREFIX = 'pbkdf2-sha256$';
 const DUMMY_PASSWORD_HASH = `${PASSWORD_HASH_PREFIX}210000$00112233445566778899aabbccddeeff$${'00'.repeat(32)}`;
@@ -46,8 +51,8 @@ function cookieFlags(): string {
   return `Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
 }
 
-function definirCookie(res: Response, token: string): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(token)}; Max-Age=${SESSION_SECONDS}; ${cookieFlags()}`);
+function definirCookie(res: Response, token: string, segundos: number = SESSION_SECONDS): void {
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${encodeURIComponent(token)}; Max-Age=${segundos}; ${cookieFlags()}`);
 }
 
 function limparCookie(res: Response): void {
@@ -230,12 +235,13 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ mensagem: 'E-mail ou senha incorretos.' });
     }
     const rawToken = randomBytes(32).toString('base64url');
+    const duracao = duracaoSessao(req);
     await pool.query(
       `INSERT INTO fiscoia.auth_sessions (user_id, token_sha256, expires_at)
        VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
-      [row.id, hashToken(rawToken), SESSION_SECONDS],
+      [row.id, hashToken(rawToken), duracao],
     );
-    definirCookie(res, rawToken);
+    definirCookie(res, rawToken, duracao);
     rateLimits.delete(ip);
     return res.json({ sucesso: true, usuario: usuarioPublico(row) });
   } catch {
@@ -717,13 +723,14 @@ router.post('/accept-invite', async (req, res) => {
     await client.query('UPDATE fiscoia.password_reset_tokens SET consumed_at = now() WHERE token_sha256 = $1', [hashToken(token)]);
     await client.query('UPDATE fiscoia.auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [row.user_id]);
     const sessionToken = randomBytes(32).toString('base64url');
+    const duracaoConvite = duracaoSessao(req);
     await client.query(
       `INSERT INTO fiscoia.auth_sessions (user_id, token_sha256, expires_at)
        VALUES ($1, $2, now() + ($3 * interval '1 second'))`,
-      [row.user_id, hashToken(sessionToken), SESSION_SECONDS],
+      [row.user_id, hashToken(sessionToken), duracaoConvite],
     );
     await client.query('COMMIT');
-    definirCookie(res, sessionToken);
+    definirCookie(res, sessionToken, duracaoConvite);
     return res.json({ sucesso: true, mensagem: 'Senha criada. Acesso liberado.', usuario: usuarioPublico({ ...row, must_change_password: false }) });
   } catch {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -1045,6 +1052,24 @@ router.post('/contas/excluir', async (req, res) => {
   } catch (error) {
     if (typeof error === 'object' && error !== null && 'code' in error && error.code === '22023') return res.status(409).json({ mensagem: error instanceof Error ? error.message : 'Esta conta não pode ser excluída aqui.' });
     return res.status(503).json({ mensagem: 'Não foi possível excluir a conta.' });
+  }
+});
+
+/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 8 horas. */
+router.post('/manter-conectado', async (req, res) => {
+  const pool = obterPoolBanco();
+  const token = lerCookie(req, COOKIE_NAME);
+  try {
+    const session = pool && token ? await obterSessao(req) : null;
+    if (!pool || !token || !session) return res.status(401).json({ sucesso: false, mensagem: 'Entre no sistema primeiro.' });
+    const ativo = req.body?.ativo === true;
+    if (ativo && !ehCelularUA(String(req.headers['user-agent'] || ''))) return res.status(400).json({ sucesso: false, mensagem: 'Esta opção vale só para celular e tablet.' });
+    const segundos = ativo ? SESSION_LONGA_SECONDS : SESSION_SECONDS;
+    await pool.query("UPDATE fiscoia.auth_sessions SET expires_at = now() + ($2 * interval '1 second') WHERE token_sha256 = $1 AND revoked_at IS NULL", [session.tokenHash, segundos]);
+    definirCookie(res, token, segundos);
+    return res.json({ sucesso: true, manterConectado: ativo });
+  } catch {
+    return res.status(503).json({ sucesso: false, mensagem: 'Não foi possível salvar agora.' });
   }
 });
 

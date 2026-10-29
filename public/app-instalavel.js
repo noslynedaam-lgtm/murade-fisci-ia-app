@@ -164,3 +164,66 @@
     }, 15000);
   });
 })();
+
+// Celular/tablet: a senha é pedida só na primeira vez (sessão de 90 dias). Quem preferir liga "Pedir senha ao abrir" neste botão de Segurança.
+// Só aparece em celular/tablet e só com a pessoa logada. No computador nada muda (sessão de 8 horas).
+(function () {
+  if (!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')) return;
+  var CK = 'murade_exigir_senha';
+  function exige() { return new RegExp('(?:^|;\\s*)' + CK + '=1(?:;|$)').test(document.cookie || ''); }
+  function gravar(v) { document.cookie = CK + '=' + (v ? '1' : '') + '; Path=/; Max-Age=' + (v ? 31536000 : 0) + '; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : ''); }
+  var logado = false;
+  function checar() {
+    fetch('/api/auth/session', { credentials: 'include', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      logado = !!(j && j.autenticado === true); atualizarBotao();
+    }).catch(function () {});
+  }
+  function atualizarBotao() {
+    var b = document.getElementById('murade-seguranca-cel');
+    if (!logado || !document.body) { if (b) b.remove(); return; }
+    if (b) return;
+    b = document.createElement('button'); b.id = 'murade-seguranca-cel'; b.type = 'button'; b.setAttribute('aria-label', 'Segurança neste aparelho'); b.textContent = 'Segurança';
+    b.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147482400;background:#0f2444;color:#fff;border:1px solid #F2D26E;border-radius:999px;padding:7px 12px;font:600 12px system-ui,sans-serif;cursor:pointer;opacity:.9';
+    b.onclick = abrir; document.body.appendChild(b);
+  }
+  function abrir() {
+    if (document.getElementById('murade-seguranca-painel')) return;
+    var fundo = document.createElement('div'); fundo.id = 'murade-seguranca-painel'; fundo.setAttribute('role', 'dialog'); fundo.setAttribute('aria-modal', 'true');
+    fundo.style.cssText = 'position:fixed;inset:0;z-index:2147483200;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+    var caixa = document.createElement('div');
+    caixa.style.cssText = 'background:#fff;color:#0f172a;max-width:440px;width:100%;border-radius:16px;padding:20px;font:14px/1.5 system-ui,sans-serif;box-shadow:0 20px 50px rgba(0,0,0,.4)';
+    var h = document.createElement('h2'); h.textContent = 'Segurança neste celular'; h.style.cssText = 'margin:0 0 8px;font-size:18px';
+    var p = document.createElement('p'); p.style.cssText = 'margin:0 0 12px';
+    var linha = document.createElement('label'); linha.style.cssText = 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-bottom:12px';
+    var cx = document.createElement('input'); cx.type = 'checkbox'; cx.style.cssText = 'width:22px;height:22px;margin-top:2px;flex:none'; cx.checked = exige();
+    var tx = document.createElement('span'); tx.innerHTML = '<b>Pedir senha ao abrir</b><br>Ligado: o sistema volta a pedir a senha depois de 8 horas. Desligado: a senha só é pedida na primeira vez neste celular.';
+    var msg = document.createElement('div'); msg.style.cssText = 'min-height:20px;font-size:13px;color:#334155;margin-bottom:8px';
+    function texto() { p.textContent = cx.checked ? 'Neste celular o sistema vai pedir a senha de novo depois de 8 horas.' : 'Neste celular o sistema fica aberto: a senha só foi pedida na primeira vez.'; }
+    texto();
+    cx.onchange = function () {
+      var pedir = cx.checked; gravar(pedir); texto(); msg.textContent = 'Salvando…';
+      fetch('/api/auth/manter-conectado', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ativo: !pedir }) })
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (j) { msg.textContent = j && j.sucesso ? 'Salvo.' : ((j && (j.motivo || j.mensagem)) || 'Não foi possível salvar agora.'); })
+        .catch(function () { msg.textContent = 'Sem conexão. Tente de novo.'; });
+    };
+    linha.appendChild(cx); linha.appendChild(tx);
+    var ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Fechar';
+    ok.style.cssText = 'border:0;background:#0f2444;color:#fff;border-radius:10px;padding:10px 16px;font:700 13px system-ui,sans-serif;cursor:pointer;float:right';
+    function fechar() { fundo.remove(); }
+    ok.onclick = fechar; fundo.addEventListener('click', function (e) { if (e.target === fundo) fechar(); });
+    caixa.appendChild(h); caixa.appendChild(p); caixa.appendChild(linha); caixa.appendChild(msg); caixa.appendChild(ok); fundo.appendChild(caixa); document.body.appendChild(fundo);
+  }
+  // depois de entrar ou sair, confere de novo
+  try {
+    var f0 = window.fetch;
+    window.fetch = function (u) {
+      var url = typeof u === 'string' ? u : (u && u.url) || '';
+      var pr = f0.apply(this, arguments);
+      if (/\/api\/auth\/(login|logout|redeem|accept-invite|bootstrap)/.test(url)) pr.then(function () { setTimeout(checar, 600); }, function () {});
+      return pr;
+    };
+  } catch (e) {}
+  window.addEventListener('load', function () { setTimeout(checar, 3000); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checar(); });
+})();
