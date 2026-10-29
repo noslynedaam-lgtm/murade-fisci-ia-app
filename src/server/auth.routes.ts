@@ -952,7 +952,7 @@ router.post('/escritorios/:id/cnpj', async (req, res) => {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
     if (!session.user.ehAdmin) return res.status(403).json({ mensagem: 'Somente o dono do sistema define o CNPJ do escritório.' });
-    if (!(await cnpjEscritorioDisponivel(pool))) return res.status(409).json({ mensagem: 'O banco ainda não recebeu a atualização 016 (CNPJ do escritório). Ela é aplicada sozinha quando o Fisco IA reinicia; tente de novo em instantes.' });
+    if (!(await cnpjEscritorioDisponivel(pool))) return res.status(409).json({ mensagem: 'O banco do Fisco IA ainda não recebeu a atualização 016 (CNPJ do escritório). Ela precisa ser aplicada pela tarefa privada de migração do banco (npm run db:migrate); a migração automática está desligada neste serviço.' });
     const r = await pool.query('SELECT fiscoia.platform_set_office_cnpj($1::uuid, $2::uuid, $3::text) AS ok', [session.user.id, id, cnpj]);
     if (r.rows[0]?.ok !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
     return res.json({ sucesso: true, cnpj });
