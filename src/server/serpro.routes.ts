@@ -473,19 +473,23 @@ router.post('/ponte/uso', async (req, res) => {
   const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
   const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
   const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
+  const idUso = /^[A-Za-z0-9-]{8,64}$/.test(String(req.body?.idUso ?? '')) ? String(req.body.idUso) : undefined; // evita contar duas vezes se o envio for repetido
+  const emBruto = Date.parse(String(req.body?.em ?? ''));
+  const quando = Number.isFinite(emBruto) && emBruto <= Date.now() + 60_000 && emBruto > Date.now() - 45 * 86_400_000 ? new Date(emBruto) : new Date();
   try {
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ registrado: false, mensagem: 'Não foi possível localizar a empresa para registrar o uso.' });
     const r = await comContextoTenant(e.userId, e.tenantId, async client => {
       const q = await client.query('SELECT metadata FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 FOR UPDATE', [e.companyId, e.tenantId]);
       const atual = (q.rows[0]?.metadata?.serproCota as CotaEmpresa | undefined) ?? { consultas: [] };
-      const cobrada = avaliarCota(atual).proximaConsultaCobrada; // a chamada já ocorreu: não há o que "bloquear", só contar certo
-      const nova = registrarConsulta(atual, cobrada, servico, new Date(), escritorio, operacao);
+      if (idUso && atual.consultas.some(c => c.idUso === idUso)) return { cobrada: false, repetido: true as const };
+      const cobrada = avaliarCota(atual, quando).proximaConsultaCobrada; // a chamada já ocorreu: não há o que "bloquear", só contar certo
+      const nova = registrarConsulta(atual, cobrada, servico, quando, escritorio, operacao, idUso);
       await client.query(`UPDATE fiscoia.companies SET metadata = jsonb_set(metadata, '{serproCota}', $3::jsonb, true), updated_at = now() WHERE id = $1 AND tenant_id = $2`, [e.companyId, e.tenantId, JSON.stringify(nova)]);
       return { cobrada };
     }, PAPEIS_CONSULTA);
     if (!r.autorizado || !('resultado' in r) || !r.resultado) return res.status(503).json({ registrado: false, mensagem: 'Não foi possível gravar o uso.' });
-    return res.json({ registrado: true, cobrada: r.resultado.cobrada });
+    return res.json({ registrado: true, cobrada: r.resultado.cobrada, ...('repetido' in r.resultado ? { repetido: true } : {}) });
   } catch { return res.status(503).json({ registrado: false, mensagem: 'Falha ao gravar o uso.' }); }
 });
 

@@ -37,3 +37,10 @@ test('limite é por empresa (cotas independentes)', () => {
   assert.equal(avaliarCota(a, sex).gratisRestante, 0);
   assert.equal(avaliarCota(null, sex).gratisRestante, 1);
 });
+
+test('registrarConsulta guarda operação e idUso (para não contar duas vezes o mesmo uso)', () => {
+  const c = registrarConsulta(null, false, 'PGDASD.TRANSDECLARACAO11', new Date('2026-10-05T15:00:00Z'), { id: 'e1', nome: 'E1' }, 'Declarar', 'uso-12345678');
+  assert.equal(c.consultas[0].operacao, 'Declarar');
+  assert.equal(c.consultas[0].idUso, 'uso-12345678');
+  assert.ok(c.consultas.some(x => x.idUso === 'uso-12345678'));
+});
