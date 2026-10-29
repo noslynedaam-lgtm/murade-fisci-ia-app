@@ -44,7 +44,10 @@ export default function EscritoriosContratantes() {
   };
   const excluir = async (x: Escritorio) => {
     if (!await confirmarNaTela(`EXCLUIR de vez o escritório ${x.nome}? As contas do responsável e da equipe são apagadas e não tem volta. Os e-mails ficam livres para cadastrar de novo.`)) return;
-    if ((await perguntarNaTela(`Para confirmar, digite o nome do escritório: ${x.nome}`))?.trim().toLowerCase() !== x.nome.trim().toLowerCase()) { setMsg('Exclusão cancelada: o nome digitado não confere.'); return; }
+    // Para confirmar vale o NOME do escritório ou o E-MAIL do responsável (os dois aparecem na linha da lista).
+    const digitado = (await perguntarNaTela(`Para confirmar, digite o nome do escritório ou o e-mail do responsável:\n\nNome: ${x.nome}\nE-mail: ${x.responsavel || '(sem responsável)'}`))?.trim().toLowerCase() ?? '';
+    const confere = digitado !== '' && (digitado === x.nome.trim().toLowerCase() || (x.responsavel !== '' && digitado === x.responsavel.trim().toLowerCase()));
+    if (!confere) { setMsg('Exclusão cancelada: o que você digitou não confere com o nome do escritório nem com o e-mail do responsável.'); return; }
     setMsg('');
     try { const d = await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/excluir`, { confirmar: true }); setMsg(d.mensagem || 'Escritório excluído.'); await carregar(); }
     catch (c) { setMsg(c instanceof Error ? c.message : 'Não foi possível excluir.'); }
