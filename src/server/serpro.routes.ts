@@ -9,6 +9,7 @@ import { comContextoTenant, obterPoolBanco } from './persistence';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
+import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
 import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -293,6 +294,12 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     let pedido;
     try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, dadosEntrada, e.escritorioCnpj ?? null); }
     catch (e) { return resp(400, { mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
+    // Escritório cliente (autor diferente do contratante): precisa do token do procurador, pedido ao Fiscal ANTES de reservar cota ou chamar o Serpro.
+    let tokenProcurador: string | null = null;
+    if (e.escritorioCnpj && normalizarCnpj(e.escritorioCnpj) !== normalizarCnpj(process.env.SERPRO_CONTRATANTE_CNPJ || '')) {
+      try { tokenProcurador = await buscarTokenProcurador(e.escritorioCnpj); }
+      catch (err) { return resp(409, { consultado: false, mensagem: err instanceof SemTokenProcurador ? err.message : 'Não foi possível autorizar a consulta em nome do escritório. Nada foi consultado nem cobrado.' }); }
+    }
 
     const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
     if (preparadoPfx.ok === false) return resp(503, { consultado: false, mensagem: 'O certificado do escritório no servidor não pôde ser aberto (senha ou formato). Nada foi consultado nem cobrado.' });
@@ -321,7 +328,7 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     if (reserva.resultado.ok === false) return resp(402, { consultado: false, exigeConfirmacao: true, cota: reserva.resultado.cota, mensagem: 'Limite gratuito da semana atingido. Confirme o custo para prosseguir.' });
     const r = await chamarHttps(`${GATEWAY_BY_ENVIRONMENT.producao}/integra-contador/v1/${servico.operacao}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo) },
+      headers: { Authorization: `Bearer ${tokens.access_token}`, jwt_token: tokens.jwt_token, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(corpo), ...(tokenProcurador ? { autenticar_procurador_token: tokenProcurador } : {}) },
     }, corpo);
     let bruto: unknown = r.texto;
     try { bruto = JSON.parse(r.texto); } catch { /* mantém texto */ }
