@@ -182,8 +182,8 @@
     var b = document.getElementById('murade-seguranca-cel');
     if (!logado || !document.body) { if (b) b.remove(); return; }
     if (b) return;
-    b = document.createElement('button'); b.id = 'murade-seguranca-cel'; b.type = 'button'; b.setAttribute('aria-label', 'Segurança neste aparelho'); b.textContent = 'Segurança';
-    b.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147482400;background:#0f2444;color:#fff;border:1px solid #F2D26E;border-radius:999px;padding:7px 12px;font:600 12px system-ui,sans-serif;cursor:pointer;opacity:.9';
+    b = document.createElement('button'); b.id = 'murade-seguranca-cel'; b.type = 'button'; b.setAttribute('aria-label', 'Segurança neste aparelho'); b.title = 'Segurança neste aparelho'; b.textContent = '\uD83D\uDD12';
+    b.style.cssText = 'position:fixed;right:0;top:42%;z-index:2147482400;background:#0f2444;color:#fff;border:1px solid #F2D26E;border-right:0;border-radius:10px 0 0 10px;width:34px;height:40px;font:16px system-ui,sans-serif;line-height:38px;text-align:center;padding:0;cursor:pointer;opacity:.75';
     b.onclick = abrir; document.body.appendChild(b);
   }
   function abrir() {

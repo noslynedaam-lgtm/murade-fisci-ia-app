@@ -192,7 +192,7 @@ export default function Navbar({
 
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-slate-400 text-[11px]">
           {usuarioAtual ? (
-            <span className="text-slate-300 flex items-center gap-1.5 mr-1">
+            <span className="text-slate-300 hidden sm:flex items-center gap-1.5 mr-1">
               <User className={`w-3.5 h-3.5 ${estaAdminAtivo ? 'text-amber-400' : 'text-indigo-400'}`} />
               <span className="hidden sm:inline">Conectado:</span> 
               <strong className="text-white truncate max-w-[140px] sm:max-w-[200px]">{usuarioAtual.nome}</strong>
