@@ -228,3 +228,18 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
     if (minha === sequencia) { falandoFlag = false; audioAtual = null; aoTerminar?.(); }
   }
 }
+
+/** Respostas prontas para conversa de rotina ("obrigado", "ok", "tchau"): grátis e instantâneas, sem chamar a IA. */
+export function respostaRapida(texto: string): string | null {
+  const t = texto.trim();
+  if (!t || t.split(' ').length > 5) return null;
+  if (/^(muito )?(obrigad[oa]|valeu|brigad[oa]|obg)( (pela ajuda|viu|a voce|ok))?$/.test(t) || /^(ok|okay|certo|beleza|entendi|ta bom|tudo bem|combinado|perfeito|show) (muito )?(obrigad[oa]|valeu)$/.test(t)) return 'De nada! Estou à disposição.';
+  if (/^(de nada|por nada|imagina)$/.test(t)) return 'Sempre à disposição.';
+  if (/^(ok|okay|certo|beleza|entendi|ta bom|tudo bem|combinado|perfeito|show|ta certo)$/.test(t)) return 'Certo! Qualquer coisa é só chamar.';
+  if (/^(tchau|ate logo|ate mais|ate amanha|encerrar|finalizar|pode encerrar)$/.test(t)) return 'Até logo! Estou aqui quando precisar.';
+  if (/^(bom dia|boa tarde|boa noite|ola|oi|e ai)$/.test(t)) {
+    const h = new Date().getHours();
+    return `${h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'}! Em que posso ajudar?`;
+  }
+  return null;
+}

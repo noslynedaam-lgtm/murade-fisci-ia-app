@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz } from '../utils/vozHumana';
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from '../utils/vozHumana';
 
 /**
  * Assistente só por voz do Fisco IA. Diga "Fisco" (ou "Fisco IA") e peça.
@@ -134,7 +134,8 @@ export default function ChamadaPorVozFiscoIA() {
           }
           if (aguardandoRef.current || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
-            if (/^(obrigad[oa]|valeu|ok|certo|beleza|tchau|tudo bem|ta bom)$/.test(texto) || (chamada.test(texto) && texto.split(' ').length <= 2)) continue;
+            const rapida = respostaRapida(texto); if (rapida) { janelaConversaRef.current = Date.now() + 20000; falar(rapida); continue; }
+            if (chamada.test(texto) && texto.split(' ').length <= 2) continue;
             aguardandoRef.current = false;
             janelaConversaRef.current = 0;
             window.clearTimeout(tempoComando);
