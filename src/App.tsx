@@ -27,6 +27,7 @@ import { AutomacaoFiscalScreen } from './screens/AutomacaoFiscal/AutomacaoFiscal
 import { ModuloFiscalScreen } from './screens/Fiscal/ModuloFiscalScreen';
 import { ModulosMuradeScreen } from './screens/ModulosMuradeScreen';
 import { IaMuradVozScreen } from './screens/IaVoz/IaMuradVozScreen';
+import ChamadaPorVozFiscoIA from './components/ChamadaPorVozFiscoIA';
 import { ModalCalculadoraFiscal } from './components/ModalCalculadoraFiscal';
 import { PainelAnimadoLateral } from './components/PainelAnimadoLateral';
 import { validarSessaoCentral, logout, obterEmailsEnviados, EmailEnviadoLog } from './services/auth/auth.service';
@@ -432,6 +433,7 @@ export default function App() {
   return (
     <NavigationProvider abaAtual={abaAtiva} onMudarAba={handleNavegacao}>
       <MonitorPendenciasFiscal />
+      <ChamadaPorVozFiscoIA />
       <div id="fiscoia-app" className="min-h-screen bg-slate-50 text-slate-900 flex font-sans antialiased">
         {/* 📱💻 Menu Lateral que se esconde sozinho */}
         <MenuLateral
