@@ -1,3 +1,4 @@
+import { registrarRotaVozGemini } from './src/server/vozGeminiTTS';
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -292,6 +293,7 @@ function mesmaOrigem(req: express.Request): boolean {
   try { return new URL(origin).host === req.get('host'); } catch { return false; }
 }
 
+registrarRotaVozGemini(app, { obterIA: () => getGenAI(), autorizar: async (req) => Boolean(await obterUsuarioDaSessao(req)) });
 app.post('/api/ai/agente', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!mesmaOrigem(req)) return res.status(403).json({ error: 'Origem da requisição não autorizada.' });

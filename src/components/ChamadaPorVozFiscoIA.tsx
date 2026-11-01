@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { falarHumana, pararHumana, humanaFalando } from '../utils/vozHumana';
 
 /**
  * Assistente só por voz do Fisco IA. Diga "Fisco" (ou "Fisco IA") e peça.
@@ -48,13 +49,10 @@ export default function ChamadaPorVozFiscoIA() {
   };
 
   const falar = (texto: string) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    textoFaladoRef.current = limparTextoVoz(textoParaFala(texto));
-    const fala = new SpeechSynthesisUtterance(textoParaFala(texto));
-    fala.lang = 'pt-BR';
-    fala.onend = () => { ultimaFalaRef.current = Date.now(); janelaConversaRef.current = Date.now() + 20000; };
-    window.speechSynthesis.speak(fala);
+    const falado = textoParaFala(texto);
+    textoFaladoRef.current = limparTextoVoz(falado);
+    // Voz humana (feminina, calma). Se a cota acabar, usa a voz do navegador.
+    void falarHumana(falado, () => { ultimaFalaRef.current = Date.now(); janelaConversaRef.current = Date.now() + 20000; });
   };
 
   const perguntar = async (pedido: string) => {
@@ -88,7 +86,7 @@ export default function ChamadaPorVozFiscoIA() {
       ocupadoRef.current = false;
     }
   };
-  pararRef.current = () => { geracaoRef.current += 1; try { window.speechSynthesis?.cancel(); } catch { /* ignora */ } aguardandoRef.current = false; setAviso(''); };
+  pararRef.current = () => { geracaoRef.current += 1; try { window.speechSynthesis?.cancel(); pararHumana(); } catch { /* ignora */ } aguardandoRef.current = false; setAviso(''); };
   const perguntarRef = useRef(perguntar);
   perguntarRef.current = perguntar;
 
@@ -118,11 +116,11 @@ export default function ChamadaPorVozFiscoIA() {
           const faladas = new Set(textoFaladoRef.current.split(' '));
           const palavrasDita = texto.split(' ');
           const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
-          const falandoAgora = Boolean(window.speechSynthesis?.speaking);
+          const falandoAgora = Boolean(humanaFalando());
           if (falandoAgora) {
             // Você falou por cima da resposta: ela para na hora e passa a te ouvir.
             if (palavrasDita.length >= 2 && !parecidoComFala) {
-              window.speechSynthesis?.cancel(); ultimaFalaRef.current = 0; textoFaladoRef.current = ''; janelaConversaRef.current = Date.now() + 20000;
+              window.speechSynthesis?.cancel(); pararHumana(); ultimaFalaRef.current = 0; textoFaladoRef.current = ''; janelaConversaRef.current = Date.now() + 20000;
             }
             if (!ehFinal || parecidoComFala || palavrasDita.length < 2) continue;
           } else {
