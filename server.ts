@@ -270,14 +270,33 @@ function limiteUsoAgenteIA(sessaoHash: string): boolean {
   return true;
 }
 
+
+// Modelo rápido primeiro (resposta em poucos segundos); se não existir ou falhar, usa o modelo padrão.
+let modeloRapidoIndisponivel = false;
+async function gerarAgenteRapido(ai: any, pedido: { contents: any; config: any }, modeloPadrao: string): Promise<any> {
+  const rapido = process.env.GEMINI_MODEL_RAPIDO ?? 'gemini-3.1-flash-lite';
+  if (rapido && rapido !== 'desligado' && !modeloRapidoIndisponivel) {
+    try {
+      return await new Promise<any>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('IA_RAPIDA_TEMPO')), 20_000);
+        ai.models.generateContent({ model: rapido, ...pedido }).then((v: any) => { clearTimeout(t); resolve(v); }, (e: any) => { clearTimeout(t); reject(e); });
+      });
+    } catch (erro) {
+      const msg = erro instanceof Error ? erro.message : String(erro);
+      if (/not found|404|not supported|INVALID_ARGUMENT/i.test(msg)) modeloRapidoIndisponivel = true;
+      console.warn('Modelo rápido da Agente IA falhou; usando o padrão:', msg.slice(0, 160));
+    }
+  }
+  return ai.models.generateContent({ model: modeloPadrao, ...pedido });
+}
+
 const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declaracoes }) => {
   const ai = getGenAI();
   if (!ai) throw new Error('GEMINI_API_KEY não configurada.');
-  const response = await ai.models.generateContent({
-    model: "gemini-3.8-flash",
+  const response = await gerarAgenteRapido(ai, {
     contents: conteudos as any,
     config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2, thinkingConfig: { thinkingLevel: 'LOW' as any } },
-  });
+  }, "gemini-3.8-flash");
   const turno: any = response.candidates?.[0]?.content;
   const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];
   return {

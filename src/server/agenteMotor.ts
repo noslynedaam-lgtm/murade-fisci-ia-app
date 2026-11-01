@@ -171,9 +171,36 @@ async function auditar(ctx: ContextoAgente, evento: EventoAuditoria): Promise<vo
   try { await ctx.registrar(evento); } catch (erro: any) { console.error('Falha ao registrar ação da Agente IA:', erro?.message || erro); }
 }
 
+
+// Atalho sem IA para o pedido mais comum ("quantas empresas eu tenho?"): resposta exata e instantânea.
+function formatarCnpjFalado(valor: unknown): string {
+  const c = String(valor ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  return c.length === 14 ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}` : c;
+}
+async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNome: Map<string, Ferramenta>): Promise<ResultadoConversa | null> {
+  const t = mensagem.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t.length > 90 || !/\bempresas?\b/.test(t)) return null;
+  if (/\b(vence|venc|folha|guia|nota|notas|funcionari|certificado|robo|erro|calcul|fech|imprim|whats|esocial|dctf|das|fgts|inss|irrf)\w*/.test(t)) return null;
+  if (!/\b(quantas?|quais|lista|listar|mostra|mostrar|ver|fala|diga|minhas?|cadastradas?|tenho|tem)\b/.test(t)) return null;
+  const ferramenta = porNome.get('listar_empresas');
+  if (!ferramenta || ferramenta.tipo !== 'leitura') return null;
+  try {
+    const r: any = await ferramenta.executar(ctx, {});
+    if (!r || typeof r !== 'object' || r.erro || !Array.isArray(r.empresas)) return null;
+    const lista: any[] = r.empresas;
+    if (!lista.length) return { resposta: 'Não há nenhuma empresa cadastrada neste sistema.', acoes: [], whatsapp: [] };
+    const nome = (e: any) => String(e.razaoSocial || e.nome || e.nomeFantasia || 'sem nome');
+    const partes = lista.slice(0, 20).map((e, i) => `${i + 1}. ${nome(e)}, CNPJ ${formatarCnpjFalado(e.cnpj)}${e.regime ? `, regime ${e.regime}` : ''}.`);
+    const mais = lista.length > 20 ? ` Mostrei as 20 primeiras de ${lista.length}.` : '';
+    return { resposta: `Você tem ${lista.length} ${lista.length === 1 ? 'empresa cadastrada' : 'empresas cadastradas'}. ${partes.join(' ')}${mais}`, acoes: [], whatsapp: [] };
+  } catch { return null; }
+}
+
 export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem: string, historico: TurnoHistorico[] = []): Promise<ResultadoConversa> {
   const porNome = new Map(ctx.kit.ferramentas.map((f) => [f.declaracao.name, f]));
   const declaracoes = ctx.kit.ferramentas.map((f) => f.declaracao);
+  const rapida = await atalhoListarEmpresas(ctx, mensagem, porNome);
+  if (rapida) return rapida;
   // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
   let instrucao = ctx.kit.instrucao;
   try {
