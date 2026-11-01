@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from 'react';
  * Responde em voz e mostra um aviso rápido. Ações que precisam de confirmação aparecem no aviso
  * e são confirmadas na tela, nunca por voz.
  */
+const limparTextoVoz = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
+
 export default function ChamadaPorVozFiscoIA() {
   const [ligada, setLigada] = useState<boolean>(() => {
     try { return localStorage.getItem('murade_chamada_voz') !== '0'; } catch { return false; }
@@ -16,6 +19,9 @@ export default function ChamadaPorVozFiscoIA() {
   const ultimaFalaRef = useRef(0);
   const historicoRef = useRef<{ papel: 'usuario' | 'ia'; texto: string }[]>([]);
   const ocupadoRef = useRef(false);
+  const textoFaladoRef = useRef('');
+  const geracaoRef = useRef(0);
+  const pararRef = useRef<() => void>(() => {});
 
   const mostrar = (texto: string) => {
     setAviso(texto.length > 420 ? `${texto.slice(0, 417)}…` : texto);
@@ -26,6 +32,7 @@ export default function ChamadaPorVozFiscoIA() {
   const falar = (texto: string) => {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
+    textoFaladoRef.current = limparTextoVoz(texto);
     const fala = new SpeechSynthesisUtterance(texto.replace(/[#*`_]/g, ''));
     fala.lang = 'pt-BR';
     fala.onend = () => { ultimaFalaRef.current = Date.now(); };
@@ -35,6 +42,7 @@ export default function ChamadaPorVozFiscoIA() {
   const perguntar = async (pedido: string) => {
     if (ocupadoRef.current) return;
     ocupadoRef.current = true;
+    const minhaGeracao = geracaoRef.current;
     try {
       const resp = await fetch('/api/ai/agente', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
@@ -46,6 +54,7 @@ export default function ChamadaPorVozFiscoIA() {
         historicoRef.current.push({ papel: 'usuario', texto: pedido }, { papel: 'ia', texto: dados.resposta });
         const temAcao = Array.isArray(dados.acoes) && dados.acoes.length > 0;
         const texto = temAcao ? `${dados.resposta} Há uma ação aguardando a sua confirmação na tela da IA.` : dados.resposta;
+        if (minhaGeracao !== geracaoRef.current) return;
         mostrar(texto);
         falar(texto);
       } else {
@@ -61,6 +70,7 @@ export default function ChamadaPorVozFiscoIA() {
       ocupadoRef.current = false;
     }
   };
+  pararRef.current = () => { geracaoRef.current += 1; try { window.speechSynthesis?.cancel(); } catch { /* ignora */ } aguardandoRef.current = false; setAviso(''); };
   const perguntarRef = useRef(perguntar);
   perguntarRef.current = perguntar;
 
@@ -82,10 +92,16 @@ export default function ChamadaPorVozFiscoIA() {
       rec.onresult = (ev: any) => {
         for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
           if (!ev.results[i].isFinal) continue;
-          if (window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1800) continue;
           const bruto = String(ev.results[i][0].transcript || '');
           const texto = limpar(bruto);
           if (!texto) continue;
+          // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
+          // Ignora o que o próprio sistema está falando (e o eco dele), para não se chamar sozinho.
+          if (window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 3000) continue;
+          const faladas = new Set(textoFaladoRef.current.split(' '));
+          const palavrasDita = texto.split(' ');
+          if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && (texto === 'pois nao' || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
           if (aguardandoRef.current) {
             aguardandoRef.current = false;
             window.clearTimeout(tempoComando);
