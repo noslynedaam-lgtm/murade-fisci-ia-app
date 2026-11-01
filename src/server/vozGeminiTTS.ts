@@ -17,6 +17,8 @@ export function registrarRotaVozGemini(
 ): void {
   app.post('/api/tts', ...(opcoes.antes || []), async (req: Request, res: Response) => {
     try {
+      // Trava de custo: a voz premium gasta a chave e só funciona se o dono ligar VOZ_PREMIUM=ligada no servidor.
+      if (process.env.VOZ_PREMIUM !== 'ligada') return res.status(403).json({ error: 'Voz premium desligada; usando a voz econômica do navegador.' });
       if (!(await opcoes.autorizar(req))) return res.status(401).json({ error: 'Entre no sistema para usar a voz.' });
       const texto = typeof req.body?.text === 'string' ? req.body.text : '';
       if (!texto.trim()) return res.status(400).json({ error: 'Texto não fornecido para síntese de voz.' });

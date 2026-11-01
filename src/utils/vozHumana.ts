@@ -3,6 +3,11 @@ let audioAtual: HTMLAudioElement | null = null;
 let sequencia = 0;
 let falandoFlag = false;
 
+// ---- Voz econômica (do navegador, grátis) é a padrão. A voz premium (Gemini) gasta a chave e só liga se pedirem. ----
+const CHAVE_PREMIUM = 'murade_voz_premium_v1';
+export const vozPremiumLigada = (): boolean => { try { return localStorage.getItem(CHAVE_PREMIUM) === '1'; } catch { return false; } };
+const definirPremium = (ligada: boolean): void => { try { localStorage.setItem(CHAVE_PREMIUM, ligada ? '1' : '0'); } catch { /* ignora */ } };
+
 // ---- Ajuste de volume e velocidade por comando de voz ("fala mais rápido", "aumenta a voz"). Fica salvo. ----
 const CHAVE_AJUSTE = 'murade_voz_ajuste_v1';
 let volumeVoz = 0.8;
@@ -22,6 +27,12 @@ function salvarAjuste(): void {
 export function ajustarVoz(texto: string): string | null {
   const t = texto.trim();
   if (t.split(' ').length > 8) return null;
+  if (/\bvoz (premium|humana|bonita|cara)\b/.test(t) && /\b(usa|use|usar|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
+    definirPremium(true); return 'Ativei a voz premium. Ela é mais bonita, mas gasta mais da chave.';
+  }
+  if (/\bvoz (normal|economica|barata|simples|do navegador)\b/.test(t) && /\b(usa|use|usar|volta|volte|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
+    definirPremium(false); return 'Voltei para a voz econômica, que não gasta a chave.';
+  }
   const falaOuVoz = /\b(fala|fale|falar|voz|volume)\b/.test(t);
   if (/\b(aumenta|aumente|sobe|suba)\b.*\b(voz|volume)\b/.test(t) || (falaOuVoz && /\bmais alto\b/.test(t))) {
     if (volumeVoz >= 1) return 'A voz já está no máximo. Aumente o volume do aparelho, se precisar.';
@@ -92,6 +103,7 @@ export function bipRapido(): void {
 
 /** Deixa pronta a frase mais usada ("Pois não?"), para a primeira resposta também ser rápida. */
 export async function prepararVoz(): Promise<void> {
+  if (!vozPremiumLigada()) return;
   try {
     const codigo = await codigoDaFrase('Pois não?');
     if (await lerDoCache(codigo)) return;
@@ -165,6 +177,7 @@ async function guardarNoCache(h: string, src: string): Promise<void> {
 }
 
 async function buscarAudio(trecho: string): Promise<string | null> {
+  if (!vozPremiumLigada()) return null;
   let codigo = '';
   try {
     codigo = await codigoDaFrase(trecho);
@@ -182,21 +195,35 @@ async function buscarAudio(trecho: string): Promise<string | null> {
   } catch { return null; }
 }
 
+function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
+  const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('pt'));
+  const masculina = /daniel|antonio|ant[oô]nio|felipe|ricardo|male|jorge|diego|donato|humberto/i;
+  const feminina = /maria|francisca|luciana|camila|vit[oó]ria|thalita|leticia|let[ií]cia|female|google portugu/i;
+  const natural = /natural|online/i;
+  return vozes.find((v) => natural.test(v.name) && feminina.test(v.name))
+    || vozes.find((v) => natural.test(v.name) && !masculina.test(v.name))
+    || vozes.find((v) => feminina.test(v.name))
+    || vozes.find((v) => !masculina.test(v.name))
+    || vozes[0];
+}
+
 function falarNoNavegador(texto: string): Promise<void> {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve();
-    const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('pt'));
-    const masculina = /daniel|antonio|ant[oô]nio|felipe|ricardo|male|jorge|diego/i;
-    const feminina = /maria|francisca|luciana|camila|vit[oó]ria|thalita|female|google portugu/i;
-    const voz = vozes.find((v) => feminina.test(v.name)) || vozes.find((v) => !masculina.test(v.name));
-    const u = new SpeechSynthesisUtterance(texto);
-    u.lang = 'pt-BR';
-    u.rate = 0.95 * velocidadeVoz;
-    u.volume = volumeVoz;
-    if (voz) u.voice = voz;
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
-    window.speechSynthesis.speak(u);
+    const falar = () => {
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'pt-BR';
+      u.rate = 0.95 * velocidadeVoz;
+      u.volume = volumeVoz;
+      const voz = escolherVozDoNavegador();
+      if (voz) u.voice = voz;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      window.speechSynthesis.speak(u);
+    };
+    // As vozes às vezes demoram a carregar na primeira vez.
+    if (window.speechSynthesis.getVoices().length) falar();
+    else { let feito = false; const ir = () => { if (!feito) { feito = true; falar(); } }; window.speechSynthesis.onvoiceschanged = ir; window.setTimeout(ir, 600); }
   });
 }
 
