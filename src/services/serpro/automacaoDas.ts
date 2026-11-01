@@ -22,9 +22,20 @@ export interface OpcoesEscritorio {
   prazoAutorizacaoHoras: number;
 }
 
+// Padrão para todos os escritórios: zerada transmite sozinha (multa por não entregar é bem maior que o custo de R$ 0,40).
+// O escritório pode desmarcar essa opção nas configurações; nesse caso a zerada também passa a pedir autorização.
+export const OPCOES_PADRAO: OpcoesEscritorio = { transmitirZeradasAutomatico: true, prazoAutorizacaoHoras: 48 };
+
+export function opcoesDoEscritorio(salvas?: Partial<OpcoesEscritorio> | null): OpcoesEscritorio {
+  return {
+    transmitirZeradasAutomatico: salvas?.transmitirZeradasAutomatico ?? OPCOES_PADRAO.transmitirZeradasAutomatico,
+    prazoAutorizacaoHoras: salvas?.prazoAutorizacaoHoras && salvas.prazoAutorizacaoHoras > 0 ? salvas.prazoAutorizacaoHoras : OPCOES_PADRAO.prazoAutorizacaoHoras,
+  };
+}
+
 export type Decisao =
   | { acao: 'ignorar'; motivo: string }
-  | { acao: 'transmitir_zerada'; motivo: string }
+  | { acao: 'transmitir_zerada'; motivo: string; avisarContador: true }
   | { acao: 'pedir_autorizacao'; motivo: string; receitaBrutaCentavos: number }
   | { acao: 'avisar_pendencia'; motivo: string };
 
@@ -39,7 +50,7 @@ export function decidirDas(d: DadosMesEmpresa, o: OpcoesEscritorio): Decisao {
   if (!semMovimento) return { acao: 'pedir_autorizacao', motivo: 'Empresa com movimento: precisa da autorização do contador.', receitaBrutaCentavos: d.receitaBrutaCentavos };
   if (d.notasEntradaNoMes > 0) return { acao: 'pedir_autorizacao', motivo: 'Sem receita, mas há notas de entrada no mês: o contador confere antes.', receitaBrutaCentavos: 0 };
   if (!o.transmitirZeradasAutomatico) return { acao: 'pedir_autorizacao', motivo: 'Empresa zerada, mas o escritório deixou a transmissão automática desligada.', receitaBrutaCentavos: 0 };
-  return { acao: 'transmitir_zerada', motivo: 'Sem receita, sem notas de saída nem de entrada no mês.' };
+  return { acao: 'transmitir_zerada', motivo: 'Sem receita, sem notas de saída nem de entrada no mês.', avisarContador: true };
 }
 
 export type EstadoAutorizacao = 'aguardando' | 'autorizada' | 'recusada' | 'expirada';

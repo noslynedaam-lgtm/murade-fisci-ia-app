@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decidirDas, estadoDaAutorizacao, interpretarRespostaWhatsApp, vencimentoDas } from './automacaoDas';
+import { decidirDas, opcoesDoEscritorio, estadoDaAutorizacao, interpretarRespostaWhatsApp, vencimentoDas } from './automacaoDas';
 
 const base = { cnpj: '11222333000181', competencia: '202610', regime: 'simples' as const, receitaBrutaCentavos: 0, notasSaidaNoMes: 0, notasEntradaNoMes: 0 };
 const op = { transmitirZeradasAutomatico: true, prazoAutorizacaoHoras: 48 };
@@ -26,4 +26,12 @@ test('vencimento: dia 20 do mês seguinte, ajustado para dia útil', () => {
   assert.equal(vencimentoDas('202610'), '2026-11-20'); // sexta
   assert.equal(vencimentoDas('202607'), '2026-08-20'); // quinta
   assert.equal(vencimentoDas('202611'), '2026-12-21'); // 20/12 é domingo
+});
+test('padrão do escritório: zerada automática ligada, e dá para desmarcar', () => {
+  assert.equal(opcoesDoEscritorio().transmitirZeradasAutomatico, true);
+  assert.equal(opcoesDoEscritorio(null).prazoAutorizacaoHoras, 48);
+  const desligada = opcoesDoEscritorio({ transmitirZeradasAutomatico: false });
+  assert.equal(decidirDas(base, desligada).acao, 'pedir_autorizacao');
+  const d = decidirDas(base, opcoesDoEscritorio());
+  assert.equal(d.acao === 'transmitir_zerada' && d.avisarContador, true);
 });
