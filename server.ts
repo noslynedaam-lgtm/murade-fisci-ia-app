@@ -276,7 +276,7 @@ const modeloGeminiAgente = (): ModeloIA => async ({ instrucao, conteudos, declar
   const response = await ai.models.generateContent({
     model: "gemini-3.8-flash",
     contents: conteudos as any,
-    config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2 },
+    config: { systemInstruction: instrucao, tools: [{ functionDeclarations: declaracoes as any }], temperature: 0.2, thinkingConfig: { thinkingLevel: 'LOW' as any } },
   });
   const turno: any = response.candidates?.[0]?.content;
   const partes: any[] = Array.isArray(turno?.parts) ? turno.parts : [];

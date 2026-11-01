@@ -49,14 +49,54 @@ export function pararHumana(): void {
 }
 
 function dividirEmTrechos(texto: string): string[] {
+  // O primeiro trecho é curto para a voz começar logo; os seguintes são gerados enquanto ela fala.
   const trechos: string[] = [];
   let atual = '';
+  const frases: string[] = [];
   for (const frase of texto.split(/(?<=[.!?:;])\s+/)) {
-    if ((atual + ' ' + frase).length > (trechos.length === 0 ? 220 : 700) && atual) { trechos.push(atual.trim()); atual = frase; }
+    let resto = frase;
+    while (resto.length > 140) {
+      let corte = Math.max(resto.lastIndexOf(',', 140), resto.lastIndexOf(' ', 140));
+      if (corte < 40) corte = 140;
+      frases.push(resto.slice(0, corte + 1).trim());
+      resto = resto.slice(corte + 1);
+    }
+    if (resto.trim()) frases.push(resto.trim());
+  }
+  for (const frase of frases) {
+    const limite = trechos.length === 0 ? 100 : 600;
+    if ((atual + ' ' + frase).length > limite && atual) { trechos.push(atual.trim()); atual = frase; }
     else atual = atual ? `${atual} ${frase}` : frase;
   }
   if (atual.trim()) trechos.push(atual.trim());
   return trechos;
+}
+
+/** Sinal sonoro curtinho: avisa na hora que ela ouviu, sem esperar a voz ficar pronta. */
+export function bipRapido(): void {
+  try {
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const ganho = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    ganho.gain.value = 0.06 * volumeVoz;
+    osc.connect(ganho); ganho.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+    osc.onended = () => { try { void ctx.close(); } catch { /* ignora */ } };
+  } catch { /* ignora */ }
+}
+
+/** Deixa pronta a frase mais usada ("Pois não?"), para a primeira resposta também ser rápida. */
+export async function prepararVoz(): Promise<void> {
+  try {
+    const codigo = await codigoDaFrase('Pois não?');
+    if (await lerDoCache(codigo)) return;
+    await buscarAudio('Pois não?');
+  } catch { /* ignora */ }
 }
 
 

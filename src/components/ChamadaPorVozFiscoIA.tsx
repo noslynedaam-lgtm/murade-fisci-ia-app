@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { falarHumana, pararHumana, humanaFalando, ajustarVoz } from '../utils/vozHumana';
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz } from '../utils/vozHumana';
 
 /**
  * Assistente só por voz do Fisco IA. Diga "Fisco" (ou "Fisco IA") e peça.
@@ -98,6 +98,7 @@ export default function ChamadaPorVozFiscoIA() {
     const chamada = /\b(fisco|fisca|fisco ia)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
+    const tempoPreparo = window.setTimeout(() => { void prepararVoz(); }, 2500);
     let rec: any;
     const iniciar = () => {
       if (!ativo) return;
@@ -142,7 +143,7 @@ export default function ChamadaPorVozFiscoIA() {
             const resto = bruto.replace(/^[\s,.!?]*(fisco ia|fisco)[\s,.!?:-]*/i, '').trim();
             if (resto.split(' ').length >= 3) void perguntarRef.current(resto);
             else {
-              falar('Pois não?');
+              bipRapido(); falar('Pois não?');
               aguardandoRef.current = true;
               tempoComando = window.setTimeout(() => { aguardandoRef.current = false; }, 12000);
             }
@@ -154,7 +155,7 @@ export default function ChamadaPorVozFiscoIA() {
       try { rec.start(); } catch { /* já iniciado */ }
     };
     iniciar();
-    return () => { ativo = false; window.clearTimeout(tempoComando); try { rec?.stop(); } catch { /* ignora */ } };
+    return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); try { rec?.stop(); } catch { /* ignora */ } };
   }, [ligada]);
 
   if (!suporta) return null;
