@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { falarHumana, pararHumana, humanaFalando } from '../utils/vozHumana';
+import { falarHumana, pararHumana, humanaFalando, ajustarVoz } from '../utils/vozHumana';
 
 /**
  * Assistente só por voz do Fisco IA. Diga "Fisco" (ou "Fisco IA") e peça.
@@ -112,6 +112,8 @@ export default function ChamadaPorVozFiscoIA() {
           const texto = limpar(bruto);
           if (!texto) continue;
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
+          if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falar(confirmacao); continue; } }
           if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
           const faladas = new Set(textoFaladoRef.current.split(' '));
           const palavrasDita = texto.split(' ');

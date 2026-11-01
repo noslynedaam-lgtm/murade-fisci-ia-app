@@ -3,6 +3,42 @@ let audioAtual: HTMLAudioElement | null = null;
 let sequencia = 0;
 let falandoFlag = false;
 
+// ---- Ajuste de volume e velocidade por comando de voz ("fala mais rápido", "aumenta a voz"). Fica salvo. ----
+const CHAVE_AJUSTE = 'murade_voz_ajuste_v1';
+let volumeVoz = 0.8;
+let velocidadeVoz = 1;
+try {
+  const salvo = JSON.parse(localStorage.getItem(CHAVE_AJUSTE) || 'null');
+  if (salvo && Number.isFinite(salvo.v)) volumeVoz = Math.min(1, Math.max(0.2, salvo.v));
+  if (salvo && Number.isFinite(salvo.r)) velocidadeVoz = Math.min(1.6, Math.max(0.7, salvo.r));
+} catch { /* ignora */ }
+
+function salvarAjuste(): void {
+  try { localStorage.setItem(CHAVE_AJUSTE, JSON.stringify({ v: volumeVoz, r: velocidadeVoz })); } catch { /* ignora */ }
+  if (audioAtual) { audioAtual.volume = volumeVoz; audioAtual.playbackRate = velocidadeVoz; }
+}
+
+/** Reconhece pedidos de volume/velocidade (texto já sem acento). Devolve a frase de confirmação, ou null. */
+export function ajustarVoz(texto: string): string | null {
+  const t = texto.trim();
+  if (t.split(' ').length > 8) return null;
+  const falaOuVoz = /\b(fala|fale|falar|voz|volume)\b/.test(t);
+  if (/\b(aumenta|aumente|sobe|suba)\b.*\b(voz|volume)\b/.test(t) || (falaOuVoz && /\bmais alto\b/.test(t))) {
+    if (volumeVoz >= 1) return 'A voz já está no máximo. Aumente o volume do aparelho, se precisar.';
+    volumeVoz = Math.min(1, volumeVoz + 0.2); salvarAjuste(); return 'Pronto, aumentei a voz.';
+  }
+  if (/\b(diminui|diminua|abaixa|abaixe|baixa|baixe)\b.*\b(voz|volume)\b/.test(t) || (falaOuVoz && /\bmais baixo\b/.test(t))) {
+    volumeVoz = Math.max(0.2, volumeVoz - 0.2); salvarAjuste(); return 'Pronto, diminuí a voz.';
+  }
+  if (/\b(acelera|acelere)\b/.test(t) || (falaOuVoz && /\bmais rapido\b/.test(t)) || /\bum pouco(zinho)? mais rapido\b/.test(t)) {
+    velocidadeVoz = Math.min(1.6, velocidadeVoz + 0.15); salvarAjuste(); return 'Pronto, estou falando mais rápido.';
+  }
+  if (/\b(desacelera|desacelere)\b/.test(t) || (falaOuVoz && /\b(mais devagar|mais lento)\b/.test(t))) {
+    velocidadeVoz = Math.max(0.7, velocidadeVoz - 0.15); salvarAjuste(); return 'Pronto, estou falando mais devagar.';
+  }
+  return null;
+}
+
 export const humanaFalando = (): boolean => falandoFlag || Boolean(typeof window !== 'undefined' && window.speechSynthesis?.speaking);
 
 export function pararHumana(): void {
@@ -23,12 +59,86 @@ function dividirEmTrechos(texto: string): string[] {
   return trechos;
 }
 
+
+// ---- Memória de voz neste aparelho: cada frase falada fica salva e não gasta a chave de novo. ----
+// Guarda só o áudio e um código da frase (nunca o texto). Fica salva mesmo fechando o sistema.
+const BANCO = 'murade_voz_v1';
+const TABELA = 'audios';
+const MAX_AUDIOS = 400;
+let bancoPromessa: Promise<IDBDatabase | null> | null = null;
+
+function abrirBanco(): Promise<IDBDatabase | null> {
+  if (bancoPromessa) return bancoPromessa;
+  bancoPromessa = new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined') return resolve(null);
+      const pedido = indexedDB.open(BANCO, 1);
+      pedido.onupgradeneeded = () => { pedido.result.createObjectStore(TABELA, { keyPath: 'h' }); };
+      pedido.onsuccess = () => resolve(pedido.result);
+      pedido.onerror = () => resolve(null);
+    } catch { resolve(null); }
+  });
+  return bancoPromessa;
+}
+
+async function codigoDaFrase(texto: string): Promise<string> {
+  const bytes = new TextEncoder().encode(`Kore|${texto}`);
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function lerDoCache(h: string): Promise<string | null> {
+  const banco = await abrirBanco();
+  if (!banco) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = banco.transaction(TABELA, 'readwrite');
+      const loja = tx.objectStore(TABELA);
+      const pedido = loja.get(h);
+      pedido.onsuccess = () => {
+        const item = pedido.result as { h: string; src: string; u: number } | undefined;
+        if (item) { item.u = Date.now(); loja.put(item); resolve(item.src); } else resolve(null);
+      };
+      pedido.onerror = () => resolve(null);
+    } catch { resolve(null); }
+  });
+}
+
+async function guardarNoCache(h: string, src: string): Promise<void> {
+  const banco = await abrirBanco();
+  if (!banco) return;
+  try {
+    const tx = banco.transaction(TABELA, 'readwrite');
+    const loja = tx.objectStore(TABELA);
+    loja.put({ h, src, u: Date.now() });
+    const contagem = loja.count();
+    contagem.onsuccess = () => {
+      if (contagem.result <= MAX_AUDIOS) return;
+      // Passou do limite: libera os menos usados (os mais antigos).
+      const todos = loja.getAll();
+      todos.onsuccess = () => {
+        const lista = (todos.result as { h: string; u: number }[]).sort((a, b) => a.u - b.u);
+        lista.slice(0, lista.length - MAX_AUDIOS).forEach((item) => loja.delete(item.h));
+      };
+    };
+  } catch { /* ignora */ }
+}
+
 async function buscarAudio(trecho: string): Promise<string | null> {
+  let codigo = '';
+  try {
+    codigo = await codigoDaFrase(trecho);
+    const guardado = await lerDoCache(codigo);
+    if (guardado) return guardado;
+  } catch { /* segue para o servidor */ }
   try {
     const resp = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ text: trecho }) });
     if (!resp.ok) return null;
     const dados = await resp.json();
-    return dados?.audio ? `data:${dados.mimeType || 'audio/wav'};base64,${dados.audio}` : null;
+    if (!dados?.audio) return null;
+    const src = `data:${dados.mimeType || 'audio/wav'};base64,${dados.audio}`;
+    if (codigo) void guardarNoCache(codigo, src);
+    return src;
   } catch { return null; }
 }
 
@@ -41,7 +151,8 @@ function falarNoNavegador(texto: string): Promise<void> {
     const voz = vozes.find((v) => feminina.test(v.name)) || vozes.find((v) => !masculina.test(v.name));
     const u = new SpeechSynthesisUtterance(texto);
     u.lang = 'pt-BR';
-    u.rate = 0.95;
+    u.rate = 0.95 * velocidadeVoz;
+    u.volume = volumeVoz;
     if (voz) u.voice = voz;
     u.onend = () => resolve();
     u.onerror = () => resolve();
@@ -64,6 +175,8 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
       if (!src) { await falarNoNavegador(trechos.slice(i).join(' ')); break; }
       await new Promise<void>((resolve) => {
         const audio = new Audio(src);
+        audio.volume = volumeVoz;
+        audio.playbackRate = velocidadeVoz;
         audioAtual = audio;
         audio.onended = () => resolve();
         audio.onerror = () => resolve();
