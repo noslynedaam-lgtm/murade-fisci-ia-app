@@ -27,6 +27,7 @@ function salvarAjuste(): void {
 export function ajustarVoz(texto: string): string | null {
   const t = texto.trim();
   if (t.split(' ').length > 8) return null;
+  if (/\b(troca|troque|muda|mude|trocar|mudar|outra)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
   if (/\bvoz (premium|humana|bonita|cara)\b/.test(t) && /\b(usa|use|usar|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
     definirPremium(true); return 'Ativei a voz premium. Ela é mais bonita, mas gasta mais da chave.';
   }
@@ -194,7 +195,31 @@ async function buscarAudio(trecho: string): Promise<string | null> {
   } catch { return null; }
 }
 
+const CHAVE_VOZ = 'murade_voz_escolhida_v1';
+function vozesPortugues(): SpeechSynthesisVoice[] {
+  const todas = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith('pt'));
+  const brasil = todas.filter((v) => /br/i.test(v.lang));
+  return brasil.length ? brasil : todas;
+}
+
+/** "Troca a voz": passa para a próxima voz em português deste aparelho e guarda a escolha. */
+export function trocarVoz(): string {
+  try {
+    const lista = vozesPortugues();
+    if (lista.length < 2) return 'Este aparelho só tem uma voz em português disponível.';
+    const atual = escolherVozDoNavegador();
+    const i = Math.max(0, lista.findIndex((v) => v.name === atual?.name));
+    const proxima = lista[(i + 1) % lista.length];
+    localStorage.setItem(CHAVE_VOZ, proxima.name);
+    return 'Pronto, esta é a nova voz. Gostou?';
+  } catch { return 'Não consegui trocar a voz agora.'; }
+}
+
 function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
+  try {
+    const salva = localStorage.getItem(CHAVE_VOZ);
+    if (salva) { const achada = vozesPortugues().find((v) => v.name === salva); if (achada) return achada; }
+  } catch { /* ignora */ }
   const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith('pt'));
   const brasil = vozes.filter((v) => /br/i.test(v.lang));
   const lista = brasil.length ? brasil : vozes;
@@ -214,7 +239,7 @@ function falarNoNavegador(texto: string): Promise<void> {
     const falar = () => {
       const u = new SpeechSynthesisUtterance(texto);
       u.lang = 'pt-BR';
-      u.rate = 1.0 * velocidadeVoz;
+      u.rate = 1.1 * velocidadeVoz;
       u.pitch = 1.0;
       u.volume = volumeVoz;
       const voz = escolherVozDoNavegador();
