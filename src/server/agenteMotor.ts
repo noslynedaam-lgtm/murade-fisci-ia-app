@@ -190,9 +190,12 @@ async function atalhoListarEmpresas(ctx: ContextoAgente, mensagem: string, porNo
     const lista: any[] = r.empresas;
     if (!lista.length) return { resposta: 'Não há nenhuma empresa cadastrada neste sistema.', acoes: [], whatsapp: [] };
     const nome = (e: any) => String(e.razaoSocial || e.nome || e.nomeFantasia || 'sem nome');
-    const partes = lista.slice(0, 20).map((e, i) => `${i + 1}. ${nome(e)}, CNPJ ${formatarCnpjFalado(e.cnpj)}${e.regime ? `, regime ${e.regime}` : ''}.`);
-    const mais = lista.length > 20 ? ` Mostrei as 20 primeiras de ${lista.length}.` : '';
-    return { resposta: `Você tem ${lista.length} ${lista.length === 1 ? 'empresa cadastrada' : 'empresas cadastradas'}. ${partes.join(' ')}${mais}`, acoes: [], whatsapp: [] };
+    const ordinais = ['primeira', 'segunda', 'terceira', 'quarta', 'quinta', 'sexta', 'sétima', 'oitava', 'nona', 'décima'];
+    const descricao = (e: any) => `${nome(e)}, CNPJ ${formatarCnpjFalado(e.cnpj)}${e.regime ? `, regime ${e.regime}` : ''}`;
+    if (lista.length === 1) return { resposta: `Você tem uma empresa cadastrada: ${descricao(lista[0])}.`, acoes: [], whatsapp: [] };
+    const partes = lista.slice(0, 10).map((e, i) => `A ${ordinais[i]} é ${descricao(e)}.`);
+    const mais = lista.length > 10 ? ` Mostrei as dez primeiras. Peça para ver as outras, se quiser.` : '';
+    return { resposta: `Você tem ${lista.length} empresas cadastradas. ${partes.join(' ')}${mais}`, acoes: [], whatsapp: [] };
   } catch { return null; }
 }
 

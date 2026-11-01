@@ -177,7 +177,6 @@ async function guardarNoCache(h: string, src: string): Promise<void> {
 }
 
 async function buscarAudio(trecho: string): Promise<string | null> {
-  if (!vozPremiumLigada()) return null;
   let codigo = '';
   try {
     codigo = await codigoDaFrase(trecho);
@@ -196,15 +195,17 @@ async function buscarAudio(trecho: string): Promise<string | null> {
 }
 
 function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
-  const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('pt'));
-  const masculina = /daniel|antonio|ant[oô]nio|felipe|ricardo|male|jorge|diego|donato|humberto/i;
-  const feminina = /maria|francisca|luciana|camila|vit[oó]ria|thalita|leticia|let[ií]cia|female|google portugu/i;
-  const natural = /natural|online/i;
-  return vozes.find((v) => natural.test(v.name) && feminina.test(v.name))
-    || vozes.find((v) => natural.test(v.name) && !masculina.test(v.name))
-    || vozes.find((v) => feminina.test(v.name))
-    || vozes.find((v) => !masculina.test(v.name))
-    || vozes[0];
+  const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith('pt'));
+  const brasil = vozes.filter((v) => /br/i.test(v.lang));
+  const lista = brasil.length ? brasil : vozes;
+  const masculina = /daniel|antonio|ant[oô]nio|felipe|ricardo|male|jorge|diego|donato|humberto|thiago/i;
+  const feminina = /maria|francisca|luciana|camila|vit[oó]ria|thalita|leticia|let[ií]cia|female/i;
+  // Ordem: voz "Natural/Online" (Edge, a mais humana) > voz de rede do Google > voz feminina local > qualquer uma.
+  return lista.find((v) => /natural|online/i.test(v.name) && !masculina.test(v.name))
+    || lista.find((v) => /google/i.test(v.name))
+    || lista.find((v) => feminina.test(v.name))
+    || lista.find((v) => !masculina.test(v.name))
+    || lista[0];
 }
 
 function falarNoNavegador(texto: string): Promise<void> {
@@ -213,7 +214,8 @@ function falarNoNavegador(texto: string): Promise<void> {
     const falar = () => {
       const u = new SpeechSynthesisUtterance(texto);
       u.lang = 'pt-BR';
-      u.rate = 0.95 * velocidadeVoz;
+      u.rate = 1.0 * velocidadeVoz;
+      u.pitch = 1.0;
       u.volume = volumeVoz;
       const voz = escolherVozDoNavegador();
       if (voz) u.voice = voz;
@@ -230,10 +232,17 @@ function falarNoNavegador(texto: string): Promise<void> {
 export async function falarHumana(texto: string, aoTerminar?: () => void): Promise<void> {
   pararHumana();
   const minha = sequencia;
-  const trechos = dividirEmTrechos(texto.trim());
-  if (!trechos.length) { aoTerminar?.(); return; }
+  const limpo = texto.trim();
+  if (!limpo) { aoTerminar?.(); return; }
   falandoFlag = true;
   try {
+    // Voz premium (Gemini) só em respostas curtas, para o custo ficar baixo. O resto usa a voz do navegador.
+    const usarPremium = vozPremiumLigada() && limpo.length <= 260;
+    if (!usarPremium) {
+      await falarNoNavegador(limpo);
+      return;
+    }
+    const trechos = dividirEmTrechos(limpo);
     let proximo = buscarAudio(trechos[0]);
     for (let i = 0; i < trechos.length; i += 1) {
       const src = await proximo;
