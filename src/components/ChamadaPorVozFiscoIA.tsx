@@ -37,6 +37,7 @@ export default function ChamadaPorVozFiscoIA() {
   const ocupadoRef = useRef(false);
   const textoFaladoRef = useRef('');
   const geracaoRef = useRef(0);
+  const janelaConversaRef = useRef(0);
   const pararRef = useRef<() => void>(() => {});
 
   const mostrar = (texto: string) => {
@@ -52,7 +53,7 @@ export default function ChamadaPorVozFiscoIA() {
     textoFaladoRef.current = limparTextoVoz(textoParaFala(texto));
     const fala = new SpeechSynthesisUtterance(textoParaFala(texto));
     fala.lang = 'pt-BR';
-    fala.onend = () => { ultimaFalaRef.current = Date.now(); };
+    fala.onend = () => { ultimaFalaRef.current = Date.now(); janelaConversaRef.current = Date.now() + 20000; };
     window.speechSynthesis.speak(fala);
   };
 
@@ -96,7 +97,7 @@ export default function ChamadaPorVozFiscoIA() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!ligada || !SR) return;
     const limpar = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-    const chamada = /\b(fisco|fisco ia)\b/;
+    const chamada = /\b(fisco|fisca|fisco ia)\b/;
     let ativo = true;
     let tempoComando: number | undefined;
     let rec: any;
@@ -115,12 +116,15 @@ export default function ChamadaPorVozFiscoIA() {
           // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
           if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
           // Ignora o que o próprio sistema está falando (e o eco dele), para não se chamar sozinho.
-          if (window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 3000) continue;
+          if (window.speechSynthesis?.speaking || Date.now() - ultimaFalaRef.current < 1500) continue;
           const faladas = new Set(textoFaladoRef.current.split(' '));
           const palavrasDita = texto.split(' ');
           if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && (texto === 'pois nao' || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
-          if (aguardandoRef.current) {
+          if (aguardandoRef.current || Date.now() < janelaConversaRef.current) {
+            // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
+            if (/^(obrigad[oa]|valeu|ok|certo|beleza|tchau|tudo bem|ta bom)$/.test(texto) || (chamada.test(texto) && texto.split(' ').length <= 2)) continue;
             aguardandoRef.current = false;
+            janelaConversaRef.current = 0;
             window.clearTimeout(tempoComando);
             void perguntarRef.current(bruto.trim());
           } else if (chamada.test(texto)) {
@@ -135,7 +139,7 @@ export default function ChamadaPorVozFiscoIA() {
         }
       };
       rec.onerror = (e: any) => { if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') { ativo = false; setLigada(false); } };
-      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 700); };
+      rec.onend = () => { if (ativo) window.setTimeout(iniciar, 150); };
       try { rec.start(); } catch { /* já iniciado */ }
     };
     iniciar();
@@ -150,13 +154,13 @@ export default function ChamadaPorVozFiscoIA() {
       )}
       <button
         type="button"
-        onClick={() => setLigada((v) => !v)}
+        onClick={() => { if (ligada) pararRef.current(); setLigada((v) => !v); }}
         aria-pressed={ligada}
-        className={`fixed bottom-3 right-3 z-[9999] flex h-9 w-9 items-center justify-center rounded-full border-2 text-base shadow-lg transition active:scale-95 ${ligada ? 'border-emerald-400 bg-[#0a2342] text-white' : 'border-slate-300 bg-white/90 text-slate-600'}`}
-        title={ligada ? 'Escutando: diga "Fisco" e peça. Toque para desligar.' : 'Chamada por voz desligada. Toque para ligar.'}
+        className={`fixed bottom-3 right-3 z-[9999] flex h-9 min-w-[3.6rem] items-center justify-center gap-1 rounded-full border-2 px-2 text-xs font-bold shadow-lg transition active:scale-95 ${ligada ? 'border-emerald-400 bg-[#0a2342] text-white' : 'border-rose-300 bg-white/95 text-rose-700'}`}
+        title={ligada ? 'Escutando. Toque para DESLIGAR a voz.' : 'Voz desligada. Toque para LIGAR.'}
         aria-label="Assistente Fisco IA por voz"
       >
-        {ligada ? '👂' : '🎙️'}
+        {ligada ? '👂 ligada' : '🔇 desligada'}
       </button>
     </>
   );
