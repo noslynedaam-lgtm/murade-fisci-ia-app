@@ -233,10 +233,24 @@ function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
     || lista[0];
 }
 
-function falarNoNavegador(texto: string): Promise<void> {
+// ---- Voz do navegador: por frases curtas, com proteção contra falha silenciosa e bloqueio do navegador ----
+let falaPendente: string | null = null;
+const esperar = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+function agruparFrases(texto: string): string[] {
+  const grupos: string[] = [];
+  let atual = '';
+  for (const frase of texto.split(/(?<=[.!?:;])\s+/)) {
+    if ((atual + ' ' + frase).length > 180 && atual) { grupos.push(atual.trim()); atual = frase; }
+    else atual = atual ? `${atual} ${frase}` : frase;
+  }
+  if (atual.trim()) grupos.push(atual.trim());
+  return grupos;
+}
+
+function falarTrecho(texto: string): Promise<boolean> {
   return new Promise((resolve) => {
-    if (!('speechSynthesis' in window)) return resolve();
-    const falar = () => {
+    try {
       const u = new SpeechSynthesisUtterance(texto);
       u.lang = 'pt-BR';
       u.rate = 1.1 * velocidadeVoz;
@@ -244,14 +258,62 @@ function falarNoNavegador(texto: string): Promise<void> {
       u.volume = volumeVoz;
       const voz = escolherVozDoNavegador();
       if (voz) u.voice = voz;
-      u.onend = () => resolve();
-      u.onerror = () => resolve();
+      let iniciou = false;
+      const vigia = window.setTimeout(() => { if (!iniciou) { try { window.speechSynthesis.cancel(); } catch { /* ignora */ } resolve(false); } }, 2200);
+      u.onstart = () => { iniciou = true; window.clearTimeout(vigia); };
+      u.onend = () => { window.clearTimeout(vigia); resolve(true); };
+      u.onerror = () => { window.clearTimeout(vigia); resolve(false); };
       window.speechSynthesis.speak(u);
-    };
-    // As vozes às vezes demoram a carregar na primeira vez.
-    if (window.speechSynthesis.getVoices().length) falar();
-    else { let feito = false; const ir = () => { if (!feito) { feito = true; falar(); } }; window.speechSynthesis.onvoiceschanged = ir; window.setTimeout(ir, 600); }
+    } catch { resolve(false); }
   });
+}
+
+function mostrarDicaVoz(): void {
+  try {
+    if (document.getElementById('murade-dica-voz')) return;
+    const d = document.createElement('div');
+    d.id = 'murade-dica-voz';
+    d.textContent = '🔊 Toque aqui para liberar a voz';
+    d.style.cssText = 'position:fixed;right:12px;bottom:56px;z-index:2147483000;background:#0a2342;color:#fff;padding:9px 14px;border-radius:14px;font:600 13px sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);cursor:pointer';
+    d.onclick = () => { d.remove(); liberarVoz(); };
+    document.body.appendChild(d);
+    window.setTimeout(() => d.remove(), 20000);
+  } catch { /* ignora */ }
+}
+
+function liberarVoz(): void {
+  try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch { /* ignora */ }
+  const pendente = falaPendente;
+  falaPendente = null;
+  document.getElementById('murade-dica-voz')?.remove();
+  if (pendente) void falarNoNavegador(pendente, sequencia);
+}
+
+// O navegador só deixa falar depois de um toque na página; o primeiro toque libera a voz.
+if (typeof window !== 'undefined') {
+  const eventos = ['pointerdown', 'touchstart', 'keydown', 'click'];
+  const aoToque = () => { liberarVoz(); eventos.forEach((e) => window.removeEventListener(e, aoToque, true)); };
+  eventos.forEach((e) => window.addEventListener(e, aoToque, true));
+}
+
+async function falarNoNavegador(texto: string, minha: number): Promise<void> {
+  if (!('speechSynthesis' in window)) return;
+  // As vozes às vezes demoram a carregar na primeira vez.
+  if (!window.speechSynthesis.getVoices().length) {
+    await new Promise<void>((resolve) => { let feito = false; const ir = () => { if (!feito) { feito = true; resolve(); } }; window.speechSynthesis.onvoiceschanged = ir; window.setTimeout(ir, 700); });
+  }
+  // Depois de cancelar, o Chrome pode engolir a fala seguinte: espera um instante.
+  await esperar(80);
+  const trechos = agruparFrases(texto);
+  for (let i = 0; i < trechos.length; i += 1) {
+    if (minha !== sequencia) return;
+    let ok = await falarTrecho(trechos[i]);
+    if (!ok && minha === sequencia) { await esperar(200); ok = await falarTrecho(trechos[i]); }
+    if (!ok) {
+      if (minha === sequencia) { falaPendente = trechos.slice(i).join(' '); mostrarDicaVoz(); }
+      return;
+    }
+  }
 }
 
 export async function falarHumana(texto: string, aoTerminar?: () => void): Promise<void> {
@@ -264,7 +326,7 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
     // Voz premium (Gemini) só em respostas curtas, para o custo ficar baixo. O resto usa a voz do navegador.
     const usarPremium = vozPremiumLigada() && limpo.length <= 260;
     if (!usarPremium) {
-      await falarNoNavegador(limpo);
+      await falarNoNavegador(limpo, minha);
       return;
     }
     const trechos = dividirEmTrechos(limpo);
@@ -273,7 +335,7 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
       const src = await proximo;
       if (minha !== sequencia) return;
       if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1]);
-      if (!src) { await falarNoNavegador(trechos.slice(i).join(' ')); break; }
+      if (!src) { await falarNoNavegador(trechos.slice(i).join(' '), minha); break; }
       await new Promise<void>((resolve) => {
         const audio = new Audio(src);
         audio.volume = volumeVoz;
