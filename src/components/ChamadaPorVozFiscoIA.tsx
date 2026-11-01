@@ -5,6 +5,22 @@ import { useEffect, useRef, useState } from 'react';
  * Responde em voz e mostra um aviso rápido. Ações que precisam de confirmação aparecem no aviso
  * e são confirmadas na tela, nunca por voz.
  */
+const textoParaFala = (t: string): string => String(t || '')
+  .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1')
+  .replace(/https?:\/\/\S+/g, 'o link na tela')
+  .replace(/\b(\d{2})\.?(\d{3})\.?(\d{3})\/?(\d{4})-?(\d{2})\b/g, '$1, $2, $3, $4, $5')
+  .replace(/\b(\d{3})\.(\d{3})\.(\d{3})-(\d{2})\b/g, '$1, $2, $3, $4')
+  .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '')
+  .replace(/^\s*[-*•]\s+/gm, '')
+  .replace(/[*_`#>|~]/g, ' ')
+  .replace(/\s*\n+\s*/g, '. ')
+  .replace(/\s{2,}/g, ' ')
+  .trim();
+const textoSemMarcas = (t: string): string => String(t || '')
+  .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1')
+  .replace(/[*_`#>|~]/g, '')
+  .replace(/[\u{1F000}-\u{1FAFF}\u{FE0F}]/gu, '')
+  .trim();
 const limparTextoVoz = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
 
@@ -24,7 +40,8 @@ export default function ChamadaPorVozFiscoIA() {
   const pararRef = useRef<() => void>(() => {});
 
   const mostrar = (texto: string) => {
-    setAviso(texto.length > 420 ? `${texto.slice(0, 417)}…` : texto);
+    const limpo = textoSemMarcas(texto);
+    setAviso(limpo.length > 420 ? `${limpo.slice(0, 417)}…` : limpo);
     window.clearTimeout(tempoAvisoRef.current);
     tempoAvisoRef.current = window.setTimeout(() => setAviso(''), 14000);
   };
@@ -32,8 +49,8 @@ export default function ChamadaPorVozFiscoIA() {
   const falar = (texto: string) => {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
-    textoFaladoRef.current = limparTextoVoz(texto);
-    const fala = new SpeechSynthesisUtterance(texto.replace(/[#*`_]/g, ''));
+    textoFaladoRef.current = limparTextoVoz(textoParaFala(texto));
+    const fala = new SpeechSynthesisUtterance(textoParaFala(texto));
     fala.lang = 'pt-BR';
     fala.onend = () => { ultimaFalaRef.current = Date.now(); };
     window.speechSynthesis.speak(fala);
