@@ -538,7 +538,11 @@ router.post('/ponte/uso', async (req, res) => {
     }, PAPEIS_CONSULTA);
     if (!r.autorizado || !('resultado' in r) || !r.resultado) return res.status(503).json({ registrado: false, mensagem: 'Não foi possível gravar o uso.' });
     return res.json({ registrado: true, cobrada: r.resultado.cobrada, ...('repetido' in r.resultado ? { repetido: true } : {}) });
-  } catch { return res.status(503).json({ registrado: false, mensagem: 'Falha ao gravar o uso.' }); }
+  } catch (erro) {
+    // Antes o erro real sumia e o Fiscal repetia o envio sem que ninguém soubesse o motivo. Agora o motivo vai para o log (sem CNPJ nem dados do cliente).
+    console.error('[ponte/uso] falha ao gravar o uso:', erro instanceof Error ? `${erro.name}: ${erro.message}` : 'erro desconhecido');
+    return res.status(503).json({ registrado: false, mensagem: 'Falha ao gravar o uso.' });
+  }
 });
 
 // ---- Transmissão da DCTFWeb (TRANSDECLARACAO310) ----
