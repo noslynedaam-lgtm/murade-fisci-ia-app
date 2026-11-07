@@ -77,6 +77,8 @@ try {
     // raw request tables private; runtime may use only the guarded DB functions.
     await client.query('REVOKE ALL ON TABLE fiscoia.sefaz_dfe_global_request_attempts FROM PUBLIC, fiscoia_runtime');
     await client.query('REVOKE ALL ON TABLE fiscoia.sefaz_dfe_global_request_state FROM PUBLIC, fiscoia_runtime');
+    // A liberação da consulta ao Serpro por empresa só é lida e gravada pelas funções protegidas (o escritório nunca mexe na tabela).
+    await client.query('REVOKE ALL ON TABLE fiscoia.serpro_company_gate FROM PUBLIC, fiscoia_runtime');
     await client.query('REVOKE ALL ON FUNCTION fiscoia.reserve_sefaz_dfe_request(text, uuid, uuid) FROM PUBLIC');
     await client.query('REVOKE ALL ON FUNCTION fiscoia.block_sefaz_dfe_cnpj(text, uuid, uuid, timestamptz) FROM PUBLIC');
     await client.query('GRANT EXECUTE ON FUNCTION fiscoia.reserve_sefaz_dfe_request(text, uuid, uuid) TO fiscoia_runtime');

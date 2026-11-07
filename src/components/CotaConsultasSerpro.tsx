@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 interface Cota {
   limiteGratis: number; gratisUsadas: number; consultasNaSemana: number; cobradasNaSemana: number;
-  gratisRestante: number; proximaConsultaCobrada: boolean; novaGratisEm: string; totalHistorico: number; mensagem: string;
+  gratisRestante: number; proximaConsultaCobrada: boolean; novaGratisEm: string; totalHistorico: number; mensagem: string; liberada?: boolean;
 }
 
 /** Mostra quantas consultas oficiais (SERPRO) a empresa já fez, o limite grátis da semana e o aviso de cobrança. */
@@ -22,6 +22,12 @@ export default function CotaConsultasSerpro({ companyId, tenantId }: { companyId
 
   if (!companyId || !tenantId || erro || !cota) return null;
   const data = cota.novaGratisEm.split('-').reverse().join('/');
+  if (cota.liberada === false) return (
+    <div className="rounded-2xl border border-slate-300 bg-slate-50 p-3 text-xs text-slate-900">
+      <p className="font-bold">Consulta oficial (SERPRO) ainda não liberada para esta empresa</p>
+      <p className="mt-1">O fornecedor do sistema libera a consulta empresa por empresa. Peça a liberação desta empresa; enquanto isso, nada é consultado nem cobrado.</p>
+    </div>
+  );
   return (
     <div className={`rounded-2xl border p-3 text-xs ${cota.proximaConsultaCobrada ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950'}`}>
       <p className="font-bold">Consultas oficiais (SERPRO) · esta semana</p>

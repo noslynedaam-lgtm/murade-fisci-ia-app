@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
+import LiberacaoConsultaSerpro from './LiberacaoConsultaSerpro';
 import { acharPdfBase64, declaracoesParaCsv, lerDeclaracoes, lerDetalheCaixaPostal, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerDetalheParcsn, lerPagamentoParcsn, lerParcelasParaGerarParcsn, lerPedidosParcsn, lerDasMei, lerDividaAtivaMei, lerDadosCcmei, type LinhaDeclaracao } from '../services/serpro/resultadoSerpro';
 
 interface Campo { nome: string; rotulo: string; exemplo: string; opcional?: boolean }
@@ -133,6 +134,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
         <CotaConsultasSerpro key={versaoCota} companyId={companyId} tenantId={tenantId} />
         <ConsumoSerproMensal key={`c${versaoCota}`} tenantId={tenantId} />
       </>)}
+      <LiberacaoConsultaSerpro />
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col text-sm font-bold text-slate-800 gap-1 w-full min-w-0 sm:w-auto">Tipo de consulta

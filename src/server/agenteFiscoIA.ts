@@ -82,6 +82,41 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'ver_liberacoes_serpro', description: 'Mostra quais empresas estão liberadas (ou travadas) para a consulta ao Serpro e quais pediram liberação. Só o dono do sistema (conta administradora) enxerga. Use busca para achar uma empresa, CNPJ ou escritório.', parameters: { type: 'OBJECT', properties: { busca: { type: 'STRING', description: 'Parte do nome da empresa, do CNPJ ou do escritório (opcional).' } } } },
+    async executar(ctx, args) {
+      const busca = typeof args.busca === 'string' ? args.busca.replace(/[^\p{L}\p{N} .\-/]/gu, '').trim().slice(0, 60) : '';
+      const r = await ctx.chamarApi('GET', `/api/serpro/liberacoes${busca ? `?busca=${q(busca)}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const linhas: any[] = r.corpo?.empresas || [];
+      return { total: linhas.length, aguardandoLiberacao: linhas.filter((l) => !l.liberada && l.pediuEm).length, empresas: linhas.slice(0, 40).map((l) => ({ id: l.empresaId, empresa: l.nome, cnpj: l.cnpj, escritorio: l.escritorio, situacao: l.liberada ? 'liberada' : l.pediuEm ? 'travada, pediu liberação' : 'travada' })), aviso: linhas.length > 40 ? 'Mostrando 40; refine a busca.' : undefined };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'liberar_consulta_serpro', description: 'Propõe LIBERAR ou voltar a TRAVAR a consulta ao Serpro de UMA empresa (a consulta grátis da semana só vale para empresa liberada). Uma empresa por vez. Descubra o id em ver_liberacoes_serpro. O dono confirma no cartão; só a conta administradora consegue.', parameters: { type: 'OBJECT', properties: { empresaId: { type: 'STRING', description: 'Id da empresa (UUID), vindo de ver_liberacoes_serpro.' }, liberar: { type: 'BOOLEAN', description: 'true para liberar, false para travar de novo.' } }, required: ['empresaId', 'liberar'] } },
+    async preparar(ctx, args) {
+      const empresaId = idDe(args.empresaId); if (!empresaId) return { erro: 'Informe a empresa pelo id; use ver_liberacoes_serpro para achar.' };
+      if (typeof args.liberar !== 'boolean') return { erro: 'Diga se é para liberar ou travar.' };
+      const r = await ctx.chamarApi('GET', '/api/serpro/liberacoes');
+      if (!ok(r)) return erroApi(r);
+      const l = (r.corpo?.empresas || []).find((x: any) => x.empresaId === empresaId);
+      if (!l) return { erro: 'Empresa não encontrada na lista de liberações. Busque pelo nome em ver_liberacoes_serpro.' };
+      const acao = args.liberar ? 'Liberar' : 'Travar';
+      return {
+        cnpj: String(l.cnpj || '').replace(/\D/g, ''), params: { empresaId, liberar: args.liberar },
+        titulo: `${acao} consulta ao Serpro: ${l.nome}`,
+        descricao: [`Empresa: ${l.nome} (CNPJ ${l.cnpj})`, `Escritório: ${l.escritorio}`, args.liberar ? 'Depois de liberar, esta empresa pode usar a consulta grátis da semana e as pagas.' : 'Depois de travar, esta empresa não consulta mais o Serpro.'],
+        aviso: args.liberar ? 'A consulta grátis da semana passa a ser custo seu para esta empresa.' : undefined,
+        resumo: `${acao} consulta ao Serpro de ${l.nome}`,
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/serpro/liberacoes/${q(String(params.empresaId))}`, { liberada: params.liberar === true });
+      return ok(r) ? { sucesso: true, mensagem: params.liberar ? 'Consulta ao Serpro liberada para a empresa.' : 'Consulta ao Serpro travada para a empresa.' } : { sucesso: false, mensagem: String(erroApi(r).erro) };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'status_robos', description: 'Mostra se os robôs do Fisco IA estão ativos, a missão de cada um, quando rodaram pela última vez e erros.', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/robos/status');
@@ -128,8 +163,12 @@ COMO TRABALHAR
 - Se há um único escritório, use-o. Se há várias empresas e o usuário não disse qual, pergunte. Para conferência, peça o período se ele não disse.
 - Para dúvidas de legislação, regra ou prazo, use consultar_legislacao e repasse as fontes oficiais.
 
+LIBERAÇÃO DAS CONSULTAS AO SERPRO (só o dono do sistema)
+- Toda empresa de escritório cliente começa travada: nem a consulta grátis da semana funciona até o dono liberar aquela empresa. Quando o dono pedir "libera/trava a consulta da empresa X", use ver_liberacoes_serpro (busca pelo nome) e depois liberar_consulta_serpro com o id; ele confirma no cartão. Uma empresa por vez; não existe "liberar todas".
+- Quando perguntarem quem está esperando liberação, use ver_liberacoes_serpro e diga quantas e quais.
+
 LIMITES (diga com clareza quando o pedido bater neles)
-- Aqui você só consulta e confere. Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
+- Aqui você só consulta e confere (a única coisa que você propõe mudar é a liberação das consultas ao Serpro, e o dono confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 

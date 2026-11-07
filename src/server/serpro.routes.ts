@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
 import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
@@ -11,6 +11,7 @@ import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type Opera
 import { tokenValido } from './agentesEntreSistemas';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
+import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
 import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -217,7 +218,7 @@ router.get('/consultas/:companyId', async (req, res) => {
     });
     if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!('resultado' in r) || r.resultado === null || r.resultado === undefined) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
-    return res.json(avaliarCota(r.resultado));
+    return res.json({ ...avaliarCota(r.resultado), liberada: user.ehAdmin || (await infoDoEscritorio(tenantId))?.donoDoSistema === true ? true : (await empresaLiberada(req.params.companyId)) === true });
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível consultar o controle de consultas.' });
   }
@@ -253,7 +254,7 @@ router.get('/consumo', async (req, res) => {
   }
 });
 
-interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta; escritorioCnpj?: string }
+interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta; escritorioCnpj?: string; exigirLiberacao?: boolean }
 const resp = (status: number, corpo: unknown) => ({ status, corpo });
 
 /** Núcleo da consulta paga: mesma regra de cota/custo para a tela do Fisco IA e para a ponte do DP. */
@@ -290,6 +291,14 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     if (!previa.autorizado) return resp(403, { mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!('resultado' in previa)) return resp(403, { mensagem: 'Somente proprietário ou administrador pode fazer consultas oficiais.' });
     if (!previa.resultado) return resp(404, { mensagem: 'Empresa não encontrada.' });
+    // Trava por empresa: escritório cliente e pontes só consultam depois que o dono do sistema libera aquela empresa. Nada é consultado nem reservado antes disso.
+    if (e.exigirLiberacao === true) {
+      const lib = decidirLiberacaoEmpresa({ exigirLiberacao: true, liberada: await empresaLiberada(companyId) });
+      if (lib.ok === false) {
+        if (lib.bloqueadaPorLiberacao) await pedirLiberacao(companyId);
+        return resp(lib.http, { consultado: false, bloqueadaPorLiberacao: lib.bloqueadaPorLiberacao, mensagem: lib.mensagem });
+      }
+    }
     const decisao = decidirConsulta(previa.resultado.cota, confirmouCusto);
     if (decisao.liberada === false) return resp(402, { consultado: false, exigeConfirmacao: true, cota: avaliarCota(previa.resultado.cota), mensagem: decisao.mensagem });
     let pedido;
@@ -381,6 +390,69 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
 
 
 
+/** A empresa está liberada para consultar o Serpro? Nulo se não deu para conferir (banco fora do ar ou atualização 017 ainda não aplicada): quem chama trata como NÃO liberada. */
+export async function empresaLiberada(companyId: string): Promise<boolean | null> {
+  const pool = obterPoolBanco();
+  if (!pool || !UUID.test(companyId)) return null;
+  try {
+    const q = await pool.query('SELECT fiscoia.serpro_company_released($1::uuid) AS liberada', [companyId]);
+    return q.rows[0]?.liberada === true;
+  } catch { return null; }
+}
+
+/** Deixa registrado que a empresa tentou consultar e foi barrada, para o dono ver no painel. Não libera nada. */
+async function pedirLiberacao(companyId: string): Promise<void> {
+  const pool = obterPoolBanco();
+  if (!pool) return;
+  try { await pool.query('SELECT fiscoia.serpro_request_release($1::uuid)', [companyId]); } catch { /* o pedido é só um aviso; a consulta já foi barrada */ }
+}
+
+export interface LinhaLiberacao { escritorioId: string; escritorio: string; empresaId: string; cnpj: string; nome: string; liberada: boolean; pediuEm: string | null; liberadaEm: string | null }
+
+async function listarLiberacoes(adminId: string, busca: string): Promise<LinhaLiberacao[]> {
+  const pool = obterPoolBanco();
+  if (!pool) throw new Error('Banco indisponível.');
+  const q = await pool.query('SELECT * FROM fiscoia.platform_list_serpro_gate($1::uuid, $2::text)', [adminId, busca || null]);
+  return q.rows.map((x): LinhaLiberacao => ({ escritorioId: String(x.tenant_id), escritorio: String(x.tenant_name), empresaId: String(x.company_id), cnpj: String(x.cnpj), nome: String(x.legal_name), liberada: x.released === true, pediuEm: x.requested_at ? new Date(x.requested_at).toISOString() : null, liberadaEm: x.released_at ? new Date(x.released_at).toISOString() : null }));
+}
+
+async function definirLiberacao(adminId: string, companyId: string, liberada: boolean): Promise<boolean> {
+  const pool = obterPoolBanco();
+  if (!pool) throw new Error('Banco indisponível.');
+  const q = await pool.query('SELECT fiscoia.platform_set_serpro_release($1::uuid, $2::uuid, $3::boolean) AS ok', [adminId, companyId, liberada]);
+  return q.rows[0]?.ok === true;
+}
+
+// Painel do dono: quais empresas estão liberadas para consultar o Serpro. Somente a conta administradora.
+router.get('/liberacoes', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora vê a liberação das consultas.' });
+    const busca = String(req.query.busca ?? '').replace(/[\u0000-\u001f%_\\]/g, '').trim().slice(0, 60);
+    return res.json({ empresas: await listarLiberacoes(user.id, busca) });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível carregar a liberação das consultas.' }); }
+});
+
+// Libera (ou volta a travar) a consulta ao Serpro de UMA empresa. Somente a conta administradora; sempre uma empresa por vez.
+const alterarLiberacao: RequestHandler = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!UUID.test(req.params.companyId)) return res.status(400).json({ mensagem: 'Empresa inválida.' });
+  if (typeof req.body?.liberada !== 'boolean') return res.status(400).json({ mensagem: 'Informe se é para liberar ou travar.' });
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora libera as consultas.' });
+    const ok = await definirLiberacao(user.id, req.params.companyId, req.body.liberada);
+    if (!ok) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
+    console.log(`[serpro] consulta ${req.body.liberada ? 'LIBERADA' : 'TRAVADA'} para a empresa ${req.params.companyId} pela conta administradora.`);
+    return res.json({ ok: true, liberada: req.body.liberada });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível salvar a liberação.' }); }
+};
+router.put('/liberacoes/:companyId', alterarLiberacao);
+router.post('/liberacoes/:companyId', alterarLiberacao); // a Agente IA só faz GET e POST
+
 /** O que cada escritório cliente consultou dentro do Fisco IA (para a cobrança). Só a conta administradora; vazio se a atualização 016 ainda não foi aplicada. */
 async function usoDosEscritorios(adminId: string): Promise<EmpresaConsumo[]> {
   const pool = obterPoolBanco();
@@ -424,7 +496,7 @@ router.post('/consulta', async (req, res) => {
   }
   if (decisao.ok === false) return res.status(decisao.http).json({ consultado: false, mensagem: decisao.mensagem });
   const { escritorio, escritorioCnpj } = decisao;
-  const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj });
+  const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: !user.ehAdmin && Boolean(escritorio) });
   return res.status(r.status).json(r.corpo);
 });
 
@@ -481,8 +553,28 @@ router.get('/ponte/cota', async (req, res) => {
     const e = await localizarEmpresaDaDona(cnpj);
     // Empresa ainda sem registro central: tem a consulta grátis da semana inteira.
     const cota = avaliarCota(e ? e.cota : { consultas: [] });
-    return res.json({ cadastrada: Boolean(e), cota, servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null, daCiencia: s.daCiencia === true })) });
+    return res.json({ cadastrada: Boolean(e), liberada: e ? await empresaLiberada(e.companyId) === true : false, cota, servicos: Object.values(CATALOGO_SERVICOS).filter(s => !s.soFluxoSeguro).map(s => ({ chave: s.chave, descricao: s.descricao, campos: s.campos ?? [], procuracao: s.procuracao ?? null, daCiencia: s.daCiencia === true })) });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível consultar a cota.' }); }
+});
+
+// O Fiscal pergunta, antes de chamar o Serpro por conta própria, se a empresa está liberada pelo dono. Se não estiver, deixa o pedido registrado para o painel.
+router.post('/ponte/liberacao', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) return res.status(503).json({ liberada: false, mensagem: 'Integração não configurada.' });
+  if (!tokenValido(req.get('authorization'))) return res.status(401).json({ liberada: false, mensagem: 'Credencial de integração inválida.' });
+  const cnpj = normalizarCnpj(String(req.body?.cnpj ?? ''));
+  if (!validarCnpj(cnpj)) return res.status(400).json({ liberada: false, mensagem: 'CNPJ inválido.' });
+  const esc = req.body?.escritorio as { id?: unknown; nome?: unknown } | undefined;
+  const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
+  const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
+  try {
+    const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
+    if (!e) return res.status(503).json({ liberada: false, mensagem: 'Não foi possível localizar a empresa.' });
+    const lib = await empresaLiberada(e.companyId);
+    if (lib === true) return res.json({ liberada: true });
+    if (lib === false) await pedirLiberacao(e.companyId);
+    return res.json({ liberada: false });
+  } catch { return res.status(503).json({ liberada: false, mensagem: 'Não foi possível conferir a liberação.' }); }
 });
 
 router.post('/ponte/consulta', async (req, res) => {
@@ -500,7 +592,7 @@ router.post('/ponte/consulta', async (req, res) => {
     const escritorioCnpj = bruto && validarCnpj(bruto) ? bruto : undefined;
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
-    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj });
+    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: true });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });
@@ -573,7 +665,7 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
 
     if (fase === 'preparar') {
       const dados: Record<string, string> = { categoria, anoPA, ...(mesPA ? { mesPA } : {}) };
-      const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: 'dctfwebXml', dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio });
+      const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: 'dctfwebXml', dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio, exigirLiberacao: true });
       if (r.status !== 200) return res.status(r.status).json(r.corpo);
       const xml = lerXmlDeclaracao((r.corpo as { bruto?: unknown }).bruto);
       if (!xml) return res.status(502).json({ preparada: false, mensagem: 'O SERPRO não devolveu o XML da declaração em andamento. Nada foi transmitido.' });
@@ -588,6 +680,9 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
     const hash = String(req.body?.hashXml ?? '');
     const preparo = XML_PREPARADO.get(hash);
     if (!preparo || preparo.cnpj !== cnpj || preparo.categoria !== categoria || preparo.anoPA !== anoPA || (preparo.mesPA ?? '') !== (mesPA ?? '')) return res.status(409).json({ transmitida: false, mensagem: 'A conferência expirou ou não é desta declaração. Refaça a etapa de conferência. Nada foi enviado.' });
+    // A liberação pode ter sido retirada entre a conferência e a confirmação: confere de novo antes de assinar e transmitir.
+    const libTransmitir = decidirLiberacaoEmpresa({ exigirLiberacao: true, liberada: await empresaLiberada(e.companyId) });
+    if (libTransmitir.ok === false) return res.status(libTransmitir.http).json({ transmitida: false, bloqueadaPorLiberacao: libTransmitir.bloqueadaPorLiberacao, mensagem: libTransmitir.mensagem });
     const prontidao = avaliarProntidao(process.env);
     if (!prontidao.pronto) return res.status(503).json({ transmitida: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi enviado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
     const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
