@@ -10,6 +10,8 @@ import { estadoChaveDados } from "./src/server/encryption";
 import { obterUsuarioDaSessao, obterIdentidadeAgente } from "./src/server/auth.routes";
 import { ArmazemAcoesPendentes, confirmarAcao as confirmarAcaoAgenteIA, conversar as conversarAgenteIA, recusarAcao as recusarAcaoAgenteIA, type ChamarApi, type ContextoAgente, type ModeloIA } from "./src/server/agenteMotor";
 import { kitFiscoIA } from "./src/server/agenteFiscoIA";
+import { lerPerfilSaudacao, gravarNomeTratamento, marcarSaudadoHoje } from "./src/server/agentePerfil";
+import { extrairNomeDaResposta, fraseDeSaudacao } from "./src/server/agenteSaudacao";
 import { ArmazemPedidosMemoria, ArmazemPedidosPg, CentralDePedidos, tokenValido, type ArmazemPedidos, type PedidoEntreAgentes } from "./src/server/agentesEntreSistemas";
 import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStatus";
 import { rodarAvisoCobrancas } from "./src/server/avisoCobrancas";
@@ -316,6 +318,35 @@ function mesmaOrigem(req: express.Request): boolean {
 }
 
 registrarRotaVozGemini(app, { obterIA: () => getGenAI(), autorizar: async (req) => Boolean(await obterUsuarioDaSessao(req)) });
+// Saudação do dia ("Bom dia, Herbert!") uma vez por dia por usuário; na primeira vez pede o nome. Regra fixa, sem IA, sem custo.
+// Sem a migração 019 no banco, não saúda e não grava nada (nunca quebra a conversa).
+app.post('/api/ai/agente/saudacao', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false });
+  try {
+    const id = await obterIdentidadeAgente(req);
+    if (!id) return res.status(401).json({ sucesso: false });
+    const perfil = await lerPerfilSaudacao(id.userId);
+    if (!perfil.disponivel) return res.json({ sucesso: true, saudar: false, precisaNome: false, indisponivel: true });
+    if (!perfil.nome) return res.json({ sucesso: true, precisaNome: true, saudar: true, frase: `${fraseDeSaudacao(null)} Eu sou a sua assistente. Qual é o seu nome?` });
+    if (perfil.saudadoHoje) return res.json({ sucesso: true, precisaNome: false, saudar: false, nome: perfil.nome });
+    if (!(await marcarSaudadoHoje(id.userId))) return res.json({ sucesso: true, saudar: false, precisaNome: false });
+    return res.json({ sucesso: true, precisaNome: false, saudar: true, nome: perfil.nome, frase: fraseDeSaudacao(perfil.nome) });
+  } catch (error) { console.error('Falha na saudação da Agente IA:', error instanceof Error ? error.message : error); return res.json({ sucesso: false }); }
+});
+app.post('/api/ai/agente/nome', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false });
+  try {
+    const id = await obterIdentidadeAgente(req);
+    if (!id) return res.status(401).json({ sucesso: false });
+    const nome = extrairNomeDaResposta(typeof req.body?.texto === 'string' ? req.body.texto : '');
+    if (!nome) return res.json({ sucesso: false, mensagem: 'Não entendi o nome. Pode repetir só o nome?' });
+    if (!(await gravarNomeTratamento(id.userId, nome))) return res.status(503).json({ sucesso: false, indisponivel: true, mensagem: 'Não consegui gravar o nome agora.' });
+    await marcarSaudadoHoje(id.userId);
+    return res.json({ sucesso: true, nome, frase: `Prazer, ${nome}! Pode falar o que precisa.` });
+  } catch (error) { console.error('Falha ao gravar o nome da Agente IA:', error instanceof Error ? error.message : error); return res.status(503).json({ sucesso: false, indisponivel: true, mensagem: 'Não consegui gravar o nome agora.' }); }
+});
 app.post('/api/ai/agente', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!mesmaOrigem(req)) return res.status(403).json({ error: 'Origem da requisição não autorizada.' });
@@ -330,6 +361,7 @@ app.post('/api/ai/agente', async (req, res) => {
     ? req.body.historico.filter((t: any) => t && (t.papel === 'usuario' || t.papel === 'ia') && typeof t.texto === 'string').slice(-10)
     : [];
   try {
+    try { ctx.nomeUsuario = (await lerPerfilSaudacao(ctx.login)).nome || undefined; } catch { /* sem o nome a conversa segue normal */ }
     return res.json({ sucesso: true, ...(await conversarAgenteIA(ctx, modeloGeminiAgente(), message, historico)) });
   } catch (error) {
     console.error('Falha na Agente IA do Fisco IA:', error instanceof Error ? error.message : error);

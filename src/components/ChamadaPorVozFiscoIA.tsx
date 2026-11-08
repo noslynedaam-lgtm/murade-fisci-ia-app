@@ -36,6 +36,7 @@ export default function ChamadaPorVozFiscoIA() {
   const ultimaFalaRef = useRef(0);
   const historicoRef = useRef<{ papel: 'usuario' | 'ia'; texto: string }[]>([]);
   const ocupadoRef = useRef(false);
+  const aguardandoNomeRef = useRef(false);
   const textoFaladoRef = useRef('');
   const geracaoRef = useRef(0);
   const janelaConversaRef = useRef(0);
@@ -59,6 +60,19 @@ export default function ChamadaPorVozFiscoIA() {
     if (ocupadoRef.current) return;
     ocupadoRef.current = true;
     const minhaGeracao = geracaoRef.current;
+    // Um pedido longo não é um nome: deixa de esperar o nome e segue a conversa normal.
+    if (aguardandoNomeRef.current && pedido.trim().split(/\s+/).length > 8) aguardandoNomeRef.current = false;
+    if (aguardandoNomeRef.current) {
+      // A resposta é o nome da pessoa: o servidor grava (regra fixa, sem IA) e a conversa só continua depois.
+      try {
+        const rn = await fetch('/api/ai/agente/nome', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: pedido }), signal: AbortSignal.timeout(15_000) });
+        const dn = await rn.json().catch(() => ({}));
+        const frase = typeof dn?.frase === 'string' ? dn.frase : (typeof dn?.mensagem === 'string' ? dn.mensagem : 'Não entendi o nome. Pode repetir só o nome?');
+        if (dn?.sucesso || dn?.indisponivel) aguardandoNomeRef.current = false;
+        if (minhaGeracao === geracaoRef.current) { mostrar(frase); falar(frase); }
+      } catch { aguardandoNomeRef.current = false; } finally { ocupadoRef.current = false; }
+      return;
+    }
     try {
       const resp = await fetch('/api/ai/agente', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
@@ -89,6 +103,24 @@ export default function ChamadaPorVozFiscoIA() {
   pararRef.current = () => { geracaoRef.current += 1; try { window.speechSynthesis?.cancel(); pararHumana(); } catch { /* ignora */ } aguardandoRef.current = false; setAviso(''); };
   const perguntarRef = useRef(perguntar);
   perguntarRef.current = perguntar;
+
+  // Saudação do dia ("Bom dia, Herbert!") e pergunta do nome na primeira vez. Regra fixa no servidor: não gasta crédito de IA.
+  useEffect(() => {
+    if (!ligada) return;
+    let cancelado = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const r = await fetch('/api/ai/agente/saudacao', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(15_000) });
+        const d = await r.json().catch(() => ({}));
+        if (cancelado || !r.ok || !d?.sucesso || !d.saudar || typeof d.frase !== 'string') return;
+        if (d.precisaNome) { aguardandoNomeRef.current = true; janelaConversaRef.current = Date.now() + 25000; }
+        mostrar(d.frase);
+        falar(d.frase);
+      } catch { /* sem saudação, o resto funciona igual */ }
+    }, 2500);
+    return () => { cancelado = true; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     try { localStorage.setItem('murade_chamada_voz', ligada ? '1' : '0'); } catch { /* ignora */ }

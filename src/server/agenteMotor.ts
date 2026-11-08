@@ -47,6 +47,7 @@ export interface MensagemWhatsAppParaTela {
   link: string;
 }
 import type { CentralDePedidos } from './agentesEntreSistemas';
+import { REGRAS_DE_ENTENDIMENTO, contextoDeRespostaCurta } from './agenteEntendimento';
 
 export interface ContextoAgente {
   sessaoHash: string;
@@ -58,6 +59,8 @@ export interface ContextoAgente {
   kit: KitAgente;
   /** Protocolo com as Agentes dos outros sistemas Murade. */
   central?: CentralDePedidos;
+  /** Nome de tratamento da pessoa que está falando (gravado pelo sistema; sem custo de IA). */
+  nomeUsuario?: string;
 }
 
 interface AcaoPendente {
@@ -205,7 +208,8 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   const rapida = await atalhoListarEmpresas(ctx, mensagem, porNome);
   if (rapida) return rapida;
   // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
-  let instrucao = ctx.kit.instrucao;
+  let instrucao = ctx.kit.instrucao + REGRAS_DE_ENTENDIMENTO;
+  if (ctx.nomeUsuario) instrucao += `\n\nA pessoa que está falando com você se chama ${ctx.nomeUsuario}. Trate-a pelo nome de vez em quando, de forma natural, sem repetir em toda frase. Não diga bom dia, boa tarde nem boa noite: o sistema já faz isso sozinho.`;
   try {
     const abertos = ctx.central ? (await ctx.central.caixaDeEntrada(true)).filter((p) => p.estado === 'recebido').length : 0;
     if (abertos > 0) instrucao += `\n\nAVISO: há ${abertos} pedido(s) recebido(s) de outros sistemas aguardando resposta. Na sua resposta, diga isso ao usuário em uma frase e ofereça mostrar (ver_pedidos_entre_sistemas).`;
@@ -213,7 +217,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   const conteudos: any[] = historico.slice(-10).filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
     role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 1500) }],
   }));
-  conteudos.push({ role: 'user', parts: [{ text: `Data de hoje: ${ctx.hoje}\n${mensagem}` }] });
+  conteudos.push({ role: 'user', parts: [{ text: `Data de hoje: ${ctx.hoje}\n${contextoDeRespostaCurta(mensagem, historico)}${mensagem}` }] });
 
   const acoes: AcaoParaTela[] = [];
   const whatsapp: MensagemWhatsAppParaTela[] = [];
