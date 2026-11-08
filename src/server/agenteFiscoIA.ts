@@ -117,6 +117,29 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'seguranca_login', description: 'Mostra a segurança do login das últimas 24 horas: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados, quantas contas têm o código de segurança ligado e se o dono do sistema está com ele ligado. Só o dono do sistema vê. Só lê; não bloqueia nem libera ninguém.', parameters: { type: 'OBJECT', properties: {} } },
+    async executar(ctx) {
+      const r = await ctx.chamarApi('GET', '/api/auth/2fa/resumo');
+      if (!ok(r)) return erroApi(r);
+      return { situacao: r.corpo?.texto, alerta: r.corpo?.alerta === true, numeros: r.corpo?.resumo, donosSemCodigo: r.corpo?.donosSemCodigo };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'redefinir_codigo_usuario', description: 'Propõe redefinir o código de segurança de um usuário que perdeu o celular: o código é desligado, ele sai de todos os aparelhos e entra de novo só com a senha (depois pode ligar o código outra vez). O dono do sistema pode redefinir qualquer usuário; o responsável de um escritório, só os da própria equipe.', parameters: { type: 'OBJECT', properties: { email: { type: 'STRING', description: 'E-mail de quem perdeu o celular.' } }, required: ['email'] } },
+    async preparar(_ctx, args) {
+      const email = String(args.email || '').trim().toLowerCase();
+      if (email.length < 5 || email.length > 254 || !/^[a-z0-9._%+\-]+@[a-z0-9.\-]+$/.test(email)) return { erro: 'Informe o e-mail de quem perdeu o celular.' };
+      return { cnpj: '', params: { email }, titulo: 'Redefinir código de segurança', descricao: [`Usuário ${email}`, 'O código de segurança dele é desligado e ele sai de todos os aparelhos. Entra de novo só com a senha e pode ligar o código outra vez.'], aviso: 'Confirme que é mesmo a pessoa quem pediu (por exemplo, por telefone), porque quem tiver só a senha passa a entrar sem o código até ele ligar de novo.', resumo: `Redefinir código de segurança de ${email}` };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/auth/2fa/redefinir', params);
+      if (!ok(r)) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      return { sucesso: true, mensagem: r.corpo?.aviso || 'Código redefinido.' };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'status_robos', description: 'Mostra se os robôs do Fisco IA estão ativos, a missão de cada um, quando rodaram pela última vez e erros.', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/robos/status');

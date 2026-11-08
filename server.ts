@@ -15,7 +15,8 @@ import { executarRobo, registrarRobo, statusRobos } from "./src/server/robosStat
 import { rodarAvisoCobrancas } from "./src/server/avisoCobrancas";
 import { conferirLiberacoesSerpro } from "./src/server/conferidorLiberacoesSerpro";
 import { obterPoolBanco } from "./src/server/persistence";
-import authRoutes from "./src/server/auth.routes";
+import authRoutes, { resumoSeguranca } from "./src/server/auth.routes";
+import { criarBarreiraDoDono } from "./src/server/segurancaFiscoIA";
 import { listarAtividadeEquipe, registrarAtividadeEquipe } from "./src/server/atividadeEquipe";
 import tenantRoutes from "./src/server/tenant.routes";
 import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
@@ -58,6 +59,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
   }
   return next(error);
 });
+app.use('/api', criarBarreiraDoDono(async (req) => { const u = await obterUsuarioDaSessao(req); return u ? { id: u.id, ehAdmin: u.ehAdmin === true } : null; }));
 app.use('/api', registrarAtividadeEquipe);
 app.get('/api/auth/atividade', listarAtividadeEquipe);
 app.use('/api/auth', authRoutes);
@@ -369,6 +371,11 @@ timerMensageiro.unref();
 registrarRobo({ id: 'aviso_cobrancas', nome: 'Robô de Aviso de Cobranças (Serpro)', posto: 'conferidor', missao: 'Às 20h (Brasília), mandar por e-mail ao dono o resumo das consultas COBRADAS do dia (escritório, empresa, serviço e valor), para ele conferir antes de cobrar. Só lê o que já foi registrado; não consulta o Serpro.', intervaloMs: 10 * 60_000 });
 const timerAvisoCobrancas = setInterval(() => { executarRobo('aviso_cobrancas', async () => { const r = await rodarAvisoCobrancas(); if (!r.startsWith('Aguardando') && !r.startsWith('Resumo de hoje')) console.log(`[Aviso de cobranças] ${r}`); }).catch((e) => console.error('Falha no Robô de Aviso de Cobranças:', e?.message || e)); }, 10 * 60_000);
 timerAvisoCobrancas.unref();
+registrarRobo({ id: 'seguranca_login', nome: 'Robô Conferidor de Segurança do Login', posto: 'conferidor', missao: 'Conferir, só em leitura, as últimas 24 horas do login: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados e se o dono do sistema está com o código de segurança ligado. Avisa quando algo foge do normal. Nunca bloqueia, libera nem altera nenhuma conta.', intervaloMs: 2 * 60 * 60_000 });
+const rodarSegurancaLogin = () => { executarRobo('seguranca_login', async () => { const r = await resumoSeguranca(1); if (r.alerta) throw new Error(r.texto); }).catch((e) => console.error('[Segurança do login]', e?.message || e)); };
+const timerSegurancaLogin = setInterval(rodarSegurancaLogin, 2 * 60 * 60_000);
+setTimeout(rodarSegurancaLogin, 130_000).unref();
+timerSegurancaLogin.unref();
 registrarRobo({ id: 'conferidor_liberacoes_serpro', nome: 'Robô Conferidor das Liberações (Serpro)', posto: 'conferidor', missao: 'A cada 6 horas, conferir se alguma empresa usou o Serpro sem estar liberada pelo dono e quantas estão esperando liberação. Só lê o que já foi registrado; não consulta o Serpro, não libera nem trava nada. Se achar uso sem liberação, aparece como alerta aqui.', intervaloMs: 6 * 60 * 60_000 });
 const rodarConferidorLiberacoes = () => { executarRobo('conferidor_liberacoes_serpro', async () => { const r = await conferirLiberacoesSerpro(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor das liberações do Serpro] ${r}`); }).catch((e) => console.error('[Conferidor das liberações do Serpro]', e?.message || e)); };
 const timerConferidorLiberacoes = setInterval(rodarConferidorLiberacoes, 6 * 60 * 60_000);

@@ -7,7 +7,7 @@ import { TIPOS_USUARIO, TipoUsuario } from '../../config/Permissoes';
 import SimboloContabil from '../../components/SimboloContabil';
 
 interface LoginScreenProps {
-  onLoginSucesso: (usuario: UsuarioAuth) => void;
+  onLoginSucesso: (usuario: UsuarioAuth, precisaAtivar2fa?: boolean) => void;
   onPedirPrimeiroAcesso: (email: string) => void;
   onEsqueciSenha: (emailAtual?: string) => void;
   mensagemSistema?: string | null;
@@ -23,6 +23,9 @@ export default function LoginScreen({
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [precisaCodigo, setPrecisaCodigo] = useState(false);
+  const [codigo, setCodigo] = useState('');
+  const [confiarAparelho, setConfiarAparelho] = useState(true);
   const [notificacaoTipo, setNotificacaoTipo] = useState<{ tipo: 'ADMIN' | 'CONTADOR'; msg: string; subtitulo: string } | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -35,8 +38,16 @@ export default function LoginScreen({
     setCarregando(true);
     setErro(null);
 
-    const resposta = await login(email, senha);
+    const resposta = await login(email, senha, precisaCodigo ? codigo : undefined, confiarAparelho);
     setCarregando(false);
+
+    if (resposta.precisaCodigo) {
+      // Senha certa, mas a conta usa o código de segurança do celular.
+      setPrecisaCodigo(true);
+      setCodigo('');
+      setErro(resposta.mensagem || null);
+      return;
+    }
 
     if (resposta.precisaTrocarSenha) {
       // ⚠️ PRIMEIRO ACESSO → Vai direto para a troca obrigatória de senha
@@ -68,7 +79,7 @@ export default function LoginScreen({
 
       // Pequeno delay para exibir o feedback visual claro de quem é quem
       setTimeout(() => {
-        onLoginSucesso(usuarioFinal);
+        onLoginSucesso(usuarioFinal, resposta.precisaAtivar2fa === true);
       }, 700);
     } else {
       setErro(resposta.mensagem || 'E-mail ou senha incorretos.');
@@ -174,6 +185,25 @@ export default function LoginScreen({
               className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600 focus:bg-white font-medium"
             />
           </div>
+
+          {precisaCodigo && (
+            <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <label className="font-bold text-emerald-900 block">Código de segurança do celular</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value)}
+                placeholder="6 dígitos do aplicativo"
+                maxLength={20}
+                className="w-full px-4 py-3 bg-white border border-emerald-300 rounded-xl outline-none focus:ring-2 focus:ring-emerald-100 font-bold tracking-widest text-center text-base"
+              />
+              <p className="text-[11px] text-emerald-900">Abra o aplicativo de código no celular (Google ou Microsoft Authenticator). Perdeu o celular? Digite um código de emergência.</p>
+              <label className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={confiarAparelho} onChange={(e) => setConfiarAparelho(e.target.checked)} />Confiar neste aparelho (não pedir o código de novo aqui)</label>
+            </div>
+          )}
 
           <button
             type="submit"

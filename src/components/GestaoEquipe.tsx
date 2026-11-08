@@ -67,6 +67,12 @@ export default function GestaoEquipe({ idPlano = 'profissional' }: { idPlano?: '
           {usuarios.length === 0 && <p className="border-t py-2 text-sm text-slate-500">Nenhum usuário na equipe ainda.</p>}
           {usuarios.map((m) => <div key={m.id} className="border-t py-2 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span>{m.email}{!m.ativo && <em className="ml-2 text-xs text-amber-700">bloqueado</em>}</span><span className="flex flex-wrap gap-3">
             {m.ativo && <button className="text-blue-800 hover:underline" onClick={() => void gerarLink(m)}>Nova senha (gerar link)</button>}
+            {m.ativo && <button className="text-blue-800 hover:underline" onClick={() => void executar(async () => {
+              const r = await fetch('/api/auth/2fa/redefinir', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: m.email }) });
+              const d = await r.json().catch(() => ({}));
+              if (!r.ok || d.sucesso !== true) throw new Error(String(d.mensagem || 'Não foi possível redefinir o código.'));
+              return String(d.aviso || 'Código redefinido.');
+            }, `Redefinir o código de segurança de ${m.email} (celular perdido)? Ele sai de todos os aparelhos e entra de novo só com a senha. Confirme que é mesmo a pessoa quem pediu.`)}>Redefinir código (celular perdido)</button>}
             <button className="text-amber-700 hover:underline" onClick={() => void executar(() => definirBloqueioMembro(m.id, m.ativo), m.ativo ? `Bloquear ${m.email}? Ele sai na hora e não entra até você desbloquear.` : undefined)}>{m.ativo ? 'Bloquear' : 'Desbloquear'}</button>
             <button className="text-slate-700 hover:underline" onClick={() => void executar(() => removerMembroEquipe(m.id), `Tirar ${m.email} da equipe? Ele perde o acesso às empresas do escritório; nada é apagado.`)}>Tirar da equipe</button>
             <button className="text-red-700 hover:underline" onClick={() => void executar(() => excluirMembroEquipe(m.id), `EXCLUIR ${m.email}? A conta é apagada e não tem volta. Os dados das empresas não são apagados.`)}>Excluir</button></span></div><LinkCaixa id={m.id} /></div>)}

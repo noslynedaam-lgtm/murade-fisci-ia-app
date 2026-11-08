@@ -26,9 +26,10 @@ test('conferência usa a rota existente e rejeita data ou id inválidos sem cham
 test('o Fisco IA não tem nenhuma ferramenta que altere notas, certificado ou cadastro', () => {
   const locais = kitFiscoIA.ferramentas.filter((f) => !['perguntar_a_outro_sistema', 'pedir_a_outro_sistema', 'ver_pedidos_entre_sistemas', 'responder_pedido_de_outro_sistema'].includes(f.declaracao.name));
   assert.ok(locais.length > 0);
-  // A única ação permitida é a liberação das consultas ao Serpro, que só o dono confirma no cartão e só a conta administradora consegue.
+  // As únicas ações permitidas: liberar as consultas ao Serpro (só a conta administradora consegue) e redefinir o código de segurança de
+  // quem perdeu o celular (dono, ou responsável sobre a própria equipe). As duas só valem depois de o dono confirmar no cartão.
   const acoes = locais.filter((f) => f.tipo !== 'leitura').map((f) => f.declaracao.name);
-  assert.deepEqual(acoes, ['liberar_consulta_serpro']);
+  assert.deepEqual(acoes, ['liberar_consulta_serpro', 'redefinir_codigo_usuario']);
 });
 
 const E = '33333333-3333-4333-8333-333333333333';

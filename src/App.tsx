@@ -37,6 +37,7 @@ import { AlertCircle, ShieldCheck, Mail, LogIn, Key, X, ShieldAlert, ClipboardCh
 import { NavigationProvider } from './context/NavigationContext';
 import { MonitorPendenciasFiscal } from './components/MonitorPendenciasFiscal';
 import PortalSistemasMurade from './components/PortalSistemasMurade';
+import { SegurancaConta } from './components/SegurancaConta';
 
 export default function App() {
   const [abaAtiva, setAbaAtiva] = useState<string>('dashboard');
@@ -68,6 +69,8 @@ export default function App() {
     return redefinir ? 'redefinir' : tokenConvite ? 'convite' : 'login';
   });
   const [verificandoSessao, setVerificandoSessao] = useState(true);
+  const [precisaAtivar2fa, setPrecisaAtivar2fa] = useState(false);
+  const [mostrarSeguranca, setMostrarSeguranca] = useState(false);
   const [mensagemAuthServidor, setMensagemAuthServidor] = useState<string | null>(null);
   const [emailPrimeiroAcesso, setEmailPrimeiroAcesso] = useState('');
   const [emailRecuperacao, setEmailRecuperacao] = useState('');
@@ -153,6 +156,7 @@ export default function App() {
       if (!ativo) return;
       if (resultado.autenticado && resultado.usuario) {
         setUsuarioAtual(resultado.usuario);
+        setPrecisaAtivar2fa(resultado.precisaAtivar2fa === true);
         setPlanoAtivoId(resultado.usuario.idPlano);
         setModoAuth(resultado.usuario.primeiroAcesso ? 'primeiro_acesso' : 'app');
         // Abre o sistema direto; o portal "Meus sistemas" continua no menu superior.
@@ -236,9 +240,10 @@ export default function App() {
   };
 
   // Handlers de Auth
-  const handleLoginSucesso = (usuario: UsuarioAuth) => {
+  const handleLoginSucesso = (usuario: UsuarioAuth, exigirCodigoDeSeguranca: boolean = false) => {
     setMensagemAuthServidor(null);
     setUsuarioAtual(usuario);
+    setPrecisaAtivar2fa(exigirCodigoDeSeguranca);
     setPlanoAtivoId(usuario.idPlano);
     setModoAuth('app');
     setAbaAtiva('dashboard');
@@ -249,6 +254,8 @@ export default function App() {
   const handleLogout = async () => {
     const resultado = await logout();
     setUsuarioAtual(null);
+    setPrecisaAtivar2fa(false);
+    setMostrarSeguranca(false);
     setModoAuth('login');
     setMostrarPortalSistemas(false);
     notificarMudancaSessao();
@@ -301,6 +308,15 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-sm text-slate-600">
         Validando sua sessão segura no servidor…
+      </div>
+    );
+  }
+
+  // Dono do sistema sem o código de segurança: só consegue ligar o código (ou sair); o servidor também barra o resto.
+  if (modoAuth === 'app' && usuarioAtual && precisaAtivar2fa) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <SegurancaConta sistema="Murade Fisco IA" obrigatorio aoMudar={() => setPrecisaAtivar2fa(false)} aoSair={() => { void handleLogout(); }} />
       </div>
     );
   }
@@ -457,6 +473,11 @@ export default function App() {
         {/* Área Principal de Conteúdo */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Navbar Superior com Toggle do Menu Lateral e Janelinha de Senha Admin */}
+          {mostrarSeguranca && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
+              <SegurancaConta sistema="Murade Fisco IA" aoMudar={() => undefined} aoFechar={() => setMostrarSeguranca(false)} />
+            </div>
+          )}
           <Navbar
             abaAtiva={abaAtiva}
             onSelecionarAba={handleNavegacao}
@@ -464,6 +485,7 @@ export default function App() {
             onMudarPlano={setPlanoAtivoId}
             usuarioAtual={usuarioAtual}
             onLogout={handleLogout}
+            onAbrirSeguranca={() => setMostrarSeguranca(true)}
             onAbrirPortal={() => setMostrarPortalSistemas(true)}
             onAbrirEmails={() => setModalEmailsAberto(true)}
             adminDesbloqueado={adminDesbloqueado}

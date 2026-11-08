@@ -5,6 +5,12 @@ import { pbkdf2 as pbkdf2Callback } from 'node:crypto';
 import { obterPoolBanco } from './persistence';
 import { emailConfigurado, enviarEmail } from './emailMurade';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
+import {
+  aparelhoConfiavel, concluirAtivacao2fa, cookieAparelho, criarAparelhoConfiavel, desativar2fa, estaBloqueado, iniciarAtivacao2fa,
+  ler2fa, lerCookie as lerCookieSeguranca, limparFalhasDoAparelho, limparSeguranca, mensagemDoResumo, NOME_COOKIE_APARELHO, registrarEvento,
+  registrarFalha, resumirSeguranca, tem2faAtivo, verificarSegundoFator,
+} from './segurancaLogin';
+import { chaveMestra2fa, consultarSeguranca, EMISSOR_2FA, esquecerAtivoEmMemoria, obrigatorio2faDono, PREFIXO_SEGURANCA_FISCOIA as PS, segurancaDisponivel } from './segurancaFiscoIA';
 
 const pbkdf2 = promisify(pbkdf2Callback);
 const router = Router();
@@ -203,28 +209,43 @@ router.use((_req, res, next) => {
   next();
 });
 
+/** Informações de segurança que acompanham o login e a sessão (o front usa para pedir o código ou obrigar o dono a ligá-lo). */
+async function infoSeguranca(userId: string, ehAdmin: boolean): Promise<{ doisFatores: boolean; doisFatoresDisponivel: boolean; precisaAtivar2fa: boolean }> {
+  try {
+    const disponivel = Boolean(chaveMestra2fa()) && await segurancaDisponivel();
+    if (!disponivel) return { doisFatores: false, doisFatoresDisponivel: false, precisaAtivar2fa: false };
+    const ativo = await tem2faAtivo(consultarSeguranca, PS, userId);
+    return { doisFatores: ativo, doisFatoresDisponivel: true, precisaAtivar2fa: ehAdmin && obrigatorio2faDono() && !ativo };
+  } catch { return { doisFatores: false, doisFatoresDisponivel: false, precisaAtivar2fa: false }; }
+}
+
 router.post('/login', async (req, res) => {
   const now = Date.now();
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const rate = rateLimits.get(ip);
-  const current = !rate || now >= rate.resetAt ? { count: 0, resetAt: now + 15 * 60_000 } : rate;
-  if (rateLimits.size > 1000) {
-    for (const [key, value] of rateLimits) if (now >= value.resetAt) rateLimits.delete(key);
-    if (rateLimits.size > 1000) rateLimits.clear();
-  }
-  current.count += 1;
-  rateLimits.set(ip, current);
-  if (current.count > 10) return res.status(429).json({ mensagem: 'Muitas tentativas. Aguarde 15 minutos.' });
-
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Autenticação central indisponível: banco permanente não configurado.' });
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const senha = typeof req.body?.senha === 'string' ? req.body.senha : '';
+  const seguranca = await segurancaDisponivel();
+  let tentativaAntiga: { count: number; resetAt: number } | null = null;
+  if (!seguranca) {
+    // Enquanto a migração 018 não rodou: segue o limite antigo, só em memória.
+    const rate = rateLimits.get(ip);
+    tentativaAntiga = !rate || now >= rate.resetAt ? { count: 0, resetAt: now + 15 * 60_000 } : rate;
+    if (rateLimits.size > 1000) {
+      for (const [key, value] of rateLimits) if (now >= value.resetAt) rateLimits.delete(key);
+      if (rateLimits.size > 1000) rateLimits.clear();
+    }
+    tentativaAntiga.count += 1;
+    rateLimits.set(ip, tentativaAntiga);
+    if (tentativaAntiga.count > 10) return res.status(429).json({ mensagem: 'Muitas tentativas. Aguarde 15 minutos.' });
+  }
   if (!email || email.length > 254 || !senha || senha.length > 1024) {
     return res.status(400).json({ mensagem: 'Informe e-mail e senha.' });
   }
 
   try {
+    if (seguranca && await estaBloqueado(consultarSeguranca, PS, ip, email)) return res.status(429).json({ mensagem: 'Muitas tentativas. Aguarde 15 minutos.' });
     const result = await pool.query('SELECT * FROM fiscoia.users WHERE email = $1 LIMIT 1', [email]);
     const row = result.rows[0] as Record<string, unknown> | undefined;
     // Mantém o custo PBKDF2 também quando o e-mail não existe, reduzindo
@@ -232,7 +253,30 @@ router.post('/login', async (req, res) => {
     const senhaValida = await verificarHash(row?.password_hash ?? DUMMY_PASSWORD_HASH, senha);
     // A resposta é igual para conta inexistente, senha incorreta ou conta suspensa.
     if (!row || row.active !== true || !senhaValida || await usuarioDeEscritorioBloqueado(pool, row.id, row.is_admin === true || row.account_type === 'ADMIN')) {
+      if (seguranca) {
+        const bloqueou = await registrarFalha(consultarSeguranca, PS, ip, email);
+        if (bloqueou) return res.status(429).json({ mensagem: 'Muitas tentativas. Aguarde 15 minutos.' });
+      }
       return res.status(401).json({ mensagem: 'E-mail ou senha incorretos.' });
+    }
+    // Segundo fator: só depois de a senha estar certa (ninguém descobre quem usa código só tentando e-mails).
+    let cookieDoAparelho: string | null = null;
+    const userId = String(row.id);
+    if (seguranca && (await ler2fa(consultarSeguranca, PS, userId))?.ativo === true) {
+      const chave = chaveMestra2fa();
+      if (!chave) return res.status(503).json({ mensagem: 'O código de segurança está indisponível agora. Fale com o administrador do sistema.' });
+      const conhecido = await aparelhoConfiavel(consultarSeguranca, PS, userId, lerCookieSeguranca(req.headers.cookie, NOME_COOKIE_APARELHO));
+      if (!conhecido) {
+        const codigo = typeof req.body?.codigo === 'string' ? req.body.codigo.trim().slice(0, 40) : '';
+        if (!codigo) return res.status(401).json({ precisaCodigo: true, mensagem: 'Digite o código de segurança do aplicativo no seu celular.' });
+        const conferido = await verificarSegundoFator(consultarSeguranca, PS, chave, userId, codigo);
+        if (!conferido.ok) {
+          const bloqueou = await registrarFalha(consultarSeguranca, PS, ip, email, 'codigo_falhou');
+          return res.status(bloqueou ? 429 : 401).json({ precisaCodigo: !bloqueou, mensagem: bloqueou ? 'Muitas tentativas. Aguarde 15 minutos.' : 'Código incorreto ou já usado. Espere o número mudar no aplicativo e digite o novo.' });
+        }
+        if (conferido.via === 'emergencia') await registrarEvento(consultarSeguranca, PS, 'codigo_emergencia_usado', email, ip);
+        if (req.body?.confiarAparelho !== false) cookieDoAparelho = cookieAparelho(await criarAparelhoConfiavel(consultarSeguranca, PS, userId), process.env.NODE_ENV === 'production');
+      }
     }
     const rawToken = randomBytes(32).toString('base64url');
     const duracao = duracaoSessao(req);
@@ -242,8 +286,11 @@ router.post('/login', async (req, res) => {
       [row.id, hashToken(rawToken), duracao],
     );
     definirCookie(res, rawToken, duracao);
+    if (cookieDoAparelho) res.append('Set-Cookie', cookieDoAparelho);
     rateLimits.delete(ip);
-    return res.json({ sucesso: true, usuario: usuarioPublico(row) });
+    if (seguranca) await limparFalhasDoAparelho(consultarSeguranca, PS, ip);
+    const ehAdmin = row.is_admin === true || row.account_type === 'ADMIN';
+    return res.json({ sucesso: true, usuario: usuarioPublico(row), ...(await infoSeguranca(userId, ehAdmin)) });
   } catch {
     return res.status(503).json({ mensagem: 'Autenticação central indisponível. Verifique banco e migrações.' });
   }
@@ -254,7 +301,7 @@ router.get('/session', async (req, res) => {
   try {
     const session = await obterSessao(req);
     if (!session) return res.status(401).json({ autenticado: false });
-    return res.json({ autenticado: true, usuario: session.user });
+    return res.json({ autenticado: true, usuario: session.user, ...(await infoSeguranca(session.user.id, session.user.ehAdmin === true)) });
   } catch {
     return res.status(503).json({ autenticado: false, mensagem: 'Não foi possível validar a sessão no banco.' });
   }
@@ -1085,6 +1132,154 @@ router.post('/logout', async (req, res) => {
     }
   }
   return res.json({ sucesso: true });
+});
+
+// ===== Código de segurança (2FA por aplicativo no celular) =====
+const naoCache = (res: Response) => { res.setHeader('Cache-Control', 'no-store'); };
+const resp = (res: Response, status: number, texto: string, extra: Record<string, unknown> = {}) => res.status(status).json({ sucesso: false, mensagem: texto, motivo: texto, ...extra });
+
+router.get('/2fa', async (req, res) => {
+  try {
+    const session = await obterSessao(req);
+    if (!session) return resp(res, 401, 'Entre no sistema primeiro.');
+    const disponivel = Boolean(chaveMestra2fa()) && await segurancaDisponivel();
+    const estado = disponivel ? await ler2fa(consultarSeguranca, PS, session.user.id) : null;
+    naoCache(res);
+    return res.json({ sucesso: true, disponivel, ativo: estado?.ativo === true, emergenciaRestantes: estado?.ativo ? estado.emergenciaRestantes : 0, obrigatorio: disponivel && session.user.ehAdmin && obrigatorio2faDono() });
+  } catch { return resp(res, 503, 'Não foi possível consultar agora.'); }
+});
+
+router.post('/2fa/iniciar', async (req, res) => {
+  try {
+    const session = await obterSessao(req);
+    if (!session) return resp(res, 401, 'Entre no sistema primeiro.');
+    const chave = chaveMestra2fa();
+    if (!chave || !(await segurancaDisponivel())) return resp(res, 503, 'O código de segurança ainda não está disponível neste sistema.');
+    const inicio = await iniciarAtivacao2fa(consultarSeguranca, PS, chave, session.user.id, session.user.email, EMISSOR_2FA);
+    const QR = await import('qrcode');
+    const qr = await QR.toDataURL(inicio.uri, { margin: 1, width: 240, errorCorrectionLevel: 'M' });
+    naoCache(res);
+    return res.json({ sucesso: true, segredo: inicio.segredo, uri: inicio.uri, qr });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : '';
+    if (/já está ativo/.test(msg)) return resp(res, 409, msg);
+    return resp(res, 503, 'Não foi possível preparar agora.');
+  }
+});
+
+router.post('/2fa/ativar', async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  try {
+    const session = await obterSessao(req);
+    if (!session) return resp(res, 401, 'Entre no sistema primeiro.');
+    const chave = chaveMestra2fa();
+    if (!chave || !(await segurancaDisponivel())) return resp(res, 503, 'O código de segurança ainda não está disponível neste sistema.');
+    if (await estaBloqueado(consultarSeguranca, PS, ip, session.user.email)) return resp(res, 429, 'Muitas tentativas. Aguarde 15 minutos.');
+    const r = await concluirAtivacao2fa(consultarSeguranca, PS, chave, session.user.id, String(req.body?.codigo || '').slice(0, 40));
+    if (!r.ok) {
+      await registrarFalha(consultarSeguranca, PS, ip, session.user.email, 'codigo_falhou');
+      return resp(res, 400, 'Código incorreto. Confira o número que aparece agora no aplicativo e digite de novo.');
+    }
+    await registrarEvento(consultarSeguranca, PS, '2fa_ativado', session.user.email, ip);
+    esquecerAtivoEmMemoria(session.user.id);
+    // Este aparelho acabou de provar que tem o celular: não pede o código de novo aqui.
+    res.append('Set-Cookie', cookieAparelho(await criarAparelhoConfiavel(consultarSeguranca, PS, session.user.id), process.env.NODE_ENV === 'production'));
+    naoCache(res);
+    return res.json({ sucesso: true, codigosEmergencia: r.codigosEmergencia, aviso: 'Guarde estes códigos de emergência em lugar seguro. Cada um vale uma vez e não aparecem de novo.' });
+  } catch { return resp(res, 503, 'Não foi possível ativar agora.'); }
+});
+
+router.post('/2fa/desativar', async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  try {
+    const session = await obterSessao(req);
+    if (!session) return resp(res, 401, 'Entre no sistema primeiro.');
+    const chave = chaveMestra2fa();
+    if (session.user.ehAdmin && obrigatorio2faDono()) return resp(res, 409, 'O código de segurança é obrigatório para o dono do sistema e não pode ser desligado.');
+    if (!chave || !(await segurancaDisponivel()) || !(await tem2faAtivo(consultarSeguranca, PS, session.user.id))) return resp(res, 409, 'O código de segurança não está ligado nesta conta.');
+    if (await estaBloqueado(consultarSeguranca, PS, ip, session.user.email)) return resp(res, 429, 'Muitas tentativas. Aguarde 15 minutos.');
+    const senhaOk = await verificarHash(session.passwordHash, String(req.body?.senha || '').slice(0, 1024));
+    const codigoOk = senhaOk && (await verificarSegundoFator(consultarSeguranca, PS, chave, session.user.id, String(req.body?.codigo || '').slice(0, 40))).ok;
+    if (!senhaOk || !codigoOk) {
+      await registrarFalha(consultarSeguranca, PS, ip, session.user.email, senhaOk ? 'codigo_falhou' : 'login_falhou');
+      return resp(res, 400, 'Senha ou código incorretos.');
+    }
+    await desativar2fa(consultarSeguranca, PS, session.user.id);
+    await registrarEvento(consultarSeguranca, PS, '2fa_desativado', session.user.email, ip);
+    esquecerAtivoEmMemoria(session.user.id);
+    naoCache(res);
+    return res.json({ sucesso: true });
+  } catch { return resp(res, 503, 'Não foi possível desativar agora.'); }
+});
+
+/**
+ * Celular perdido: o dono do sistema redefine o código de qualquer pessoa; o responsável do escritório, só de quem é da equipe dele.
+ * Apaga o código, os aparelhos confiáveis e as sessões abertas da pessoa.
+ */
+export async function redefinirCodigoDeUsuario(session: { user: PublicUser }, emailAlvo: string, ip: string): Promise<{ ok: true; email: string } | { ok: false; status: number; motivo: string }> {
+  const pool = obterPoolBanco();
+  if (!pool) return { ok: false, status: 503, motivo: 'Banco permanente não configurado.' };
+  const email = String(emailAlvo || '').trim().toLowerCase();
+  if (!email || email.length > 254) return { ok: false, status: 400, motivo: 'Informe o e-mail do usuário.' };
+  const alvo = await pool.query('SELECT id, email FROM fiscoia.users WHERE email = $1 LIMIT 1', [email]);
+  const linha = alvo.rows[0] as { id: string; email: string } | undefined;
+  let permitido = false;
+  if (linha) {
+    if (session.user.ehAdmin) permitido = true;
+    else {
+      const equipe = await consultarComoUsuario(pool, session.user.id,
+        `SELECT 1 FROM fiscoia.tenant_memberships mine
+           JOIN fiscoia.tenant_memberships m ON m.tenant_id = mine.tenant_id
+          WHERE mine.user_id = $1 AND mine.role IN ('OWNER','ADMIN') AND m.user_id = $2 AND m.role = 'CONTADOR' LIMIT 1`, [session.user.id, linha.id]);
+      permitido = Boolean(equipe.rows[0]);
+    }
+  }
+  if (!linha || !permitido) return { ok: false, status: 403, motivo: 'Você não pode redefinir o código deste usuário.' };
+  if (!(await segurancaDisponivel())) return { ok: false, status: 503, motivo: 'O código de segurança ainda não está disponível neste sistema.' };
+  await desativar2fa(consultarSeguranca, PS, String(linha.id));
+  await pool.query('UPDATE fiscoia.auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [linha.id]);
+  await registrarEvento(consultarSeguranca, PS, '2fa_redefinido', email, ip);
+  esquecerAtivoEmMemoria(String(linha.id));
+  return { ok: true, email };
+}
+
+router.post('/2fa/redefinir', async (req, res) => {
+  try {
+    const session = await obterSessao(req);
+    if (!session) return resp(res, 401, 'Entre no sistema primeiro.');
+    const r = await redefinirCodigoDeUsuario(session, String(req.body?.email || req.body?.login || ''), req.ip || 'unknown');
+    if (r.ok === false) return resp(res, r.status, r.motivo);
+    naoCache(res);
+    return res.json({ sucesso: true, aviso: `Código de segurança de ${r.email} redefinido. Na próxima entrada a pessoa entra só com a senha e pode ligar o código de novo.` });
+  } catch { return resp(res, 503, 'Não foi possível redefinir agora.'); }
+});
+
+/** Contas do dono do sistema (administradoras ativas) que ainda estão sem código de segurança; só conta quando a exigência está valendo. */
+export async function donosDoSistemaSemCodigo(): Promise<string[]> {
+  const pool = obterPoolBanco();
+  if (!pool || !obrigatorio2faDono() || !(await segurancaDisponivel())) return [];
+  const donos = await pool.query('SELECT id, email FROM fiscoia.users WHERE is_admin = true AND active = true ORDER BY created_at LIMIT 20');
+  const sem: string[] = [];
+  for (const d of donos.rows as Array<{ id: string; email: string }>) if (!(await tem2faAtivo(consultarSeguranca, PS, String(d.id)))) sem.push(String(d.email));
+  return sem;
+}
+
+/** Só leitura: o que o robô conferidor e a Agente IA mostram sobre a segurança do login. */
+export async function resumoSeguranca(dias = 1): Promise<{ disponivel: boolean; resumo: Awaited<ReturnType<typeof resumirSeguranca>> | null; donosSemCodigo: string[]; alerta: boolean; texto: string }> {
+  if (!(await segurancaDisponivel())) return { disponivel: false, resumo: null, donosSemCodigo: [], alerta: false, texto: 'A proteção de login ainda não foi ativada neste servidor (falta rodar a atualização do banco 018).' };
+  await limparSeguranca(consultarSeguranca, PS);
+  const resumo = await resumirSeguranca(consultarSeguranca, PS, dias);
+  const donosSemCodigo = await donosDoSistemaSemCodigo();
+  return { disponivel: true, resumo, donosSemCodigo, ...mensagemDoResumo(resumo, donosSemCodigo) };
+}
+
+router.get('/2fa/resumo', async (req, res) => {
+  try {
+    const session = await obterSessao(req);
+    if (!session?.user.ehAdmin) return resp(res, 403, 'Somente o dono do sistema vê o resumo de segurança.');
+    naoCache(res);
+    return res.json({ sucesso: true, ...(await resumoSeguranca(1)) });
+  } catch { return resp(res, 503, 'Não foi possível consultar agora.'); }
 });
 
 export default router;

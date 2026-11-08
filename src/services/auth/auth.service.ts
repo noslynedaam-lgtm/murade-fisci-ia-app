@@ -52,10 +52,10 @@ export function obterSessaoAtual(): UsuarioAuth | null {
   return null;
 }
 
-export async function validarSessaoCentral(): Promise<{ autenticado: boolean; usuario?: UsuarioAuth; mensagem?: string }> {
-  const resultado = await requisicaoAuthCentral<{ autenticado?: boolean; usuario?: UsuarioAuth; mensagem?: string }>('session');
+export async function validarSessaoCentral(): Promise<{ autenticado: boolean; usuario?: UsuarioAuth; mensagem?: string; precisaAtivar2fa?: boolean }> {
+  const resultado = await requisicaoAuthCentral<{ autenticado?: boolean; usuario?: UsuarioAuth; mensagem?: string; precisaAtivar2fa?: boolean }>('session');
   if (resultado.ok && resultado.dados?.autenticado && resultado.dados.usuario) {
-    return { autenticado: true, usuario: resultado.dados.usuario };
+    return { autenticado: true, usuario: resultado.dados.usuario, precisaAtivar2fa: resultado.dados.precisaAtivar2fa === true };
   }
   if (resultado.status === 401) return { autenticado: false };
   return {
@@ -64,16 +64,23 @@ export async function validarSessaoCentral(): Promise<{ autenticado: boolean; us
   };
 }
 
-export async function login(email: string, senha: string): Promise<{
+export async function login(email: string, senha: string, codigo?: string, confiarAparelho: boolean = true): Promise<{
   sucesso: boolean;
   mensagem?: string;
   precisaTrocarSenha?: boolean;
+  /** A conta usa código de segurança: peça o número de 6 dígitos do aplicativo no celular. */
+  precisaCodigo?: boolean;
+  /** Dono do sistema que ainda não ligou o código de segurança. */
+  precisaAtivar2fa?: boolean;
   usuario?: UsuarioAuth;
 }> {
-  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; usuario?: UsuarioAuth; mensagem?: string }>('login', {
+  const resultado = await requisicaoAuthCentral<{ sucesso?: boolean; usuario?: UsuarioAuth; mensagem?: string; precisaCodigo?: boolean; precisaAtivar2fa?: boolean }>('login', {
     method: 'POST',
-    body: JSON.stringify({ email, senha }),
+    body: JSON.stringify(codigo !== undefined ? { email, senha, codigo, confiarAparelho } : { email, senha }),
   });
+  if (resultado.dados?.precisaCodigo === true) {
+    return { sucesso: false, precisaCodigo: true, mensagem: codigo ? resultado.dados.mensagem : undefined };
+  }
   if (!resultado.ok || !resultado.dados?.usuario) {
     return { sucesso: false, mensagem: resultado.dados?.mensagem || (resultado.status === 0
       ? 'Não foi possível conectar ao servidor de autenticação.'
@@ -82,6 +89,7 @@ export async function login(email: string, senha: string): Promise<{
   return {
     sucesso: true,
     precisaTrocarSenha: resultado.dados.usuario.primeiroAcesso,
+    precisaAtivar2fa: resultado.dados.precisaAtivar2fa === true,
     usuario: resultado.dados.usuario,
   };
 }
