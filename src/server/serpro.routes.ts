@@ -533,7 +533,7 @@ async function localizarEmpresaDaDona(cnpj: string, criar?: { razaoSocial: strin
       const nova = await comContextoTenant(userId, tenantId, async client => {
         const q = await client.query(
           `INSERT INTO fiscoia.companies (tenant_id, cnpj, legal_name, metadata) VALUES ($1, $2, $3, $4::jsonb)
-           ON CONFLICT (tenant_id, cnpj) DO UPDATE SET updated_at = now() RETURNING id, metadata->'serproCota' AS cota`,
+           ON CONFLICT (tenant_id, cnpj) WHERE archived_at IS NULL DO UPDATE SET updated_at = now() RETURNING id, metadata->'serproCota' AS cota`,
           [tenantId, cnpj, criar.razaoSocial.slice(0, 200) || cnpj, JSON.stringify({ origem: 'ponte-dp', ...(criar.escritorio ? { escritorioOrigem: criar.escritorio } : {}) })]);
         return { companyId: String(q.rows[0].id), cota: (q.rows[0].cota as CotaEmpresa | null) ?? { consultas: [] } };
       }, PAPEIS_CONSULTA);
