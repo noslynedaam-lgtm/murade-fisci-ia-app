@@ -676,7 +676,7 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
 
     if (fase !== 'confirmar') return res.status(400).json({ mensagem: 'Informe a fase: "preparar" ou "confirmar".' });
     if (process.env.SERPRO_DCTFWEB_TRANSMISSAO_HABILITADA !== 'true') return res.status(403).json({ transmitida: false, mensagem: 'A transmissão da DCTFWeb está desligada (SERPRO_DCTFWEB_TRANSMISSAO_HABILITADA não é "true"). Nada foi enviado.' });
-    if (req.body?.confirmarCusto !== true || req.body?.confirmarTransmissao !== true) return res.status(402).json({ transmitida: false, exigeConfirmacao: true, mensagem: 'Confirme a transmissão (ela envia a declaração à Receita) e o custo de R$ 0,40 do serviço Declarar.' });
+    if (req.body?.confirmarCusto !== true || req.body?.confirmarTransmissao !== true) return res.status(402).json({ transmitida: false, exigeConfirmacao: true, mensagem: 'Confirme a transmissão (ela envia a declaração à Receita) e o custo de R$ 1,00 (cobrado por fora da mensalidade quando a cota grátis da semana já foi usada).' });
     const hash = String(req.body?.hashXml ?? '');
     const preparo = XML_PREPARADO.get(hash);
     if (!preparo || preparo.cnpj !== cnpj || preparo.categoria !== categoria || preparo.anoPA !== anoPA || (preparo.mesPA ?? '') !== (mesPA ?? '')) return res.status(409).json({ transmitida: false, mensagem: 'A conferência expirou ou não é desta declaração. Refaça a etapa de conferência. Nada foi enviado.' });

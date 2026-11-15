@@ -57,7 +57,7 @@ export function avaliarCota(cota: CotaEmpresa | null | undefined, agora = new Da
     novaGratisEm: proximaSemana(semana),
     totalHistorico: lista.length,
     mensagem: proximaConsultaCobrada
-      ? 'A consulta gratuita desta semana já foi usada. Nova consulta será cobrada à parte, conforme o custo real do SERPRO.'
+      ? 'A consulta gratuita desta semana já foi usada. Nova consulta custa R$ 1,00, cobrada por fora da mensalidade.'
       : 'Esta empresa ainda tem a consulta gratuita da semana.',
   };
 }
@@ -70,7 +70,7 @@ export function decidirConsulta(cota: CotaEmpresa | null | undefined, confirmouC
   const st = avaliarCota(cota, agora);
   if (!st.proximaConsultaCobrada) return { liberada: true, cobrada: false };
   if (!confirmouCusto) {
-    return { liberada: false, motivo: 'confirmar_custo', mensagem: 'Limite gratuito da semana atingido para esta empresa. Uma nova consulta é cobrada à parte. Confirme para prosseguir.' };
+    return { liberada: false, motivo: 'confirmar_custo', mensagem: 'Limite gratuito da semana atingido para esta empresa. Uma nova consulta custa R$ 1,00, cobrada por fora da mensalidade. Confirme para prosseguir.' };
   }
   return { liberada: true, cobrada: true };
 }

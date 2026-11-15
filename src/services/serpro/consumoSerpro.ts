@@ -2,12 +2,15 @@
  * Extrato de consumo SERPRO por escritório, para a cobrança mensal.
  * Deriva dos registros de cada empresa (companies.metadata.serproCota.consultas): sem tabela nova.
  * Ciclo do contrato: do dia 21 do mês anterior ao dia 20 do mês de referência (fuso de Brasília).
- * Preços por requisição (contrato): Consulta R$ 0,24 · Emissão R$ 0,32 · Declaração R$ 0,40.
+ * Custo por requisição (contrato com o SERPRO): Consulta R$ 0,24 · Emissão R$ 0,32 · Declaração R$ 0,40.
+ * Valor cobrado do escritório: R$ 1,00 por consulta acima da cota grátis da semana (1 por empresa), por fora da mensalidade.
  * "Apoiar" (pedido de protocolo) é tratado como consulta — confira na fatura real do SERPRO.
  */
 import type { RegistroConsulta } from './cotaSemanal';
 
 export type OperacaoSerpro = 'Consultar' | 'Emitir' | 'Apoiar' | 'Declarar' | 'Monitorar';
+/** Quanto o escritório paga por cada consulta cobrada (acima da cota grátis). O custo do SERPRO fica em PRECO_POR_OPERACAO. */
+export const VALOR_CONSULTA_COBRADA = 1;
 export const PRECO_POR_OPERACAO: Record<OperacaoSerpro, number> = { Consultar: 0.24, Apoiar: 0.24, Emitir: 0.32, Declarar: 0.4, /* PREÇO A CONFIRMAR: a página do INNOVAMSG63 não informa o valor; estimado igual ao de Consultar até o Serpro confirmar. */ Monitorar: 0.24 };
 
 export interface EmpresaConsumo { id: string; cnpj: string; nome: string; consultas: RegistroConsulta[] }
@@ -54,9 +57,9 @@ export function montarExtrato(empresas: EmpresaConsumo[], ciclo: string, operaca
       let l = mapa.get(chave);
       if (!l) { l = { escritorio: orig.nome, escritorioId: orig.id, empresaId: e.id, cnpj: e.cnpj, nome: e.nome, consultas: 0, gratuitas: 0, cobradas: 0, valorCobrado: 0, custoAbsorvido: 0 }; mapa.set(chave, l); }
       const preco = PRECO_POR_OPERACAO[c.operacao ?? operacaoDoServico(c.servico)] ?? PRECO_POR_OPERACAO.Consultar; // operação gravada no registro (uso vindo do Fiscal) vale mais que o catálogo
-      eventos.push({ em: c.em, escritorio: orig.nome, escritorioId: orig.id, cnpj: e.cnpj, nome: e.nome, servico: c.servico, cobrada: c.cobrada, valor: c.cobrada ? preco : 0 });
+      eventos.push({ em: c.em, escritorio: orig.nome, escritorioId: orig.id, cnpj: e.cnpj, nome: e.nome, servico: c.servico, cobrada: c.cobrada, valor: c.cobrada ? VALOR_CONSULTA_COBRADA : 0 });
       l.consultas++;
-      if (c.cobrada) { l.cobradas++; l.valorCobrado += preco; } else { l.gratuitas++; l.custoAbsorvido += preco; }
+      if (c.cobrada) { l.cobradas++; l.valorCobrado += VALOR_CONSULTA_COBRADA; } else { l.gratuitas++; l.custoAbsorvido += preco; }
     }
   }
   const linhas = [...mapa.values()].map((l) => ({ ...l, valorCobrado: arred(l.valorCobrado), custoAbsorvido: arred(l.custoAbsorvido) }));

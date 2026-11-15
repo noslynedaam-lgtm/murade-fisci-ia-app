@@ -24,9 +24,9 @@ test('extrato soma só o ciclo, separa gratuitas de cobradas e usa preço da ope
   ], '2026-10', ch => (ch === 'emitir' ? 'Emitir' : 'Consultar'));
   assert.equal(ex.linhas.length, 1);
   assert.equal(ex.totalConsultas, 3);
-  assert.equal(ex.valorACobrar, 0.56);
-  assert.equal(ex.custoAbsorvido, 0.24);
-  assert.match(extratoParaCsv(ex), /0,56/);
+  assert.equal(ex.valorACobrar, 2); // 2 cobradas × R$ 1,00, qualquer que seja a operação
+  assert.equal(ex.custoAbsorvido, 0.24); // a gratuita é custo do fornecedor, pelo preço do contrato
+  assert.match(extratoParaCsv(ex), /2,00/);
 });
 
 test('extrato separa por escritório para o boleto de cada um', () => {
@@ -36,7 +36,7 @@ test('extrato separa por escritório para o boleto de cada um', () => {
     { id: '2', cnpj: '2', nome: 'B', consultas: [c({ id: 'e1', nome: 'Contadora' })] },
   ], '2026-10', () => 'Consultar');
   const e1 = ex.porEscritorio.find((x) => x.escritorioId === 'e1')!;
-  assert.equal(e1.empresas, 2); assert.equal(e1.cobradas, 2); assert.equal(e1.gratuitas, 1); assert.equal(e1.valorCobrado, 0.48);
+  assert.equal(e1.empresas, 2); assert.equal(e1.cobradas, 2); assert.equal(e1.gratuitas, 1); assert.equal(e1.valorCobrado, 2);
   assert.equal(ex.porEscritorio.length, 2);
 });
 
@@ -47,18 +47,18 @@ test('extrato traz cada consulta do ciclo, com situação e valor, e o CSV leva 
     { em: '2026-10-26T15:00:00.000Z', semana: '2026-10-26', cobrada: true, servico: 'dctfwebGuia', escritorio: { id: 'o1', nome: 'ana@x.com' } },
   ] }], '2026-11', (k) => (k === 'dctfwebGuia' ? 'Emitir' : 'Consultar'));
   assert.equal(ex.eventos.length, 2);
-  assert.deepEqual([ex.eventos[0].servico, ex.eventos[0].cobrada, ex.eventos[0].valor], ['dctfwebGuia', true, 0.32]);
+  assert.deepEqual([ex.eventos[0].servico, ex.eventos[0].cobrada, ex.eventos[0].valor], ['dctfwebGuia', true, 1]);
   assert.equal(ex.eventos[1].valor, 0);
   const csv = extratoParaCsv(ex);
-  assert.match(csv, /DETALHE/); assert.match(csv, /COBRADA;0,32/); assert.match(csv, /grátis;0,00/);
+  assert.match(csv, /DETALHE/); assert.match(csv, /COBRADA;1,00/); assert.match(csv, /grátis;0,00/);
 });
-test('uso vindo do Fiscal: a operação gravada no registro define o preço (Declarar R$ 0,40)', () => {
+test('uso vindo do Fiscal: a operação gravada no registro define o preço (custo Declarar R$ 0,40; cobrado R$ 1,00)', () => {
   const ex = montarExtrato([
     { id: 'a', cnpj: '1', nome: 'A', consultas: [
       { em: '2026-10-05T15:00:00Z', semana: 'x', cobrada: true, servico: 'PGDASD.TRANSDECLARACAO11', operacao: 'Declarar', escritorio: { id: 'esc1', nome: 'Escritório 1' } },
       { em: '2026-10-06T15:00:00Z', semana: 'x', cobrada: true, servico: 'PGDASD.CONSULTIMADECREC14', operacao: 'Consultar', escritorio: { id: 'esc1', nome: 'Escritório 1' } },
     ] },
   ], '2026-10', () => 'Consultar');
-  assert.equal(ex.valorACobrar, 0.64);
+  assert.equal(ex.valorACobrar, 2);
   assert.equal(ex.porEscritorio[0].escritorio, 'Escritório 1');
 });

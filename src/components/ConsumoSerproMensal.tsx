@@ -92,7 +92,7 @@ export default function ConsumoSerproMensal({ tenantId }: { tenantId?: string })
               </div>
             </details>
           )}
-          <p className="text-xs text-slate-600">Valores pelo contrato: consulta R$ 0,24 · emissão R$ 0,32 · declaração R$ 0,40. Confira com a fatura do SERPRO antes de lançar o boleto.</p>
+          <p className="text-xs text-slate-600">Cada consulta acima da cota grátis da semana é cobrada a R$ 1,00, por fora da mensalidade. O custo do SERPRO por requisição (consulta R$ 0,24 · emissão R$ 0,32 · declaração R$ 0,40) é só para a sua conferência: confira com a fatura do SERPRO antes de lançar o boleto.</p>
         </>
       )}
     </section>

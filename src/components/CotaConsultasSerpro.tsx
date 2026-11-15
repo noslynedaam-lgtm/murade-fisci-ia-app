@@ -32,7 +32,7 @@ export default function CotaConsultasSerpro({ companyId, tenantId }: { companyId
     <div className={`rounded-2xl border p-3 text-xs ${cota.proximaConsultaCobrada ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-emerald-200 bg-emerald-50 text-emerald-950'}`}>
       <p className="font-bold">Consultas oficiais (SERPRO) · esta semana</p>
       <p className="mt-1">
-        Gratuitas: {cota.gratisUsadas} de {cota.limiteGratis} usada(s) · Cobradas à parte: {cota.cobradasNaSemana} · Total no histórico: {cota.totalHistorico}
+        Gratuitas: {cota.gratisUsadas} de {cota.limiteGratis} usada(s) · Cobradas (R$ 1,00 cada): {cota.cobradasNaSemana} · Total no histórico: {cota.totalHistorico}
       </p>
       <p className="mt-1">{cota.mensagem} {cota.proximaConsultaCobrada && `Nova consulta gratuita a partir de ${data}.`}</p>
       <p className="mt-1 text-[11px] opacity-80">O limite é por empresa e não acumula para a semana seguinte.</p>

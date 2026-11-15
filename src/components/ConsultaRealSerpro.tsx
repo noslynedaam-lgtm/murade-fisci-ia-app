@@ -92,7 +92,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       });
       const d = await r.json().catch(() => ({})) as { consultado?: boolean; exigeConfirmacao?: boolean; mensagem?: string; faltando?: string[]; bruto?: unknown; relatorio?: unknown; cabecalhos?: unknown; statusGateway?: number; consultadoEm?: string };
       if (r.status === 409 && (d as { exigeCiencia?: boolean }).exigeCiencia) { setExigeCiencia(d.mensagem || 'Abrir esta mensagem conta como ciência da intimação.'); return; }
-      if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta será cobrada à parte pelo SERPRO (contrato: cerca de R$ 0,24 por consulta).'); return; }
+      if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta custa R$ 1,00, cobrada por fora da mensalidade do escritório.'); return; }
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
       else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
@@ -118,7 +118,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       <header>
         <h2 className="text-lg sm:text-xl font-black">Consulta oficial (SERPRO / Receita Federal)</h2>
         <p className="text-sm text-slate-700 mt-1">{razaoSocial || 'Empresa ativa'}{cnpj ? ` · ${cnpj}` : ''}</p>
-        <p className="text-xs text-slate-600 mt-1">Usa as chaves e o certificado do escritório no servidor. Só a conta administradora. Para empresas clientes, é preciso procuração no e-CAC. A primeira consulta da semana por empresa é gratuita no controle do sistema; as seguintes pedem a sua confirmação (contrato: R$ 0,24 por consulta).</p>
+        <p className="text-xs text-slate-600 mt-1">Usa as chaves e o certificado do escritório no servidor. Só a conta administradora. Para empresas clientes, é preciso procuração no e-CAC. A primeira consulta da semana por empresa é gratuita no controle do sistema; as seguintes custam R$ 1,00 cada (cobradas por fora da mensalidade) e pedem a sua confirmação.</p>
       </header>
 
       {faltando.length > 0 && (

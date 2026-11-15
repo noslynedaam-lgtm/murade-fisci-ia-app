@@ -18,11 +18,11 @@ test('janela de envio: só entre 20h e 21h59 de Brasília', () => {
 
 test('texto do aviso lista escritório, empresa, serviço e valor', () => {
   const t = montarTextoAviso('2026-10-28', [
-    { em: '2026-10-28T15:00:00Z', escritorio: 'ana@x.com', escritorioId: 'o1', cnpj: '11222333000181', nome: 'ACME', servico: 'dctfwebGuia', cobrada: true, valor: 0.32 },
-    { em: '2026-10-28T16:00:00Z', escritorio: 'ana@x.com', escritorioId: 'o1', cnpj: '11222333000181', nome: 'ACME', servico: 'situacaoFiscal', cobrada: true, valor: 0.24 },
+    { em: '2026-10-28T15:00:00Z', escritorio: 'ana@x.com', escritorioId: 'o1', cnpj: '11222333000181', nome: 'ACME', servico: 'dctfwebGuia', cobrada: true, valor: 1 },
+    { em: '2026-10-28T16:00:00Z', escritorio: 'ana@x.com', escritorioId: 'o1', cnpj: '11222333000181', nome: 'ACME', servico: 'situacaoFiscal', cobrada: true, valor: 1 },
   ]);
-  assert.match(t.assunto, /2 consulta\(s\) cobrada\(s\) em 28\/10/); assert.match(t.assunto, /0,56/);
-  assert.match(t.texto, /ana@x\.com — R\$\s?0,56/); assert.match(t.texto, /ACME \(11222333000181\) · dctfwebGuia/);
+  assert.match(t.assunto, /2 consulta\(s\) cobrada\(s\) em 28\/10/); assert.match(t.assunto, /2,00/);
+  assert.match(t.texto, /ana@x\.com — R\$\s?2,00/); assert.match(t.texto, /ACME \(11222333000181\) · dctfwebGuia/);
 });
 
 test('fora da janela ou sem e-mail configurado, nada é enviado e o motivo é dito', async () => {
