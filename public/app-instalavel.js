@@ -166,7 +166,7 @@
 })();
 
 // Celular/tablet: a senha é pedida só na primeira vez (sessão de 90 dias). Quem preferir liga "Pedir senha ao abrir" neste botão de Segurança.
-// Só aparece em celular/tablet e só com a pessoa logada. No computador nada muda (sessão de 8 horas).
+// Só aparece em celular/tablet e só com a pessoa logada. No computador nada muda (sessão de 12 horas).
 (function () {
   if (!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')) return;
   var CK = 'murade_exigir_senha';
@@ -196,9 +196,9 @@
     var p = document.createElement('p'); p.style.cssText = 'margin:0 0 12px';
     var linha = document.createElement('label'); linha.style.cssText = 'display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-bottom:12px';
     var cx = document.createElement('input'); cx.type = 'checkbox'; cx.style.cssText = 'width:22px;height:22px;margin-top:2px;flex:none'; cx.checked = exige();
-    var tx = document.createElement('span'); tx.innerHTML = '<b>Pedir senha ao abrir</b><br>Ligado: o sistema volta a pedir a senha depois de 8 horas. Desligado: a senha só é pedida na primeira vez neste celular.';
+    var tx = document.createElement('span'); tx.innerHTML = '<b>Pedir senha ao abrir</b><br>Ligado: o sistema volta a pedir a senha depois de 12 horas. Desligado: a senha só é pedida na primeira vez neste celular.';
     var msg = document.createElement('div'); msg.style.cssText = 'min-height:20px;font-size:13px;color:#334155;margin-bottom:8px';
-    function texto() { p.textContent = cx.checked ? 'Neste celular o sistema vai pedir a senha de novo depois de 8 horas.' : 'Neste celular o sistema fica aberto: a senha só foi pedida na primeira vez.'; }
+    function texto() { p.textContent = cx.checked ? 'Neste celular o sistema vai pedir a senha de novo depois de 12 horas.' : 'Neste celular o sistema fica aberto: a senha só foi pedida na primeira vez.'; }
     texto();
     cx.onchange = function () {
       var pedir = cx.checked; gravar(pedir); texto(); msg.textContent = 'Salvando…';

@@ -15,7 +15,7 @@ import { chaveMestra2fa, consultarSeguranca, EMISSOR_2FA, esquecerAtivoEmMemoria
 const pbkdf2 = promisify(pbkdf2Callback);
 const router = Router();
 const COOKIE_NAME = 'fiscoia_session';
-const SESSION_SECONDS = 8 * 60 * 60;
+const SESSION_SECONDS = 12 * 60 * 60;
 const SESSION_LONGA_SECONDS = 90 * 24 * 60 * 60;
 /** Celular/tablet: a senha é pedida só no primeiro acesso (sessão de 90 dias), a menos que a pessoa ligue "pedir senha ao abrir". */
 export function ehCelularUA(ua: string): boolean { return /Android|iPhone|iPad|iPod|Mobile/i.test(ua || ''); }
@@ -1102,7 +1102,7 @@ router.post('/contas/excluir', async (req, res) => {
   }
 });
 
-/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 8 horas. */
+/** Liga/desliga "manter conectado" na sessão atual (celular). Desligado = volta a pedir senha em 12 horas. */
 router.post('/manter-conectado', async (req, res) => {
   const pool = obterPoolBanco();
   const token = lerCookie(req, COOKIE_NAME);
