@@ -25,6 +25,7 @@ import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import conferenciaRoutes from "./src/server/conferencia.routes";
 import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
+import { executarEmpresasDoFiscal } from "./src/server/empresasDoFiscal";
 import serproRoutes from "./src/server/serpro.routes";
 import licencaRoutes from './src/server/licenca.routes';
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
@@ -397,6 +398,7 @@ app.post('/api/integracao/agente/mensagem', async (req, res) => {
   catch { return res.status(503).json({ ok: false, erro: 'Não foi possível registrar agora.' }); }
 });
 registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Ler do Murade Fiscal as notas já guardadas e levá-las ao Fisco IA, uma empresa por vez. Não consulta a SEFAZ.', intervaloMs: 60_000 });
+registrarRobo({ id: 'empresas_fiscal', nome: 'Robô de Empresas (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Trazer ao Fisco IA toda empresa cadastrada no Murade Fiscal, no escritório certo (e-mail do dono igual). Só cria o que falta; nunca altera nem reativa o que foi excluído.', intervaloMs: 10 * 60_000 });
 registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.', intervaloMs: 60_000 });
 const timerMensageiro = setInterval(() => { executarRobo('mensageiro', () => centralDePedidos.reenviarPendentes()).catch(() => undefined); }, 60_000);
 timerMensageiro.unref();
@@ -605,6 +607,10 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Servidor Murade Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
     iniciarSincronizacaoAutomatica();
+    if (process.env.FISCOIA_EMPRESAS_FISCAL !== '0' && process.env.MURADE_INTEGRATION_TOKEN) {
+      setTimeout(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).catch(() => undefined), 60_000).unref();
+      setInterval(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).catch(() => undefined), 10 * 60_000).unref();
+    }
   });
 }
 
