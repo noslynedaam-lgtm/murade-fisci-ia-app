@@ -15,6 +15,7 @@ export default function SeletorEmpresaGlobal({
 }: SeletorEmpresaGlobalProps) {
   const { empresas, empresaAtiva, selecionarEmpresa } = useEmpresa();
   const [aberto, setAberto] = useState(false);
+  const [alinharDireita, setAlinharDireita] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Fecha ao clicar fora
@@ -33,7 +34,12 @@ export default function SeletorEmpresaGlobal({
       <button
         type="button"
         id="btn-seletor-empresa-global"
-        onClick={() => setAberto(!aberto)}
+        onClick={() => {
+          // O painel (até 24rem) abre para o lado onde cabe na tela, para nunca ficar cortado por menu lateral ou borda.
+          const r = dropdownRef.current?.getBoundingClientRect();
+          if (r) setAlinharDireita(r.left + 384 > window.innerWidth - 8 && r.right - 384 >= 8);
+          setAberto(!aberto);
+        }}
         className={`flex items-center gap-2 rounded-xl border transition-all cursor-pointer select-none ${
           empresaAtiva
             ? 'bg-white border-slate-300 hover:border-indigo-400 hover:bg-slate-50 text-slate-900 shadow-2xs'
@@ -71,7 +77,7 @@ export default function SeletorEmpresaGlobal({
       </button>
 
       {aberto && (
-        <div className="absolute left-0 sm:right-0 sm:left-auto mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+        <div className={`absolute ${alinharDireita ? 'right-0' : 'left-0'} mt-2 w-96 max-w-[calc(100vw-1rem)] bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-100`}>
           <div className="p-2 border-b border-slate-100 flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               Empresas Cadastradas ({empresas.length})
