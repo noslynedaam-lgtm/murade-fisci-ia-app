@@ -485,6 +485,37 @@ const alterarLiberacao: RequestHandler = async (req, res) => {
     return res.json({ ok: true, liberada: req.body.liberada });
   } catch { return res.status(503).json({ mensagem: 'Não foi possível salvar a liberação.' }); }
 };
+// Liberação por ESCRITÓRIO inteiro (todas as empresas e todos os usuários dele). Somente a conta administradora.
+router.get('/liberacoes/escritorios', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora vê a liberação das consultas.' });
+    const pool = obterPoolBanco();
+    if (!pool) return res.status(503).json({ mensagem: 'Banco indisponível.' });
+    const q = await pool.query('SELECT * FROM fiscoia.platform_list_serpro_offices($1::uuid)', [user.id]);
+    return res.json({ escritorios: q.rows.map(x => ({ escritorioId: String(x.tenant_id), nome: String(x.tenant_name), responsavel: String(x.owner_email ?? ''), empresas: Number(x.companies ?? 0), liberado: x.released === true })) });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível carregar os escritórios. Se o sistema acabou de ser atualizado, aguarde alguns minutos.' }); }
+});
+const alterarLiberacaoEscritorio: RequestHandler = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!UUID.test(req.params.tenantId)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  if (typeof req.body?.liberado !== 'boolean') return res.status(400).json({ mensagem: 'Informe se é para liberar ou travar.' });
+  try {
+    const user = await obterUsuarioDaSessao(req);
+    if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+    if (!user.ehAdmin) return res.status(403).json({ mensagem: 'Somente a conta administradora libera as consultas.' });
+    const pool = obterPoolBanco();
+    if (!pool) return res.status(503).json({ mensagem: 'Banco indisponível.' });
+    const q = await pool.query('SELECT fiscoia.platform_set_serpro_office_release($1::uuid, $2::uuid, $3::boolean) AS ok', [user.id, req.params.tenantId, req.body.liberado]);
+    if (q.rows[0]?.ok !== true) return res.status(404).json({ mensagem: 'Escritório não encontrado.' });
+    console.log(`[serpro] escritório ${req.params.tenantId} ${req.body.liberado ? 'LIBERADO POR INTEIRO' : 'TRAVADO (volta a valer empresa por empresa)'} pela conta administradora.`);
+    return res.json({ ok: true, liberado: req.body.liberado });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível salvar a liberação do escritório.' }); }
+};
+router.put('/liberacoes/escritorios/:tenantId', alterarLiberacaoEscritorio);
+router.post('/liberacoes/escritorios/:tenantId', alterarLiberacaoEscritorio);
 router.put('/liberacoes/:companyId', alterarLiberacao);
 router.post('/liberacoes/:companyId', alterarLiberacao); // a Agente IA só faz GET e POST
 
@@ -603,9 +634,9 @@ router.post('/ponte/liberacao', async (req, res) => {
   const escritorio: OrigemConsulta | undefined = esc && /^[A-Za-z0-9._-]{1,64}$/.test(String(esc.id ?? '')) ? { id: String(esc.id), nome: String(esc.nome ?? esc.id).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80) || String(esc.id) } : undefined;
   const razaoSocial = String(req.body?.razaoSocial ?? '').replace(/[\u0000-\u001f<>]/g, '').trim();
   try {
+    if (await escritorioLiberado(escritorio?.nome)) return res.json({ liberada: true }); // escritório liberado por inteiro: responde sem criar registro na conta do dono
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ liberada: false, mensagem: 'Não foi possível localizar a empresa.' });
-    if (await escritorioLiberado(escritorio?.nome)) return res.json({ liberada: true }); // escritório liberado por inteiro (contadora do dono)
     const lib = await empresaLiberada(e.companyId);
     if (lib === true) return res.json({ liberada: true });
     if (lib === false) await pedirLiberacao(e.companyId);

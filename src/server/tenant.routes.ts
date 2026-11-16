@@ -107,7 +107,14 @@ router.get('/companies', async (req, res) => {
       [tenantId],
     ));
     if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
-    return res.json({ empresas: scoped.resultado.rows });
+    // Registros de empresas de OUTRO escritório (criados pela ponte do Fiscal/DP só para contar a cota das consultas) não aparecem
+    // na lista de empresas de ninguém: cada escritório vê só as próprias empresas. O dono cuida deles no painel de liberação.
+    const meuLogin = String(user.email ?? '').trim().toLowerCase();
+    const proprias = scoped.resultado.rows.filter((e: any) => {
+      const origem = String(e?.metadata?.escritorioOrigem?.nome ?? '').trim().toLowerCase();
+      return !(e?.metadata?.origem === 'ponte-dp' && origem && origem !== meuLogin);
+    });
+    return res.json({ empresas: proprias });
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível carregar as empresas do escritório.' });
   }

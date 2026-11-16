@@ -608,8 +608,8 @@ async function startServer() {
     console.log(`Servidor Murade Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
     iniciarSincronizacaoAutomatica();
     if (process.env.FISCOIA_EMPRESAS_FISCAL !== '0' && process.env.MURADE_INTEGRATION_TOKEN) {
-      setTimeout(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).catch(() => undefined), 60_000).unref();
-      setInterval(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).catch(() => undefined), 10 * 60_000).unref();
+      setTimeout(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).then((m) => { if (m) console.log(`[empresas_fiscal] ${m}`); }).catch((e) => console.error(`[empresas_fiscal] falhou: ${String(e?.message || e).slice(0, 200)}`)), 60_000).unref();
+      setInterval(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).then((m) => { if (m) console.log(`[empresas_fiscal] ${m}`); }).catch((e) => console.error(`[empresas_fiscal] falhou: ${String(e?.message || e).slice(0, 200)}`)), 10 * 60_000).unref();
     }
   });
 }

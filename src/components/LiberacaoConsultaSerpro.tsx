@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
+interface Escritorio { escritorioId: string; nome: string; responsavel: string; empresas: number; liberado: boolean }
 interface Linha { escritorioId: string; escritorio: string; empresaId: string; cnpj: string; nome: string; liberada: boolean; pediuEm: string | null; liberadaEm: string | null }
 
 const dataHora = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -11,6 +12,19 @@ export default function LiberacaoConsultaSerpro() {
   const [erro, setErro] = useState('');
   const [oculto, setOculto] = useState(false);
   const [salvando, setSalvando] = useState('');
+  const [escritorios, setEscritorios] = useState<Escritorio[] | null>(null);
+  const [erroEscritorios, setErroEscritorios] = useState('');
+
+  const carregarEscritorios = useCallback(async () => {
+    try {
+      const r = await fetch('/api/serpro/liberacoes/escritorios', { credentials: 'same-origin', cache: 'no-store' });
+      if (r.status === 401 || r.status === 403) return;
+      const j = await r.json();
+      if (!r.ok) { setErroEscritorios(j.mensagem ?? 'Não foi possível carregar os escritórios.'); return; }
+      setErroEscritorios(''); setEscritorios(j.escritorios as Escritorio[]);
+    } catch { setErroEscritorios('Não foi possível carregar os escritórios.'); }
+  }, []);
+  useEffect(() => { void carregarEscritorios(); }, [carregarEscritorios]);
 
   const carregar = useCallback(async (termo: string) => {
     try {
@@ -35,6 +49,20 @@ export default function LiberacaoConsultaSerpro() {
     setSalvando('');
   };
 
+  const alterarEscritorio = async (e: Escritorio, liberado: boolean) => {
+    const pergunta = liberado
+      ? `Liberar o escritório ${e.nome} POR INTEIRO?\n\nTodas as empresas dele (as de hoje e as que ele cadastrar depois) e todos os usuários dele passam a poder consultar o SERPRO sem pedir liberação. Cada consulta continua sendo feita só por clique e contada na cota.`
+      : `Travar o escritório ${e.nome}?\n\nAs empresas dele voltam a depender da liberação empresa por empresa.`;
+    if (!window.confirm(pergunta)) return;
+    setSalvando(`esc-${e.escritorioId}`);
+    try {
+      const r = await fetch(`/api/serpro/liberacoes/escritorios/${encodeURIComponent(e.escritorioId)}`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ liberado }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setErroEscritorios(j.mensagem ?? 'Não foi possível salvar.'); else { setErroEscritorios(''); await carregarEscritorios(); await carregar(busca); }
+    } catch { setErroEscritorios('Não foi possível salvar a liberação do escritório.'); }
+    setSalvando('');
+  };
+
   if (oculto) return null;
   const pedidos = (linhas ?? []).filter(l => !l.liberada && l.pediuEm).length;
   return (
@@ -48,6 +76,25 @@ export default function LiberacaoConsultaSerpro() {
           <input value={busca} onChange={e => setBusca(e.target.value)} className="border border-slate-400 rounded-lg px-2 py-1 text-sm" placeholder="Digite para filtrar" />
         </label>
       </header>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <h4 className="text-sm font-extrabold text-slate-900">Liberar um escritório inteiro</h4>
+        <p className="text-xs text-slate-700">Escritório liberado por inteiro: todas as empresas e todos os usuários dele consultam sem pedir liberação. As empresas dele não aparecem na lista de baixo.</p>
+        {erroEscritorios && <p className="text-sm text-red-700">{erroEscritorios}</p>}
+        {escritorios && escritorios.length === 0 && <p className="text-sm text-slate-700">Nenhum escritório cliente cadastrado.</p>}
+        {escritorios && escritorios.length > 0 && (
+          <ul className="space-y-1.5">{escritorios.map(e => (
+            <li key={e.escritorioId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+              <span className="min-w-0"><span className="font-semibold text-slate-900">{e.nome}</span> <span className="text-xs text-slate-600 break-all">{e.responsavel}</span> <span className="text-xs text-slate-600">· {e.empresas} empresa(s)</span></span>
+              <span className="flex items-center gap-2">
+                {e.liberado ? <span className="text-xs font-bold text-emerald-800">Liberado por inteiro</span> : <span className="text-xs text-slate-700">Empresa por empresa</span>}
+                {e.liberado
+                  ? <button disabled={salvando === `esc-${e.escritorioId}`} onClick={() => void alterarEscritorio(e, false)} className="rounded-lg border border-slate-400 text-slate-900 text-xs font-bold px-3 py-1.5 disabled:opacity-50">Travar</button>
+                  : <button disabled={salvando === `esc-${e.escritorioId}`} onClick={() => void alterarEscritorio(e, true)} className="rounded-lg bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 disabled:opacity-50">Liberar escritório</button>}
+              </span>
+            </li>
+          ))}</ul>
+        )}
+      </div>
       {pedidos > 0 && <p className="rounded-lg bg-amber-50 border border-amber-300 p-2 text-sm font-semibold text-amber-950">{pedidos} empresa(s) tentaram consultar e estão esperando sua liberação (aparecem primeiro).</p>}
       {erro && <p className="text-sm text-red-700">{erro}</p>}
       {linhas && linhas.length === 0 && <p className="text-sm text-slate-700">Nenhuma empresa encontrada.</p>}
