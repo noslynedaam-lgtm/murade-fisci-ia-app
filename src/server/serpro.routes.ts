@@ -428,6 +428,13 @@ export async function empresaLiberada(companyId: string): Promise<boolean | null
   } catch { return null; }
 }
 
+/** O escritório (login que o Fiscal manda) está liberado por inteiro? Falso se não deu para conferir. */
+async function escritorioLiberado(login: string | undefined): Promise<boolean> {
+  const pool = obterPoolBanco();
+  if (!pool || !login) return false;
+  try { return (await pool.query('SELECT fiscoia.serpro_office_released($1::text) AS ok', [login])).rows[0]?.ok === true; } catch { return false; }
+}
+
 /** Deixa registrado que a empresa tentou consultar e foi barrada, para o dono ver no painel. Não libera nada. */
 async function pedirLiberacao(companyId: string): Promise<void> {
   const pool = obterPoolBanco();
@@ -598,6 +605,7 @@ router.post('/ponte/liberacao', async (req, res) => {
   try {
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ liberada: false, mensagem: 'Não foi possível localizar a empresa.' });
+    if (await escritorioLiberado(escritorio?.nome)) return res.json({ liberada: true }); // escritório liberado por inteiro (contadora do dono)
     const lib = await empresaLiberada(e.companyId);
     if (lib === true) return res.json({ liberada: true });
     if (lib === false) await pedirLiberacao(e.companyId);
