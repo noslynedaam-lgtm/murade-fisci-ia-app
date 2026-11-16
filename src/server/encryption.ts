@@ -93,3 +93,28 @@ export function descriptografarXml(
   decipher.setAuthTag(encrypted.authTag);
   return Buffer.concat([decipher.update(encrypted.ciphertext), decipher.final()]).toString('utf8');
 }
+
+// ---- Credenciais do SERPRO de um escritório (Consumer Key/Secret, certificado e-CNPJ e senha), cifradas por escritório ----
+function obterChaveCredencialEscritorio(): Buffer {
+  return Buffer.from(hkdfSync('sha256', obterChave(), Buffer.from('fiscoia-v1'), Buffer.from('serpro-escritorio-credential'), 32));
+}
+export function criptografarCredencialEscritorio(escritorioId: string, valor: Buffer) {
+  if (!escritorioId) throw new Error('Escritório obrigatório para proteger a credencial.');
+  if (!Buffer.isBuffer(valor) || valor.length === 0) throw new Error('A credencial está vazia.');
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', obterChaveCredencialEscritorio(), nonce);
+  cipher.setAAD(Buffer.from(`fiscoia:serpro-escritorio:v1:${escritorioId}`, 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(valor), cipher.final()]);
+  const version = process.env[ENV_KEY_VERSION]?.trim() || 'v1';
+  if (!/^[a-zA-Z0-9._-]{1,32}$/.test(version)) throw new Error('A versão da chave de criptografia tem formato inválido.');
+  return { ciphertext, nonce, authTag: cipher.getAuthTag(), keyVersion: version };
+}
+export function descriptografarCredencialEscritorio(escritorioId: string, encrypted: { ciphertext: Buffer; nonce: Buffer; authTag: Buffer; keyVersion: string }): Buffer {
+  if (!escritorioId) throw new Error('Escritório obrigatório para abrir a credencial.');
+  if (encrypted.keyVersion !== (process.env[ENV_KEY_VERSION]?.trim() || 'v1')) throw new Error('A credencial usa outra versão de chave.');
+  if (encrypted.nonce.length !== 12 || encrypted.authTag.length !== 16) throw new Error('Os metadados criptográficos da credencial estão inválidos.');
+  const decipher = createDecipheriv('aes-256-gcm', obterChaveCredencialEscritorio(), encrypted.nonce);
+  decipher.setAAD(Buffer.from(`fiscoia:serpro-escritorio:v1:${escritorioId}`, 'utf8'));
+  decipher.setAuthTag(encrypted.authTag);
+  return Buffer.concat([decipher.update(encrypted.ciphertext), decipher.final()]);
+}

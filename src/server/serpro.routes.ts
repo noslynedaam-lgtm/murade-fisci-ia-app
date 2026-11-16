@@ -12,6 +12,7 @@ import { tokenValido } from './agentesEntreSistemas';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
+import { carregarCredencial, credencialExiste, credencialGlobal, decidirFonteCredencial, guardarCredencial, removerCredencial, validarEscritorioId, type CredencialSerpro } from '../services/serpro/credenciaisEscritorio';
 import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -254,8 +255,34 @@ router.get('/consumo', async (req, res) => {
   }
 });
 
-interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta; escritorioCnpj?: string; exigirLiberacao?: boolean }
+interface EntradaConsulta { userId: string; tenantId: string; companyId: string; servico: string; dados?: Record<string, unknown>; confirmarCusto: boolean; confirmarCiencia?: boolean; escritorio?: OrigemConsulta; escritorioCnpj?: string; exigirLiberacao?: boolean; donoDoSistema?: boolean; credencialPedida?: unknown; viaPonte?: boolean }
 const resp = (status: number, corpo: unknown) => ({ status, corpo });
+
+/** O DP (credencial de integração) diz quem é o escritório e qual credencial vale, depois de conferir modo teste/efetivo e vagas. Sem escritório informado = chamada interna do próprio dono. */
+function fonteDoDp(esc: unknown): { donoDoSistema: boolean; credencialPedida?: unknown; viaPonte: true } {
+  if (!esc || typeof esc !== 'object') return { donoDoSistema: true, viaPonte: true };
+  const o = esc as { dono?: unknown; credencial?: unknown };
+  return { donoDoSistema: o.dono === true, credencialPedida: o.credencial, viaPonte: true };
+}
+
+/** Escolhe a credencial do SERPRO deste pedido: global só para o dono do sistema (ou quando o DP já conferiu modo/vagas); senão a própria do escritório. Recusa antes de gastar. */
+async function resolverCredencial(p: { donoDoSistema?: boolean; escritorioId?: string; credencialPedida?: unknown; viaPonte?: boolean }): Promise<{ ok: true; cred: CredencialSerpro } | { ok: false; http: number; mensagem: string }> {
+  const pool = obterPoolBanco();
+  const id = validarEscritorioId(p.escritorioId);
+  let propriaExiste = false;
+  if (!p.donoDoSistema && id && pool) { try { propriaExiste = await credencialExiste(pool, id); } catch { return { ok: false, http: 503, mensagem: 'Não foi possível conferir a credencial do escritório agora. Nada foi consultado nem cobrado.' }; } }
+  const dec = decidirFonteCredencial({ dono: p.donoDoSistema === true, pedida: p.credencialPedida, viaPonte: p.viaPonte === true, propriaExiste });
+  if (dec.ok === false) return dec;
+  if (process.env.SERPRO_CONSULTAS_HABILITADAS !== 'true') return { ok: false, http: 503, mensagem: 'Consultas pagas desligadas neste sistema. Nada foi consultado nem cobrado.' };
+  if (dec.fonte === 'global') {
+    const prontidao = avaliarProntidao(process.env);
+    const g = credencialGlobal(process.env);
+    if (!prontidao.pronto || !g) return { ok: false, http: 503, mensagem: 'Integração SERPRO ainda não está completa. Nada foi consultado nem cobrado.' };
+    return { ok: true, cred: g };
+  }
+  const propria = pool && id ? await carregarCredencial(pool, id).catch(() => null) : null;
+  return propria ? { ok: true, cred: propria } : { ok: false, http: 503, mensagem: 'Não foi possível abrir a credencial do escritório. Nada foi consultado nem cobrado.' };
+}
 
 /** Núcleo da consulta paga: mesma regra de cota/custo para a tela do Fisco IA e para a ponte do DP. */
 async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; corpo: unknown }> {
@@ -266,8 +293,9 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     if (servico.daCiencia && e.confirmarCiencia !== true) return resp(409, { consultado: false, exigeCiencia: true, mensagem: 'Abrir esta mensagem conta como CIÊNCIA da intimação e começa a contar os prazos, igual a abrir no e-CAC. Confirme que quer abrir. Nada foi consultado nem cobrado.' });
     const { tenantId, companyId } = e;
     if (!UUID.test(tenantId) || !UUID.test(companyId)) return resp(400, { mensagem: 'Escritório ou empresa inválidos.' });
-    const prontidao = avaliarProntidao(process.env);
-    if (!prontidao.pronto) return resp(503, { consultado: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi consultado nem cobrado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
+    const fonte = await resolverCredencial({ donoDoSistema: e.donoDoSistema, escritorioId: e.escritorio?.id ?? tenantId, credencialPedida: e.credencialPedida, viaPonte: e.viaPonte });
+    if (fonte.ok === false) return resp(fonte.http, { consultado: false, mensagem: fonte.mensagem });
+    const cred = fonte.cred;
     const confirmouCusto = e.confirmarCusto;
     // "dados" só aceita os campos do serviço, com texto curto e seguro.
     const dadosEntrada: Record<string, string> = {};
@@ -302,21 +330,21 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     const decisao = decidirConsulta(previa.resultado.cota, confirmouCusto);
     if (decisao.liberada === false) return resp(402, { consultado: false, exigeConfirmacao: true, cota: avaliarCota(previa.resultado.cota), mensagem: decisao.mensagem });
     let pedido;
-    try { pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, previa.resultado.cnpj, dadosEntrada, e.escritorioCnpj ?? null); }
+    try { pedido = montarPedido(servico, cred.contratanteCnpj, previa.resultado.cnpj, dadosEntrada, cred.origem === 'global' ? (e.escritorioCnpj ?? null) : null); }
     catch (e) { return resp(400, { mensagem: e instanceof Error ? e.message : 'Pedido inválido.' }); }
     // Escritório cliente (autor diferente do contratante): precisa do token do procurador, pedido ao Fiscal ANTES de reservar cota ou chamar o Serpro.
     let tokenProcurador: string | null = null;
-    if (e.escritorioCnpj && normalizarCnpj(e.escritorioCnpj) !== normalizarCnpj(process.env.SERPRO_CONTRATANTE_CNPJ || '')) {
+    if (cred.origem === 'global' && e.escritorioCnpj && normalizarCnpj(e.escritorioCnpj) !== normalizarCnpj(cred.contratanteCnpj)) {
       try { tokenProcurador = await buscarTokenProcurador(e.escritorioCnpj); }
       catch (err) { return resp(409, { consultado: false, mensagem: err instanceof SemTokenProcurador ? err.message : 'Não foi possível autorizar a consulta em nome do escritório. Nada foi consultado nem cobrado.' }); }
     }
 
-    const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
+    const preparadoPfx = prepararPfx(pfxDeVariavel(cred.pfxBase64), cred.pfxSenha);
     if (preparadoPfx.ok === false) return resp(503, { consultado: false, mensagem: 'O certificado do escritório no servidor não pôde ser aberto (senha ou formato). Nada foi consultado nem cobrado.' });
     const pfx = preparadoPfx.pfx;
-    const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
+    const basic = Buffer.from(`${cred.consumerKey}:${cred.consumerSecret}`).toString('base64');
     const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
-      method: 'POST', pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
+      method: 'POST', pfx, passphrase: cred.pfxSenha,
       headers: { Authorization: `Basic ${basic}`, 'Role-Type': 'TERCEIROS', 'Content-Type': 'application/x-www-form-urlencoded' },
     }, 'grant_type=client_credentials');
     if (auth.status !== 200) return resp(502, { consultado: false, mensagem: 'SERPRO recusou a autenticação do escritório (chaves ou certificado). Nada foi cobrado.', statusGateway: auth.status });
@@ -496,7 +524,7 @@ router.post('/consulta', async (req, res) => {
   }
   if (decisao.ok === false) return res.status(decisao.http).json({ consultado: false, mensagem: decisao.mensagem });
   const { escritorio, escritorioCnpj } = decisao;
-  const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: !user.ehAdmin && Boolean(escritorio) });
+  const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: !user.ehAdmin && Boolean(escritorio), donoDoSistema: !escritorio });
   return res.status(r.status).json(r.corpo);
 });
 
@@ -592,7 +620,7 @@ router.post('/ponte/consulta', async (req, res) => {
     const escritorioCnpj = bruto && validarCnpj(bruto) ? bruto : undefined;
     const e = await localizarEmpresaDaDona(cnpj, { razaoSocial, escritorio });
     if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
-    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: true });
+    const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: true, ...fonteDoDp(req.body?.escritorio) });
     return res.status(r.status).json(r.corpo);
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
 });
@@ -665,7 +693,7 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
 
     if (fase === 'preparar') {
       const dados: Record<string, string> = { categoria, anoPA, ...(mesPA ? { mesPA } : {}) };
-      const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: 'dctfwebXml', dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio, exigirLiberacao: true });
+      const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: 'dctfwebXml', dados, confirmarCusto: req.body?.confirmarCusto === true, escritorio, exigirLiberacao: true, ...fonteDoDp(req.body?.escritorio) });
       if (r.status !== 200) return res.status(r.status).json(r.corpo);
       const xml = lerXmlDeclaracao((r.corpo as { bruto?: unknown }).bruto);
       if (!xml) return res.status(502).json({ preparada: false, mensagem: 'O SERPRO não devolveu o XML da declaração em andamento. Nada foi transmitido.' });
@@ -683,21 +711,22 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
     // A liberação pode ter sido retirada entre a conferência e a confirmação: confere de novo antes de assinar e transmitir.
     const libTransmitir = decidirLiberacaoEmpresa({ exigirLiberacao: true, liberada: await empresaLiberada(e.companyId) });
     if (libTransmitir.ok === false) return res.status(libTransmitir.http).json({ transmitida: false, bloqueadaPorLiberacao: libTransmitir.bloqueadaPorLiberacao, mensagem: libTransmitir.mensagem });
-    const prontidao = avaliarProntidao(process.env);
-    if (!prontidao.pronto) return res.status(503).json({ transmitida: false, mensagem: 'Integração SERPRO ainda não está completa. Nada foi enviado.', faltando: prontidao.itens.filter(i => !i.ok).map(i => i.descricao) });
-    const preparadoPfx = prepararPfx(pfxDeVariavel(process.env.SERPRO_CERT_PFX_BASE64!), process.env.SERPRO_CERT_PFX_SENHA!);
+    const fonte = await resolverCredencial({ ...fonteDoDp(req.body?.escritorio), escritorioId: escritorio?.id ?? e.tenantId });
+    if (fonte.ok === false) return res.status(fonte.http).json({ transmitida: false, mensagem: `${fonte.mensagem.replace('Nada foi consultado nem cobrado.', '')} Nada foi enviado.`.trim() });
+    const cred = fonte.cred;
+    const preparadoPfx = prepararPfx(pfxDeVariavel(cred.pfxBase64), cred.pfxSenha);
     if (preparadoPfx.ok === false) return res.status(503).json({ transmitida: false, mensagem: 'O certificado do escritório no servidor não pôde ser aberto. Nada foi enviado.' });
     let assinado;
     try {
-      const cert = lerCertificadoAssinante(preparadoPfx.pfx, process.env.SERPRO_CERT_PFX_SENHA!);
-      assinado = assinarDeclaracaoDctfweb(preparo.xml, cert, process.env.SERPRO_CONTRATANTE_CNPJ);
+      const cert = lerCertificadoAssinante(preparadoPfx.pfx, cred.pfxSenha);
+      assinado = assinarDeclaracaoDctfweb(preparo.xml, cert, cred.contratanteCnpj);
     } catch (erro) { return res.status(422).json({ transmitida: false, mensagem: `${erro instanceof Error ? erro.message : 'Falha ao assinar.'} Nada foi enviado.` }); }
 
     const servico = CATALOGO_SERVICOS.dctfwebTransmitir;
-    const pedido = montarPedido(servico, process.env.SERPRO_CONTRATANTE_CNPJ!, cnpj, montarDadosTransmissao({ categoria, anoPA, mesPA }, assinado.base64));
-    const basic = Buffer.from(`${process.env.SERPRO_PRODUCAO_CONSUMER_KEY}:${process.env.SERPRO_PRODUCAO_CONSUMER_SECRET}`).toString('base64');
+    const pedido = montarPedido(servico, cred.contratanteCnpj, cnpj, montarDadosTransmissao({ categoria, anoPA, mesPA }, assinado.base64));
+    const basic = Buffer.from(`${cred.consumerKey}:${cred.consumerSecret}`).toString('base64');
     const auth = await chamarHttps('https://autenticacao.sapi.serpro.gov.br/authenticate', {
-      method: 'POST', pfx: preparadoPfx.pfx, passphrase: process.env.SERPRO_CERT_PFX_SENHA,
+      method: 'POST', pfx: preparadoPfx.pfx, passphrase: cred.pfxSenha,
       headers: { Authorization: `Basic ${basic}`, 'Role-Type': 'TERCEIROS', 'Content-Type': 'application/x-www-form-urlencoded' },
     }, 'grant_type=client_credentials');
     if (auth.status !== 200) return res.status(502).json({ transmitida: false, mensagem: 'SERPRO recusou a autenticação do escritório. Nada foi enviado.', statusGateway: auth.status });
@@ -726,6 +755,36 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
     }
     return res.json({ transmitida: true, numeroRecibo: recibo, hashXml: hash, transmitidaEm: new Date().toISOString(), mensagens: (bruto as { mensagens?: unknown })?.mensagens, mensagem: 'Declaração transmitida e recibo recebido.' });
   } catch { return res.status(503).json({ transmitida: false, mensagem: 'Falha ao transmitir. Confira no e-CAC se a declaração foi entregue antes de repetir.' }); }
+});
+
+// ---- Credenciais do SERPRO por escritório (ponte do DP; nunca devolvem o conteúdo, só "configurada") ----
+function ponteAutorizada(req: any, res: any): boolean {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) { res.status(503).json({ mensagem: 'Integração não configurada.' }); return false; }
+  if (!tokenValido(req.get('authorization'))) { res.status(401).json({ mensagem: 'Credencial de integração inválida.' }); return false; }
+  return true;
+}
+router.get('/ponte/escritorio/status', async (req, res) => {
+  if (!ponteAutorizada(req, res)) return;
+  const id = validarEscritorioId(req.query?.escritorioId); const pool = obterPoolBanco();
+  if (!id || !pool) return res.status(id ? 503 : 400).json({ mensagem: id ? 'Banco indisponível.' : 'Escritório inválido.' });
+  try { return res.json({ configurada: await credencialExiste(pool, id) }); } catch { return res.status(503).json({ mensagem: 'Não foi possível conferir agora.' }); }
+});
+router.post('/ponte/escritorio/credenciais', async (req, res) => {
+  if (!ponteAutorizada(req, res)) return;
+  const id = validarEscritorioId((req.body?.escritorio as { id?: unknown } | undefined)?.id); const pool = obterPoolBanco();
+  if (!id) return res.status(400).json({ configurada: false, mensagem: 'Escritório inválido.' });
+  if (!pool) return res.status(503).json({ configurada: false, mensagem: 'Banco indisponível. Nada foi guardado.' });
+  try {
+    const r = await guardarCredencial(pool, id, { consumerKey: String(req.body?.consumerKey ?? ''), consumerSecret: String(req.body?.consumerSecret ?? ''), contratanteCnpj: String(req.body?.contratanteCnpj ?? ''), certPfxBase64: String(req.body?.certPfxBase64 ?? ''), certSenha: String(req.body?.certSenha ?? '') });
+    return r.ok === true ? res.json({ configurada: true, mensagem: 'Credenciais guardadas (cifradas).' }) : res.status(400).json({ configurada: false, mensagem: r.mensagem });
+  } catch { return res.status(503).json({ configurada: false, mensagem: 'Não foi possível guardar as credenciais agora. Nada foi guardado.' }); }
+});
+router.post('/ponte/escritorio/credenciais/remover', async (req, res) => {
+  if (!ponteAutorizada(req, res)) return;
+  const id = validarEscritorioId(req.body?.escritorioId); const pool = obterPoolBanco();
+  if (!id || !pool) return res.status(id ? 503 : 400).json({ removida: false, mensagem: id ? 'Banco indisponível.' : 'Escritório inválido.' });
+  try { await removerCredencial(pool, id); return res.json({ removida: true, mensagem: 'Credenciais removidas.' }); } catch { return res.status(503).json({ removida: false, mensagem: 'Não foi possível remover agora.' }); }
 });
 
 export default router;
