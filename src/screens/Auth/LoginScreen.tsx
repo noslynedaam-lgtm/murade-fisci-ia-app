@@ -88,9 +88,9 @@ export default function LoginScreen({
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4 w-full">
-      <div className="bg-white rounded-3xl border border-indigo-100 shadow-2xl max-w-md w-full p-6 sm:p-8 space-y-6 relative overflow-hidden">
+      <div className="bg-white rounded-3xl border border-[color:var(--marca-clara)] shadow-2xl max-w-md w-full p-6 sm:p-8 space-y-6 relative overflow-hidden">
         {/* Faixa decorativa superior */}
-        <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-indigo-800 via-indigo-600 to-amber-500"></div>
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[color:var(--marca-escura)] via-[color:var(--marca)] to-[color:var(--marca-clara)]"></div>
 
         {/* Logo & Marca */}
         <div className="text-center space-y-2 pt-2">
@@ -101,9 +101,10 @@ export default function LoginScreen({
             <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
               <span>Murade Fisco IA</span>
             </h2>
-            <p className="text-xs text-indigo-900 font-semibold mt-0.5">
+            <p className="text-xs text-[color:var(--marca-escura)] font-semibold mt-0.5">
               Compliance Fiscal com IA
             </p>
+            <span className="etiqueta-marca mt-1.5">FISCO IA</span>
             <p role="note" className="text-[11px] text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg p-2 mt-3">Acesso validado no servidor, com sessão protegida por cookie seguro.</p>
           </div>
         </div>
@@ -146,7 +147,7 @@ export default function LoginScreen({
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
             <label className="font-bold text-slate-700 block mb-1.5 flex items-center gap-1.5">
-              <Mail className="w-3.5 h-3.5 text-indigo-600" />
+              <Mail className="w-3.5 h-3.5 text-[color:var(--marca)]" />
               <span>E-mail</span>
             </label>
             <input
@@ -155,14 +156,14 @@ export default function LoginScreen({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="seuemail@fiscoia.com.br ou seu e-mail"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600 focus:bg-white font-medium"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-[color:var(--marca-clara)] focus:border-[color:var(--marca)] focus:bg-white font-medium"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="font-bold text-slate-700 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                <Lock className="w-3.5 h-3.5 text-[color:var(--marca)]" />
                 <span>Senha</span>
               </label>
               <button
@@ -171,7 +172,7 @@ export default function LoginScreen({
                   setErro('Recuperação por e-mail ainda não está configurada. Peça ao administrador para iniciar uma redefinição segura.');
                   onEsqueciSenha(email);
                 }}
-                className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline text-[11px]"
+                className="text-[color:var(--marca)] hover:text-[color:var(--marca-escura)] font-semibold cursor-pointer underline text-[11px]"
               >
                 Esqueci minha senha
               </button>
@@ -182,7 +183,7 @@ export default function LoginScreen({
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
               placeholder="••••••••"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-600 focus:bg-white font-medium"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-[color:var(--marca-clara)] focus:border-[color:var(--marca)] focus:bg-white font-medium"
             />
           </div>
 
@@ -208,7 +209,7 @@ export default function LoginScreen({
           <button
             type="submit"
             disabled={carregando}
-            className="w-full py-3.5 bg-indigo-900 hover:bg-indigo-950 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:shadow-lg cursor-pointer transition-all disabled:opacity-50"
+            className="w-full py-3.5 bg-[color:var(--marca-escura)] hover:brightness-90 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:shadow-lg cursor-pointer transition-all disabled:opacity-50"
           >
             <Lock className="w-4 h-4 text-amber-400" />
             <span>{carregando ? 'Validando Acesso...' : 'Entrar'}</span>
