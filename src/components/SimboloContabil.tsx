@@ -9,7 +9,7 @@ interface SimboloContabilProps {
 /**
  * 🏛️ SÍMBOLO CONTÁBIL OFICIAL (Colunas + Cobra/Caduceu + Cifrão)
  * Identidade visual da Contabilidade com acabamento Dourado (#D4AF37),
- * Fundo e halo roxos da marca FISCO IA (--marca, src/config/marca.ts), perspectiva 3D e brilho animado.
+ * Fundo Azul MURADE (#0F2B5B / #0A1628), perspectiva 3D e brilho animado.
  */
 export default function SimboloContabil({
   tamanho = 'md',
@@ -27,9 +27,9 @@ export default function SimboloContabil({
     <div
       className={`relative inline-flex items-center justify-center shrink-0 overflow-hidden select-none transition-transform duration-300 hover:scale-105 ${dimensoes.container} ${className}`}
       style={{
-        background: 'linear-gradient(135deg, var(--marca-escura) 0%, var(--marca) 50%, var(--marca-menu) 100%)',
-        border: '1.5px solid var(--marca-clara)',
-        boxShadow: 'var(--marca-halo), 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.25)',
+        background: 'linear-gradient(135deg, #0F2B5B 0%, #1A3A70 50%, #0A1628 100%)',
+        border: '1px solid rgba(212, 175, 55, 0.4)',
+        boxShadow: '0 0 20px rgba(212, 175, 55, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2)',
         transform: 'perspective(400px) rotateX(4deg)',
       }}
       title="Símbolo Contábil Oficial — Murade Fisco IA"
@@ -126,7 +126,7 @@ export default function SimboloContabil({
 
         {/* 5. SÍMBOLO MONETÁRIO / CIFRÃO CENTRAL EMBLEMÁTICO */}
         {/* Medalhão sutil de fundo para o Cifrão */}
-        <circle cx="32" cy="31" r="7.5" fill="#2e1065" stroke="url(#ouroContabilGrad)" strokeWidth="1.2" />
+        <circle cx="32" cy="31" r="7.5" fill="#0F2B5B" stroke="url(#ouroContabilGrad)" strokeWidth="1.2" />
         {/* Letra S / Cifrão Contábil */}
         <text
           x="32"

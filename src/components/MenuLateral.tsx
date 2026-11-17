@@ -269,12 +269,12 @@ export default function MenuLateral({
         />
       )}
 
-      {/* 🔵 BARRA LATERAL — ROXO ESCURO DA MARCA (--marca-menu), 220px, MARCA D'ÁGUA MURAD */}
+      {/* 🔵 BARRA LATERAL — AZUL ESCURO (#1e3a8a), 220px, MARCA D'ÁGUA MURAD */}
       <aside
         ref={asideMenuRef}
         id="menu-lateral-fiscoia"
         style={{
-          backgroundColor: 'var(--marca-menu)',
+          backgroundColor: '#1e3a8a',
           boxShadow: '3px 0 10px rgba(15, 23, 42, 0.25)',
           borderRight: '1px solid rgba(255, 255, 255, 0.15)',
           overscrollBehavior: 'contain',
@@ -326,7 +326,7 @@ export default function MenuLateral({
                 id="btn-esticar-barra-lateral-topo"
                 onClick={onAlternarRecolhidoDesktop}
                 title="Clique aqui para esticar a barra lateral e voltar ao normal"
-                className="w-11 h-11 rounded-xl text-white flex items-center justify-center shadow-lg border-2 border-[color:var(--marca-clara)] bg-[color:var(--marca)] hover:brightness-110 transition-all hover:scale-105 cursor-pointer group"
+                className="w-11 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg border-2 border-blue-400/80 transition-all hover:scale-105 cursor-pointer group"
               >
                 <ChevronRight className="w-6 h-6 group-hover:translate-x-0.5 transition-transform" />
               </button>
@@ -356,11 +356,10 @@ export default function MenuLateral({
                   >
                     <span>Murade Fisco IA</span>
                   </h2>
-                  <span className="etiqueta-marca mt-0.5">FISCO IA</span>
                   <p 
                     style={{ 
                       fontSize: '10px', 
-                      color: '#ddd6fe', 
+                      color: '#c7d2fe', 
                       marginTop: '2px',
                       fontWeight: 500
                     }}
@@ -518,15 +517,14 @@ export default function MenuLateral({
                         margin: '2px 8px',
                         borderRadius: '8px',
                         backgroundColor: isAtivo 
-                          ? 'var(--marca)' 
+                          ? '#3b82f6' 
                           : isDestaque 
                           ? 'rgba(245, 158, 11, 0.08)' 
                           : 'transparent',
                         border: isDestaque && !isAtivo ? '1px solid rgba(245, 158, 11, 0.25)' : 'none',
                         color: isAtivo ? '#ffffff' : isDestaque ? '#fef3c7' : '#e0e7ff',
                         width: 'calc(100% - 16px)',
-                        boxShadow: isAtivo ? 'var(--marca-halo)' : 'none',
-                        outline: isAtivo ? '1px solid var(--marca-clara)' : 'none'
+                        boxShadow: isAtivo ? '0 4px 6px -1px rgba(0, 0, 0, 0.15)' : 'none'
                       }}
                       className={`flex items-center gap-2.5 text-left transition-all cursor-pointer hover:bg-white/10 ${isIntegracao ? 'integracao conexao sincronizacao' : ''} ${
                         isAtivo ? 'font-bold' : 'font-medium'
@@ -534,7 +532,7 @@ export default function MenuLateral({
                       title={item.rotulo}
                     >
                       <Icone 
-                        className={`w-4 h-4 shrink-0 ${isAtivo ? 'text-white' : isDestaque ? 'text-amber-400' : 'text-[#c4b5fd]'}`} 
+                        className={`w-4 h-4 shrink-0 ${isAtivo ? 'text-white' : isDestaque ? 'text-amber-400' : 'text-[#a5b4fc]'}`} 
                       />
                       {(!recolhidoDesktop || abertoMobile) && (
                         <>
@@ -604,15 +602,14 @@ export default function MenuLateral({
                       margin: '2px 8px',
                       borderRadius: '8px',
                       backgroundColor: isAtivo 
-                        ? 'var(--marca)' 
+                        ? '#3b82f6' 
                         : isDestaque 
                         ? 'rgba(245, 158, 11, 0.15)' 
                         : 'transparent',
                       border: isDestaque && !isAtivo ? '1px solid rgba(245, 158, 11, 0.5)' : 'none',
                       color: isAtivo ? '#ffffff' : isDestaque ? '#fef3c7' : '#e0e7ff',
                       width: 'calc(100% - 16px)',
-                      boxShadow: isAtivo ? 'var(--marca-halo)' : 'none',
-                        outline: isAtivo ? '1px solid var(--marca-clara)' : 'none'
+                      boxShadow: isAtivo ? '0 4px 6px -1px rgba(0, 0, 0, 0.15)' : 'none'
                     }}
                     className={`flex items-center gap-2.5 text-left transition-all cursor-pointer hover:bg-white/10 ${
                       isAtivo ? 'font-bold' : 'font-medium'
@@ -620,7 +617,7 @@ export default function MenuLateral({
                     title={item.rotulo}
                   >
                     <Icone 
-                      className={`w-4 h-4 shrink-0 ${isAtivo ? 'text-white' : isDestaque ? 'text-amber-400' : 'text-[#c4b5fd]'}`} 
+                      className={`w-4 h-4 shrink-0 ${isAtivo ? 'text-white' : isDestaque ? 'text-amber-400' : 'text-[#a5b4fc]'}`} 
                     />
                     {(!recolhidoDesktop || abertoMobile) && (
                       <>
@@ -746,7 +743,7 @@ export default function MenuLateral({
               id="btn-esticar-barra-lateral-rodape"
               onClick={onAlternarRecolhidoDesktop}
               title="Clique para esticar a barra lateral e voltar ao normal"
-              className="w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl bg-[color:var(--marca)]/50 hover:bg-[color:var(--marca)] text-white border border-[color:var(--marca-clara)]/40 transition-all hover:scale-105 cursor-pointer shadow-md"
+              className="w-full flex flex-col items-center justify-center py-2 px-1 rounded-xl bg-blue-600/40 hover:bg-blue-600 text-white border border-blue-400/40 transition-all hover:scale-105 cursor-pointer shadow-md"
             >
               <ChevronRight className="w-5 h-5 text-white" />
               <span className="text-[8px] font-bold mt-0.5">Esticar</span>

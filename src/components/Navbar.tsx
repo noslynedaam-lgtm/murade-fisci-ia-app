@@ -161,7 +161,7 @@ export default function Navbar({
   ];
 
   return (
-    <header className="faixa-marca bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
       {painelUsuarios && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center overscroll-contain bg-black/50 p-4" onClick={() => setPainelUsuarios(false)}>
           <section onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
@@ -263,7 +263,6 @@ export default function Navbar({
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Murade Fisco IA</span>
-                  <span className="etiqueta-marca hidden sm:inline-block">FISCO IA</span>
                 </div>
                 <p className="text-[10.5px] text-slate-500 -mt-0.5 font-medium hidden sm:block">
                   Ferramentas de apoio fiscal com IA

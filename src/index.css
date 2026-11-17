@@ -11,12 +11,6 @@
 }
 
 :root {
-  /* Cor de marca do FISCO IA (roxo). Fonte única: src/config/marca.ts */
-  --marca: #7c3aed;
-  --marca-escura: #5b21b6;
-  --marca-clara: #ede9fe;
-  --marca-menu: #2e1065;
-  --marca-halo: 0 0 18px rgba(124, 58, 237, 0.55), 0 0 4px rgba(237, 233, 254, 0.5);
   --azul-escuro: #0A1628;
   --azul-principal: #165DFF;
   --azul-claro: #36CFFB;
@@ -57,21 +51,4 @@
     background: #fff !important;
   }
   .no-print { display: none !important; }
-}
-
-/* Faixa fina da marca no topo do cabeçalho de todos os módulos (3px; no celular segue fina, sem ocupar tela) */
-.faixa-marca { border-top: 3px solid var(--marca); }
-
-/* Etiqueta do sistema (FISCO IA) */
-.etiqueta-marca {
-  display: inline-block;
-  background: var(--marca-clara);
-  color: var(--marca-escura);
-  border: 1px solid var(--marca);
-  border-radius: 6px;
-  padding: 0 6px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  line-height: 16px;
 }
