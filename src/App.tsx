@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import MenuLateral from './components/MenuLateral';
 import DashboardFiscal from './screens/Dashboard/DashboardFiscal';
@@ -30,6 +30,7 @@ import { IaMuradVozScreen } from './screens/IaVoz/IaMuradVozScreen';
 import ChamadaPorVozFiscoIA from './components/ChamadaPorVozFiscoIA';
 import { ModalCalculadoraFiscal } from './components/ModalCalculadoraFiscal';
 import { PainelAnimadoLateral } from './components/PainelAnimadoLateral';
+import { EVENTO_SESSAO_EXPIRADA, MENSAGEM_SESSAO_EXPIRADA, INTERVALO_RECHECAGEM_MS, decidirAcaoSessao, deveRechecarSessao } from './services/auth/sessaoExpirada';
 import { validarSessaoCentral, logout, obterEmailsEnviados, EmailEnviadoLog } from './services/auth/auth.service';
 import { UsuarioAuth, EmpresaDados } from './types';
 import { ehUsuarioAdmin, TIPOS_USUARIO } from './config/Permissoes';
@@ -171,6 +172,60 @@ export default function App() {
     });
     return () => { ativo = false; };
   }, [tokenConvite, tokenRedefinicao]);
+
+  // Sessão expirada enquanto a aba ficou aberta: mostra o login com aviso (sem apagar nada
+  // local) e, enquanto a sessão está válida, recarrega empresas/painéis ao voltar o foco e
+  // a cada poucos minutos. Não altera a duração da sessão (celular: 90 dias).
+  const sessaoAtivaRef = useRef(false);
+  sessaoAtivaRef.current = modoAuth === 'app' && !!usuarioAtual;
+  useEffect(() => {
+    let checando = false;
+    let ultimaChecagem = Date.now();
+    let escondidaDesde: number | null = null;
+    const rechecar = async (recarregarDados: boolean) => {
+      if (checando || !sessaoAtivaRef.current) return;
+      checando = true;
+      try {
+        const resultado = await validarSessaoCentral();
+        ultimaChecagem = Date.now();
+        const acao = decidirAcaoSessao(resultado);
+        if (acao === 'sessao_expirada' && sessaoAtivaRef.current) {
+          setUsuarioAtual(null);
+          setPrecisaAtivar2fa(false);
+          setMostrarSeguranca(false);
+          setMostrarPortalSistemas(false);
+          setMensagemAuthServidor(MENSAGEM_SESSAO_EXPIRADA);
+          setModoAuth('login');
+        } else if (acao === 'sessao_valida' && recarregarDados) {
+          notificarMudancaSessao(); // recarrega empresas e painel do dono
+        }
+        // 'indisponivel' (sem rede/servidor fora): não derruba o usuário.
+      } finally {
+        checando = false;
+      }
+    };
+    const aoExpirar = () => { void rechecar(false); };
+    const aoMudarVisibilidade = () => {
+      if (document.visibilityState === 'hidden') { escondidaDesde = Date.now(); return; }
+      if (deveRechecarSessao({ agora: Date.now(), ultimaChecagem, abaVisivel: true, motivo: 'foco', escondidaDesde })) void rechecar(true);
+      escondidaDesde = null;
+    };
+    const aoFocar = () => {
+      if (deveRechecarSessao({ agora: Date.now(), ultimaChecagem, abaVisivel: document.visibilityState === 'visible', motivo: 'foco', escondidaDesde })) void rechecar(true);
+    };
+    const timer = window.setInterval(() => {
+      if (deveRechecarSessao({ agora: Date.now(), ultimaChecagem, abaVisivel: document.visibilityState === 'visible', motivo: 'intervalo' })) void rechecar(true);
+    }, INTERVALO_RECHECAGEM_MS);
+    window.addEventListener(EVENTO_SESSAO_EXPIRADA, aoExpirar);
+    document.addEventListener('visibilitychange', aoMudarVisibilidade);
+    window.addEventListener('focus', aoFocar);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener(EVENTO_SESSAO_EXPIRADA, aoExpirar);
+      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
+      window.removeEventListener('focus', aoFocar);
+    };
+  }, []);
 
   // Navegação com proteção estrita de acesso e suporte abrangente a aliases
   const handleNavegacao = (novaAba: string) => {

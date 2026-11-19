@@ -3,6 +3,7 @@ import { EmpresaDados } from '../types';
 import { lerEmpresas, salvarEmpresa, removerEmpresa as removerEmpresaService } from '../services/empresas/empresas.service';
 import { apagarTodosXmlsFiscaisLocais, apagarXmlsFiscaisEmpresa } from '../services/fiscal/xmlFiscalStorage.service';
 import { normalizarCnpj } from '../services/cnpj/cnpjValidation';
+import { classificarFalhaLista, MENSAGEM_SESSAO_EXPIRADA } from '../services/auth/sessaoExpirada';
 import { arquivarEmpresaCentral, listarEmpresasCentrais, listarEscritoriosCentrais, lerEscritorioAtivo, salvarEscritorioAtivo } from '../services/empresas/empresasCentral.service';
 
 interface EmpresaContextType {
@@ -130,15 +131,23 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
           emailContador: metadata.emailContador || '',
         };
       });
-      setEmpresas(lista);
+      // Recargas automáticas (foco/intervalo): se nada mudou, mantém as mesmas referências
+      // para não reiniciar telas/formulários abertos.
+      setEmpresas(anterior => JSON.stringify(anterior) === JSON.stringify(lista) ? anterior : lista);
       setErroEmpresas(null);
       const savedId = localStorage.getItem(STORAGE_ACTIVE_KEY);
       const encontrada = lista.find(item => item.id === savedId || item.idCentral === savedId);
       const proxima = encontrada || lista[0] || null;
-      setEmpresaAtiva(proxima);
+      setEmpresaAtiva(anterior => JSON.stringify(anterior) === JSON.stringify(proxima) ? anterior : proxima);
       if (proxima?.id) localStorage.setItem(STORAGE_ACTIVE_KEY, proxima.id);
       else localStorage.removeItem(STORAGE_ACTIVE_KEY);
     } catch (error) {
+      if (classificarFalhaLista(error) === 'sessao_expirada') {
+        // Sessão acabou (401): o App mostra a tela de login. Não troca a carteira por
+        // lista vazia, não apaga nada local e guarda o aviso como erro.
+        setErroEmpresas(MENSAGEM_SESSAO_EXPIRADA);
+        return;
+      }
       // A carteira central é a fonte de verdade. Não exibe dados locais sem tenant
       // confirmado, evitando misturar empresas entre contas no mesmo navegador.
       setEmpresas([]);

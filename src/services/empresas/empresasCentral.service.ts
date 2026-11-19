@@ -1,4 +1,5 @@
 import { EmpresaDados } from '../../types';
+import { ErroSessaoExpirada, avisarSessaoExpirada, statusIndicaSessaoExpirada } from '../auth/sessaoExpirada';
 
 export interface EscritorioCentral {
   id: string;
@@ -21,6 +22,11 @@ async function requisicao<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error('Não foi possível conectar ao servidor de empresas. Confira a conexão e tente novamente.');
   }
   const data = await response.json().catch(() => null) as ({ mensagem?: string } & T) | null;
+  if (statusIndicaSessaoExpirada(response.status)) {
+    // Sessão acabou: avisa o app (tela de login) sem apagar nada local.
+    avisarSessaoExpirada();
+    throw new ErroSessaoExpirada();
+  }
   if (!response.ok) {
     throw new Error(data?.mensagem || `O servidor recusou a operação (HTTP ${response.status}).`);
   }

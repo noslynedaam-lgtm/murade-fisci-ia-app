@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { avisarSessaoExpirada, statusIndicaSessaoExpirada } from '../services/auth/sessaoExpirada';
 
 interface Escritorio { escritorioId: string; nome: string; responsavel: string; empresas: number; liberado: boolean }
 interface Linha { escritorioId: string; escritorio: string; empresaId: string; cnpj: string; nome: string; liberada: boolean; pediuEm: string | null; liberadaEm: string | null }
@@ -18,7 +19,8 @@ export default function LiberacaoConsultaSerpro() {
   const carregarEscritorios = useCallback(async () => {
     try {
       const r = await fetch('/api/serpro/liberacoes/escritorios', { credentials: 'same-origin', cache: 'no-store' });
-      if (r.status === 401 || r.status === 403) return;
+      if (statusIndicaSessaoExpirada(r.status)) { avisarSessaoExpirada(); return; }
+      if (r.status === 403) return;
       const j = await r.json();
       if (!r.ok) { setErroEscritorios(j.mensagem ?? 'Não foi possível carregar os escritórios.'); return; }
       setErroEscritorios(''); setEscritorios(j.escritorios as Escritorio[]);
@@ -29,7 +31,9 @@ export default function LiberacaoConsultaSerpro() {
   const carregar = useCallback(async (termo: string) => {
     try {
       const r = await fetch(`/api/serpro/liberacoes?${new URLSearchParams(termo ? { busca: termo } : {})}`, { credentials: 'same-origin', cache: 'no-store' });
-      if (r.status === 401 || r.status === 403) { setOculto(true); return; }
+      if (statusIndicaSessaoExpirada(r.status)) { avisarSessaoExpirada(); return; } // sessão acabou: o App mostra o login; não esconde o painel
+      if (r.status === 403) { setOculto(true); return; } // logado, mas não é o dono: painel fica escondido
+      setOculto(false);
       const j = await r.json();
       if (!r.ok) { setErro(j.mensagem ?? 'Não foi possível carregar.'); return; }
       setErro(''); setLinhas(j.empresas as Linha[]);
@@ -37,6 +41,13 @@ export default function LiberacaoConsultaSerpro() {
   }, []);
 
   useEffect(() => { const t = setTimeout(() => { void carregar(busca); }, 300); return () => clearTimeout(t); }, [busca, carregar]);
+
+  // Sessão rechecada com sucesso (foco da aba / intervalo / novo login): recarrega o painel.
+  useEffect(() => {
+    const recarregar = () => { void carregarEscritorios(); void carregar(busca); };
+    window.addEventListener('fiscoia_auth_session_updated', recarregar);
+    return () => window.removeEventListener('fiscoia_auth_session_updated', recarregar);
+  }, [carregar, carregarEscritorios, busca]);
 
   const alterar = async (l: Linha, liberada: boolean) => {
     if (liberada && !window.confirm(`Liberar a consulta ao SERPRO para ${l.nome} (${l.escritorio})? A consulta grátis da semana passa a valer só para esta empresa.`)) return;
