@@ -10,6 +10,7 @@ import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
+import { fiscalInformouCnpjDoEscritorio } from './empresasDoFiscal';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
 import { carregarCredencial, credencialExiste, credencialGlobal, decidirFonteCredencial, guardarCredencial, removerCredencial, validarEscritorioId, type CredencialSerpro } from '../services/serpro/credenciaisEscritorio';
@@ -557,7 +558,7 @@ router.post('/consulta', async (req, res) => {
     if (!UUID.test(tenantId)) return res.status(400).json({ consultado: false, mensagem: 'Escritório inválido.' });
     try {
       const vinculo = await comContextoTenant(user.id, tenantId, async () => true, PAPEIS_CONSULTA);
-      decisao = decidirAcessoConsulta({ ehAdmin: false, tenantId, vinculado: vinculo.autorizado, info: vinculo.autorizado ? await infoDoEscritorio(tenantId) : null });
+      decisao = decidirAcessoConsulta({ ehAdmin: false, tenantId, vinculado: vinculo.autorizado, info: vinculo.autorizado ? await infoDoEscritorio(tenantId) : null, fiscalTemCnpj: fiscalInformouCnpjDoEscritorio(tenantId) });
     } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao validar o escritório. Nada foi consultado nem cobrado.' }); }
   }
   if (decisao.ok === false) return res.status(decisao.http).json({ consultado: false, mensagem: decisao.mensagem });

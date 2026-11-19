@@ -12,9 +12,9 @@ import { validarCnpj, normalizarCnpj } from '../services/cnpj/cnpjValidation';
 // - Só cria o que não existe. Nunca altera cadastro existente e nunca recria empresa que foi arquivada/excluída aqui.
 // - Conserto: empresa que ESTE robô criou no escritório errado (marcada origem "murade-fiscal") é retirada de lá. Empresa
 //   cadastrada à mão, ou com certificado guardado, nunca é tocada.
-export interface EscritorioDoFiscal { login: string; donoSistema: boolean }
+export interface EscritorioDoFiscal { login: string; donoSistema: boolean; cnpj?: string }
 export interface EmpresaDoFiscal { cnpj: string; razaoSocial: string; uf: string; cidade: string; regime: string; status: string; escritorio: string; escritorioDonoSistema: boolean; escritorios: EscritorioDoFiscal[] | null }
-export interface ResultadoEmpresasFiscal { lidas: number; criadas: number; jaExistiam: number; semEscritorio: number; invalidas: number; ambiguas: number; retiradas: number; erro?: string }
+export interface ResultadoEmpresasFiscal { lidas: number; criadas: number; jaExistiam: number; semEscritorio: number; invalidas: number; ambiguas: number; retiradas: number; cnpjPreenchidos: number; avisos: string[]; erro?: string }
 
 const MAX_CRIAR_POR_RODADA = 300;
 
@@ -28,7 +28,7 @@ export async function lerEmpresasDoFiscal(env: Record<string, string | undefined
     cnpj: normalizarCnpj(String(e?.cnpj ?? '')), razaoSocial: String(e?.razaoSocial ?? '').trim(), uf: String(e?.uf ?? '').trim().toUpperCase(),
     cidade: String(e?.cidade ?? '').trim(), regime: String(e?.regime ?? '').trim(), status: String(e?.status ?? ''), escritorio: String(e?.escritorio ?? '').trim().toLowerCase(),
     escritorioDonoSistema: e?.escritorioDonoSistema === true,
-    escritorios: Array.isArray(e?.escritorios) ? e.escritorios.map((x: any) => ({ login: String(x?.login ?? '').trim().toLowerCase(), donoSistema: x?.donoSistema === true })).filter((x: EscritorioDoFiscal) => x.login) : null,
+    escritorios: Array.isArray(e?.escritorios) ? e.escritorios.map((x: any) => { const cnpj = normalizarCnpj(String(x?.cnpj ?? '')); return { login: String(x?.login ?? '').trim().toLowerCase(), donoSistema: x?.donoSistema === true, ...(cnpj && validarCnpj(cnpj) ? { cnpj } : {}) }; }).filter((x: EscritorioDoFiscal) => x.login) : null,
   }));
 }
 
@@ -81,7 +81,7 @@ async function retirarCriadasNoEscritorioErrado(c: PoolClient, tenantId: string,
 }
 
 export async function sincronizarEmpresasDoFiscal(env: Record<string, string | undefined> = process.env, buscar: typeof fetch = fetch): Promise<ResultadoEmpresasFiscal> {
-  const out: ResultadoEmpresasFiscal = { lidas: 0, criadas: 0, jaExistiam: 0, semEscritorio: 0, invalidas: 0, ambiguas: 0, retiradas: 0 };
+  const out: ResultadoEmpresasFiscal = { lidas: 0, criadas: 0, jaExistiam: 0, semEscritorio: 0, invalidas: 0, ambiguas: 0, retiradas: 0, cnpjPreenchidos: 0, avisos: [] };
   const pool = obterPoolBanco();
   if (!pool) return { ...out, erro: 'Banco permanente não configurado.' };
   let empresas: EmpresaDoFiscal[];
@@ -124,8 +124,68 @@ export async function sincronizarEmpresasDoFiscal(env: Record<string, string | u
     }, ['OWNER']);
     if (r.autorizado && r.resultado) { out.criadas += r.resultado.criadas; out.jaExistiam += r.resultado.existiam; out.retiradas += r.resultado.retiradas; } else out.semEscritorio += lista.length;
   }
+  try { await sincronizarCnpjDosEscritorios(pool, empresas, out); } catch (e: any) { out.avisos.push(`CNPJ dos escritórios não sincronizado: ${String(e?.message || 'falha').slice(0, 120)}`); }
+  ultimoResultado = { em: new Date().toISOString(), ...out };
   return out;
 }
+
+/** Escritórios (tenants) para os quais o Fiscal informou CNPJ na última rodada; só para a mensagem do 409 (nunca para decidir acesso). */
+const informadoPeloFiscal = new Set<string>();
+export function fiscalInformouCnpjDoEscritorio(tenantId: string): boolean { return informadoPeloFiscal.has(tenantId); }
+
+export interface TenantSemCnpj { id: string; name: string; ownerEmail: string }
+
+/**
+ * CNPJ do escritório (Fiscal → Fisco IA). Só PREENCHE o que está vazio, para o escritório cliente cujo proprietário (OWNER) tem o mesmo
+ * e-mail do login do Fiscal. Nunca sobrescreve (divergência só vira aviso), nunca toca o escritório do dono do sistema e, sem a
+ * migração 023 no banco, apenas avisa. Escritório cliente sem CNPJ e sem correspondência no Fiscal também vira aviso (conferidor).
+ */
+export async function sincronizarCnpjDosEscritorios(pool: Pool, empresas: EmpresaDoFiscal[], out: ResultadoEmpresasFiscal): Promise<void> {
+  // login do Fiscal → CNPJ informado (null = Fiscal informou CNPJs diferentes para o mesmo login: ambíguo, não preenche).
+  const cnpjPorLogin = new Map<string, string | null>(); const donos = new Set<string>(); const logins = new Set<string>();
+  for (const e of empresas) for (const x of e.escritorios ?? []) {
+    logins.add(x.login); if (x.donoSistema) donos.add(x.login);
+    if (!x.cnpj) continue;
+    const atual = cnpjPorLogin.get(x.login);
+    cnpjPorLogin.set(x.login, atual === undefined || atual === x.cnpj ? x.cnpj : null);
+  }
+  let semFuncao = false;
+  informadoPeloFiscal.clear();
+  const tratados = new Map<string, string | null | undefined>(); // tenant que corresponde a um login do Fiscal → CNPJ informado por ele
+  for (const login of logins) {
+    if (donos.has(login)) continue;
+    const alvo = await escritorioDoDono(pool, login);
+    if (!alvo) continue;
+    const cnpj = cnpjPorLogin.get(login);
+    tratados.set(alvo.tenantId, cnpj);
+    if (cnpj) informadoPeloFiscal.add(alvo.tenantId);
+    if (cnpj === null) { out.avisos.push(`O Fiscal informou CNPJs diferentes para ${login}; nada foi preenchido.`); continue; }
+    if (!cnpj) continue;
+    let info: any;
+    try { info = (await pool.query('SELECT * FROM fiscoia.tenant_office_info($1::uuid)', [alvo.tenantId])).rows[0]; } catch { continue; }
+    if (!info || info.is_platform_owner === true) continue;
+    const atual = info.office_cnpj ? normalizarCnpj(String(info.office_cnpj)) : '';
+    if (atual) { if (atual !== cnpj) out.avisos.push(`O CNPJ do escritório ${login} no Fisco IA (${atual}) difere do informado pelo Fiscal (${cnpj}); mantido o do Fisco IA.`); continue; }
+    if (semFuncao) continue;
+    try {
+      const r = await pool.query('SELECT fiscoia.platform_fill_office_cnpj_from_integration($1::uuid, $2::text) AS ok', [alvo.tenantId, cnpj]);
+      if (r.rows[0]?.ok === true) out.cnpjPreenchidos += 1;
+    } catch (e: any) {
+      if (e?.code === '42883') { semFuncao = true; out.avisos.push('A atualização 023 do banco (CNPJ do escritório pelo Fiscal) ainda não foi aplicada (npm run db:migrate); nada foi preenchido.'); }
+      else if (e?.code !== '22023') out.avisos.push(`Não foi possível preencher o CNPJ do escritório ${login}.`);
+    }
+  }
+  // Conferidor: escritório cliente sem CNPJ e sem correspondência no Fiscal.
+  let semCnpj: TenantSemCnpj[] = [];
+  try { semCnpj = (await pool.query('SELECT * FROM fiscoia.integration_offices_without_cnpj()')).rows.map((x: any) => ({ id: String(x.id), name: String(x.name), ownerEmail: String(x.owner_email ?? '') })); } catch { return; }
+  for (const t of semCnpj) {
+    if (!tratados.has(t.id)) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e não tem correspondência no Fiscal (e-mail do proprietário ${t.ownerEmail || 'desconhecido'}): cadastre em Painel MURADE → Escritórios contratantes.`);
+    else if (!semFuncao && tratados.get(t.id) === undefined) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e o Fiscal também não tem o CNPJ dele: cadastre no Fiscal (Usuários e empresas → CNPJ do escritório) ou em Painel MURADE → Escritórios contratantes.`);
+  }
+}
+
+let ultimoResultado: (ResultadoEmpresasFiscal & { em: string }) | null = null;
+export function ultimoResultadoEmpresasFiscal() { return ultimoResultado; }
 
 let emExecucao = false;
 export async function executarEmpresasDoFiscal(): Promise<string> {
@@ -134,6 +194,6 @@ export async function executarEmpresasDoFiscal(): Promise<string> {
   try {
     const r = await sincronizarEmpresasDoFiscal();
     if (r.erro) throw new Error(r.erro);
-    return `${r.lidas} empresa(s) lida(s) do Fiscal; ${r.criadas} criada(s) no Fisco IA, ${r.jaExistiam} já existiam, ${r.semEscritorio} sem escritório correspondente (e-mail do dono diferente), ${r.ambiguas} sem dono certo (em mais de um escritório), ${r.invalidas} inválida(s)${r.retiradas ? `, ${r.retiradas} retirada(s) do escritório errado` : ''}.`;
+    return `${r.lidas} empresa(s) lida(s) do Fiscal; ${r.criadas} criada(s) no Fisco IA, ${r.jaExistiam} já existiam, ${r.semEscritorio} sem escritório correspondente (e-mail do dono diferente), ${r.ambiguas} sem dono certo (em mais de um escritório), ${r.invalidas} inválida(s)${r.retiradas ? `, ${r.retiradas} retirada(s) do escritório errado` : ''}${r.cnpjPreenchidos ? `; CNPJ de ${r.cnpjPreenchidos} escritório(s) preenchido(s) a partir do Fiscal` : ''}.${r.avisos.length ? ` AVISOS: ${r.avisos.join(' | ')}` : ''}`;
   } finally { emExecucao = false; }
 }
