@@ -16,6 +16,7 @@ import {
   Printer,
 } from 'lucide-react';
 import BotaoVoltar from '../../components/BotaoVoltar';
+import PainelConsultaCertidoes from './PainelConsultaCertidoes';
 import { useEmpresa } from '../../context/EmpresaContext';
 import { EVENTO_CND_LOCAL_ATUALIZADA } from '../../services/cnd/cndMonitor.service';
 
@@ -40,6 +41,8 @@ export interface CertidaoCND {
   validade: string;
   obs?: string;
   dataCadastro?: string;
+  /** Id do mesmo registro guardado no servidor (para o robô de vencimento e a exclusão ficarem em sincronia). */
+  idServidor?: string;
 }
 
 const LINKS_EMISSAO: Record<string, string> = {
@@ -275,6 +278,22 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
     const atualizadas = [...certidoes, nova];
     if (!salvarCertidoesNoStorage(atualizadas)) return;
 
+    // Guarda também no servidor (melhor esforço) para o robô avisar 30/15/7 dias antes do vencimento.
+    if (clienteEncontrado.idCentral && clienteEncontrado.tenantIdCentral) {
+      void fetch('/api/certidoes/manual', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: clienteEncontrado.tenantIdCentral, companyId: clienteEncontrado.idCentral, tipo: nova.tipo, uf: nova.uf, municipio: nova.municipio, numero: nova.numero, emissao: nova.emissao, validade: nova.validade, obs: nova.obs }) })
+        .then(async (r) => {
+          if (!r.ok) return;
+          const d = await r.json() as { certidao?: { id?: string } };
+          if (!d.certidao?.id) return;
+          try {
+            const salvas = JSON.parse(localStorage.getItem('fiscoia_cnd') || '[]') as CertidaoCND[];
+            const novas = salvas.map(c => (c.id === nova.id ? { ...c, idServidor: d.certidao!.id } : c));
+            localStorage.setItem('fiscoia_cnd', JSON.stringify(novas));
+            setCertidoes(novas);
+          } catch { /* o registro local continua válido */ }
+        }).catch(() => undefined);
+    }
+
     // Limpar
     setModalAberto(false);
     setNovoClienteId('');
@@ -286,9 +305,18 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
   };
 
   const handleExcluir = (id: number) => {
+    // Uma certidão por vez, com duas confirmações.
     if (!window.confirm('Tem certeza que deseja excluir esta certidão?')) return;
+    if (!window.confirm('Confirma de novo: excluir SOMENTE esta certidão? Não dá para desfazer.')) return;
+    const alvo = certidoes.find(c => c.id === id);
     const atualizadas = certidoes.filter(c => c.id !== id);
-    if (salvarCertidoesNoStorage(atualizadas)) setMensagemStatus('Registro local removido. Nenhum documento foi alterado no órgão emissor.');
+    if (!salvarCertidoesNoStorage(atualizadas)) return;
+    setMensagemStatus('Registro local removido. Nenhum documento foi alterado no órgão emissor.');
+    // Se o registro também está no servidor, tira de lá para o robô de vencimento não avisar de uma certidão que já foi excluída.
+    const emp = alvo ? empresas.find(item => String(item.id) === String(alvo.clienteId)) : undefined;
+    if (alvo?.idServidor && emp?.tenantIdCentral) {
+      void fetch(`/api/certidoes/${alvo.idServidor}/excluir`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: emp.tenantIdCentral, confirmou: true, confirmouDeNovo: true }) }).catch(() => undefined);
+    }
   };
 
   const handleAbrirConsultaEmissao = (cnd: CertidaoCND) => {
@@ -328,7 +356,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                 CND — Certidões Negativas de Débitos
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Registro manual de certidões e cálculo da validade informada. O sistema não consulta nem valida certidões nos órgãos.
+                Consulta a CND federal (Receita Federal + PGFN) pelo Serpro, com botão "Consultar agora". Estadual, municipal, FGTS e trabalhista são emitidas no portal do órgão e registradas aqui para acompanhar o vencimento. Registros manuais não são verificados pelo órgão.
               </p>
             </div>
           </div>
@@ -370,6 +398,8 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
           {mensagemStatus}
         </div>
       )}
+
+      <PainelConsultaCertidoes obterLink={(tipo, uf, cidade) => obterLinkPortalCnd({ id: 0, clienteId: '', clienteNome: '', clienteDoc: '', tipo, uf, municipio: cidade, numero: '', emissao: '', validade: '' })} />
 
       {/* Cartões de Resumo Rápido */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">

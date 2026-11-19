@@ -436,7 +436,7 @@ async function escritorioLiberado(login: string | undefined): Promise<boolean> {
 }
 
 /** Deixa registrado que a empresa tentou consultar e foi barrada, para o dono ver no painel. Não libera nada. */
-async function pedirLiberacao(companyId: string): Promise<void> {
+export async function pedirLiberacao(companyId: string): Promise<void> {
   const pool = obterPoolBanco();
   if (!pool) return;
   try { await pool.query('SELECT fiscoia.serpro_request_release($1::uuid)', [companyId]); } catch { /* o pedido é só um aviso; a consulta já foi barrada */ }

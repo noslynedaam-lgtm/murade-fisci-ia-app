@@ -2,6 +2,7 @@
 // existente com a sessão do próprio usuário, então escritório, empresa e perfil continuam valendo.
 // A Agente não altera notas, certificados nem cadastros; para pedir algo a outro sistema usa o protocolo.
 import { erroApi, ok, q, type Ferramenta, type KitAgente } from './agenteMotor';
+import { ADAPTADORES, type TipoCertidao } from '../services/certidoes/certidoes';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -117,6 +118,47 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'ver_certidoes_vencendo', description: 'Mostra as certidões guardadas (CND federal, estadual, municipal, CRF do FGTS, CNDT) que já venceram ou vencem em até 30 dias, por empresa. Só lê o que já está guardado; não consulta nenhum órgão e não gasta nada.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/certidoes/vencendo?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const lista: any[] = r.corpo?.certidoes || [];
+      return { hoje: r.corpo?.hoje, total: lista.length, certidoes: lista.slice(0, 40).map((c) => ({ empresa: c.empresa, certidao: c.rotuloTipo, uf: c.uf, municipio: c.municipio, numero: c.numero, validade: c.validade, situacao: c.situacaoTexto })), aviso: lista.length > 40 ? 'Mostrando 40; há mais.' : undefined, observacao: 'Só entram certidões já guardadas no sistema; certidão nunca registrada não aparece aqui.' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'consultar_certidao', description: 'Propõe CONSULTAR a certidão de UMA empresa no órgão. Hoje só a CND federal (Receita Federal + PGFN) tem consulta automática, e ela é PAGA pelo Serpro: por isso só roda depois de a pessoa confirmar o custo no cartão. Estadual, municipal, FGTS e trabalhista não têm consulta automática: nesses casos a ferramenta devolve o portal para a pessoa emitir. Uma empresa e um tipo por vez.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, tipo: { type: 'STRING', description: 'federal, estadual, municipal, fgts ou trabalhista.' } }, required: ['tenantId', 'companyId', 'tipo'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe o escritório e a empresa pelos ids; use listar_escritorios e listar_empresas.' };
+      const tipo = String(args.tipo || '').trim().toLowerCase();
+      const adaptador = (ADAPTADORES as Record<string, (typeof ADAPTADORES)[TipoCertidao]>)[tipo];
+      if (!adaptador) return { erro: 'Tipo inválido. Use federal, estadual, municipal, fgts ou trabalhista.' };
+      if (adaptador.modo === 'manual') return { erro: `${adaptador.rotulo}: ${adaptador.como}${adaptador.portalOficial ? ` Portal oficial: ${adaptador.portalOficial}` : ' Abra o portal do órgão da UF ou do município da empresa na tela CND / Certidões.'} Nada foi consultado nem cobrado.` };
+      const r = await ctx.chamarApi('GET', `/api/companies?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const e = (r.corpo?.empresas || []).find((x: any) => x.id === companyId);
+      if (!e) return { erro: 'Empresa não encontrada neste escritório.' };
+      return {
+        cnpj: String(e.cnpj || '').replace(/\D/g, ''), params: { tenantId, companyId, tipo },
+        titulo: `Consultar ${adaptador.rotulo}: ${e.legal_name}`,
+        descricao: [`Empresa: ${e.legal_name} (CNPJ ${e.cnpj})`, `Órgão: ${adaptador.orgao}`, 'Consulta paga pelo Serpro (produto "Consulta CND"), cobrada por consulta conforme o contrato.', 'O resultado fica guardado na tela CND / Certidões, com validade exatamente como o órgão informar.'],
+        aviso: 'Ao confirmar, a consulta é feita agora e pode ser cobrada.',
+        resumo: `Consultar ${adaptador.rotulo} de ${e.legal_name}`,
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/certidoes/consultar', { tenantId: params.tenantId, companyId: params.companyId, tipo: params.tipo, confirmarCusto: true });
+      if (!ok(r)) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      const c = r.corpo?.certidao;
+      const detalhe = c?.validade ? ` Número de controle ${c.numero ?? 'não informado'}, emitida em ${c.emissao ?? 'data não informada'}, válida até ${c.validade}.` : '';
+      return { sucesso: r.corpo?.situacao === 'emitida', mensagem: `${r.corpo?.mensagem || 'Consulta concluída.'}${detalhe}`, detalhes: c ? { situacao: c.situacao, validade: c.validade, numero: c.numero } : undefined };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'seguranca_login', description: 'Mostra a segurança do login das últimas 24 horas: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados, quantas contas têm o código de segurança ligado e se o dono do sistema está com ele ligado. Só o dono do sistema vê. Só lê; não bloqueia nem libera ninguém.', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/auth/2fa/resumo');
@@ -168,6 +210,7 @@ COMO RESPONDER (suas respostas são lidas em voz alta)
 - Nunca esconda o CNPJ com asteriscos nem responda de forma genérica: use a ferramenta e entregue o que ela devolveu.
 
 VENCIMENTOS E ALERTAS (seja atenta, proativa e inteligente)
+- Certidões (CND): para saber o que venceu ou vence, use ver_certidoes_vencendo. Para consultar, use consultar_certidao: só a CND federal tem consulta automática, é PAGA e só roda depois de a pessoa confirmar no cartão; antes de propor, diga em voz alta que é paga e pergunte se quer consultar. Estadual, municipal, FGTS e trabalhista são emitidas pela pessoa no portal do órgão. Nunca diga que uma certidão está regular sem o resultado guardado pelo sistema; validade só a que o órgão informou.
 - Quando perguntarem o que vence (hoje, amanhã, na semana, no mês), consulte SEMPRE as ferramentas de vencimentos, guias e lembretes antes de responder. Responda nesta ordem: 1) o que já venceu e continua em aberto; 2) o que vence hoje; 3) o que vence nos próximos dias; 4) diga também o que está em dia ou sem pendência. Para cada item diga a empresa, a obrigação ou o tributo, o valor (se houver) e a data.
 - Depois de listar, ofereça o próximo passo: avisar o cliente por WhatsApp (use preparar_whatsapp quando existir) ou deixar um lembrete. Diga com clareza o que você consegue fazer agora e o que depende de configuração: o envio automático por WhatsApp só funciona com a ligação da Meta configurada; sem ela você prepara a mensagem e o usuário envia.
 - Explique em linguagem simples, como a um cliente leigo: o que é a obrigação, o risco de atrasar (multa e juros, sem inventar percentuais) e o que fazer. Datas e valores só do que as ferramentas trouxerem; se a data for estimada, diga que é estimada.

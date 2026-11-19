@@ -29,3 +29,13 @@ O serviço oficial de Distribuição DF-e da SEFAZ descrito em [`INTEGRACAO_SEFA
 Cada produto SERPRO tem documentação, permissões, dados de entrada e endpoint próprios. Após confirmar o produto Consulta NF-e, implementar o adaptador usando somente sua documentação vigente, separando validação e produção e mantendo consulta por empresa, limites, auditoria e proteção de dados. Não reutilizar o token-check como se fosse integração fiscal nem presumir que Consumer Key/Secret autorizam qualquer API.
 
 Referências oficiais: [Suporte e documentação de produtos SERPRO](https://www.serpro.gov.br/menu/suporte/ajuda-ao-cliente), [Área do Cliente e geração de chaves](https://centraldeajuda.serpro.gov.br/duvidas/pt/area-do-cliente/chaves/), [Gerar/Renovar Chaves](https://centraldeajuda.serpro.gov.br/duvidas/pt/area-do-cliente/gerarenovchave/) e [Documentação Consulta NF-e](https://centraldeajuda.serpro.gov.br/duvidas/pt/documentacoes/doc_consultanfe/).
+
+## Certidões (CND) no Fisco IA
+
+A tela **CND / Certidões** consulta a **CND federal (Receita Federal + PGFN)** pelo produto oficial **Consulta CND** do Serpro (contratação por empresa pública ou privada na Loja Serpro; cobrança por consulta; certidão com validade informada pelo órgão, 180 dias segundo o manual). É um produto separado do Integra Contador e usa credenciais próprias. A consulta é **sempre paga e só sai por clique da pessoa** (nunca por robô), respeitando a trava de liberação do dono do sistema por empresa/escritório.
+
+Variáveis no servidor (sem elas a consulta responde "não configurada" e nada é chamado): `SERPRO_CND_BASE_URL` (termina no caminho da API, por exemplo `.../api-cnd`; a rota usada é `/v1/ConsultaCnd/certidao`), `SERPRO_CND_TOKEN_URL`, `SERPRO_CND_CONSUMER_KEY` e `SERPRO_CND_CONSUMER_SECRET`. Só são aceitos endereços `https` de `*.serpro.gov.br`. Os endereços do gateway de quem contrata pela Loja devem ser conferidos na documentação entregue na contratação.
+
+Estadual, municipal, CRF do FGTS e CNDT não têm serviço oficial de consulta automática localizado: a tela abre o portal do órgão e a pessoa registra a certidão emitida para o robô conferidor avisar 30, 15 e 7 dias antes do vencimento e quando vencer.
+
+Fontes: [API Consulta CND (Conecta gov.br)](https://www.gov.br/conecta/catalogo/apis/consultar-certidao-negativa-de-debito), [Documentação da API CND](https://www.gov.br/conecta/catalogo/apis/consultar-certidao-negativa-de-debito/Documentacao_API_CND.pdf) e [Consulta CND na Loja Serpro](https://www.store.serpro.gov.br/consulta-cnd).

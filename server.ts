@@ -27,6 +27,8 @@ import conferenciaRoutes from "./src/server/conferencia.routes";
 import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
 import { executarEmpresasDoFiscal } from "./src/server/empresasDoFiscal";
 import serproRoutes from "./src/server/serpro.routes";
+import certidoesRoutes from "./src/server/certidoes.routes";
+import { conferirVencimentoCertidoes } from "./src/server/conferidorCertidoes";
 import licencaRoutes from './src/server/licenca.routes';
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
@@ -72,6 +74,7 @@ app.use('/api', fiscalDocumentRoutes);
 app.use('/api', fiscalSourceSyncRoutes);
 app.use('/api', conferenciaRoutes);
 app.use('/api/serpro', serproRoutes);
+app.use('/api', certidoesRoutes);
 app.use('/api', licencaRoutes);
 app.use('/api', companyCertificateRoutes);
 app.use('/api', sefazDistributionRoutes);
@@ -415,6 +418,11 @@ const rodarConferidorLiberacoes = () => { executarRobo('conferidor_liberacoes_se
 const timerConferidorLiberacoes = setInterval(rodarConferidorLiberacoes, 6 * 60 * 60_000);
 setTimeout(rodarConferidorLiberacoes, 2 * 60_000).unref(); // primeira conferência logo depois de o servidor abrir
 timerConferidorLiberacoes.unref();
+registrarRobo({ id: 'conferidor_certidoes', nome: 'Robô Conferidor de Vencimento das Certidões', posto: 'conferidor', missao: 'A cada 6 horas, conferir as certidões (CND, CRF, CNDT) já guardadas e avisar as que venceram ou vencem em 7, 15 e 30 dias. Só lê o que já foi guardado; não consulta nenhum órgão, não usa crédito do Serpro e não altera nada. As consultas pagas só saem por clique da pessoa.', intervaloMs: 6 * 60 * 60_000 });
+const rodarConferidorCertidoes = () => { executarRobo('conferidor_certidoes', async () => { const r = await conferirVencimentoCertidoes(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor das certidões] ${r}`); }).catch((e) => console.error('[Conferidor das certidões]', e?.message || e)); };
+const timerConferidorCertidoes = setInterval(rodarConferidorCertidoes, 6 * 60 * 60_000);
+setTimeout(rodarConferidorCertidoes, 3 * 60_000).unref();
+timerConferidorCertidoes.unref();
 
 const limitesIA = new Map<string, { total: number; reiniciaEm: number }>();
 app.set('trust proxy', 1);

@@ -26,10 +26,10 @@ test('conferência usa a rota existente e rejeita data ou id inválidos sem cham
 test('o Fisco IA não tem nenhuma ferramenta que altere notas, certificado ou cadastro', () => {
   const locais = kitFiscoIA.ferramentas.filter((f) => !['perguntar_a_outro_sistema', 'pedir_a_outro_sistema', 'ver_pedidos_entre_sistemas', 'responder_pedido_de_outro_sistema'].includes(f.declaracao.name));
   assert.ok(locais.length > 0);
-  // As únicas ações permitidas: liberar as consultas ao Serpro (só a conta administradora consegue) e redefinir o código de segurança de
+  // As únicas ações permitidas: liberar as consultas ao Serpro (só a conta administradora consegue), consultar a CND federal (paga, só depois de o dono confirmar o custo no cartão) e redefinir o código de segurança de
   // quem perdeu o celular (dono, ou responsável sobre a própria equipe). As duas só valem depois de o dono confirmar no cartão.
   const acoes = locais.filter((f) => f.tipo !== 'leitura').map((f) => f.declaracao.name);
-  assert.deepEqual(acoes, ['liberar_consulta_serpro', 'redefinir_codigo_usuario']);
+  assert.deepEqual(acoes, ['liberar_consulta_serpro', 'consultar_certidao', 'redefinir_codigo_usuario']);
 });
 
 const E = '33333333-3333-4333-8333-333333333333';
@@ -69,4 +69,44 @@ test('liberar consulta do Serpro: quem não é o dono recebe o motivo e nenhum c
   const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'liberar_consulta_serpro', args: { empresaId: E, liberar: true } }] }, { texto: 'sem permissão' }]);
   const r = await conversar(ctx, modelo, 'libera', []);
   assert.equal(r.acoes.length, 0);
+});
+
+const EMP = { status: 200, corpo: { empresas: [{ id: C, cnpj: '11.222.333/0001-81', legal_name: 'Mural Ltda' }] } };
+
+test('consultar certidão federal: só propõe o cartão com aviso de consulta paga; nada é consultado antes de confirmar', async () => {
+  const api: ChamarApi = async () => EMP;
+  const { ctx, modelo, chamadasApi } = montar(api, [{ chamadas: [{ nome: 'consultar_certidao', args: { tenantId: T, companyId: C, tipo: 'federal' } }] }, { texto: 'confirme no cartão' }]);
+  const r = await conversar(ctx, modelo, 'consulta a CND da Mural', []);
+  assert.equal(r.acoes.length, 1);
+  assert.match(r.acoes[0].titulo, /Consultar CND Federal.*Mural Ltda/);
+  assert.match(r.acoes[0].descricao.join(' '), /paga pelo Serpro/);
+  assert.ok(chamadasApi.every(([m]) => m === 'GET'));
+});
+
+test('consultar certidão federal: ao confirmar, faz uma única consulta com confirmação de custo', async () => {
+  const feitas: Array<[string, string, any]> = [];
+  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return m === 'GET' ? EMP : { status: 200, corpo: { situacao: 'emitida', mensagem: 'Certidão emitida.', certidao: { situacao: 'emitida', numero: 'AB12', emissao: '2026-11-19', validade: '2027-05-18' } } }; };
+  const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'consultar_certidao', args: { tenantId: T, companyId: C, tipo: 'federal' } }] }, { texto: 'ok' }]);
+  const r = await conversar(ctx, modelo, 'consulta', []);
+  const conf = await confirmarAcao(ctx, r.acoes[0].id);
+  assert.equal(conf.sucesso, true);
+  assert.match(conf.mensagem, /válida até 2027-05-18/);
+  const posts = feitas.filter(([m]) => m === 'POST');
+  assert.equal(posts.length, 1);
+  assert.deepEqual(posts[0][2], { tenantId: T, companyId: C, tipo: 'federal', confirmarCusto: true });
+});
+
+test('consultar certidão: tipos sem consulta automática não geram cartão e apontam o portal; tipo inválido também não', async () => {
+  const api: ChamarApi = async () => EMP;
+  const { ctx, modelo, chamadasApi } = montar(api, [{ chamadas: [{ nome: 'consultar_certidao', args: { tenantId: T, companyId: C, tipo: 'fgts' } }, { nome: 'consultar_certidao', args: { tenantId: T, companyId: C, tipo: 'tudo' } }] }, { texto: 'use o portal' }]);
+  const r = await conversar(ctx, modelo, 'consulta o fgts', []);
+  assert.equal(r.acoes.length, 0);
+  assert.equal(chamadasApi.length, 0);
+});
+
+test('ver certidões vencendo: só lê e entrega empresa, validade e situação', async () => {
+  const api: ChamarApi = async () => ({ status: 200, corpo: { hoje: '2026-11-19', certidoes: [{ empresa: 'Mural Ltda', rotuloTipo: 'CRF - Regularidade do FGTS', validade: '2026-11-25', situacaoTexto: 'vence em 6 dia(s)', numero: '9' }] } });
+  const { ctx, modelo, chamadasApi } = montar(api, [{ chamadas: [{ nome: 'ver_certidoes_vencendo', args: { tenantId: T } }] }, { texto: 'resumo' }]);
+  await conversar(ctx, modelo, 'o que vence de certidão?', []);
+  assert.deepEqual(chamadasApi, [['GET', `/api/certidoes/vencendo?tenantId=${T}`]]);
 });

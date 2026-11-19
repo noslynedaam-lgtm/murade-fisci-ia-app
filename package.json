@@ -12,6 +12,7 @@
     "db:provision-shared-role": "node scripts/provision-shared-postgres.mjs",
     "test:agentes": "tsx --test src/server/agentesEntreSistemas.test.ts src/server/agenteFiscoIA.test.ts src/server/agenteEntendimento.test.ts src/server/agenteSaudacao.test.ts src/server/agentePerfil.test.ts src/server/empresasDoFiscal.test.ts",
     "test:seguranca": "tsx --test src/server/segurancaLogin.test.ts src/server/segurancaFiscoIA.test.ts src/services/auth/sessaoExpirada.test.ts",
+    "test:certidoes": "tsx --test src/services/certidoes/*.test.ts src/server/conferidorCertidoes.test.ts",
     "test:serpro": "tsx --test src/services/serpro/*.test.ts src/server/conferidorLiberacoesSerpro.test.ts src/server/emailMurade.test.ts",
     "test:protocol": "tsx --test src/server/sefazDistribution.protocol.test.ts",
     "preview": "vite preview",
