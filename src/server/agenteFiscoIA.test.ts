@@ -26,10 +26,10 @@ test('conferência usa a rota existente e rejeita data ou id inválidos sem cham
 test('o Fisco IA não tem nenhuma ferramenta que altere notas, certificado ou cadastro', () => {
   const locais = kitFiscoIA.ferramentas.filter((f) => !['perguntar_a_outro_sistema', 'pedir_a_outro_sistema', 'ver_pedidos_entre_sistemas', 'responder_pedido_de_outro_sistema'].includes(f.declaracao.name));
   assert.ok(locais.length > 0);
-  // As únicas ações permitidas: liberar as consultas ao Serpro (só a conta administradora consegue), consultar a CND federal (paga, só depois de o dono confirmar o custo no cartão) e redefinir o código de segurança de
-  // quem perdeu o celular (dono, ou responsável sobre a própria equipe). As duas só valem depois de o dono confirmar no cartão.
+  // As únicas ações permitidas: liberar as consultas ao Serpro (só a conta administradora consegue), consultar a CND federal (paga), apagar UMA empresa (arquiva; nada fiscal é apagado) e redefinir o código de segurança de
+  // quem perdeu o celular (dono, ou responsável sobre a própria equipe). Todas só valem depois de o dono confirmar no cartão.
   const acoes = locais.filter((f) => f.tipo !== 'leitura').map((f) => f.declaracao.name);
-  assert.deepEqual(acoes, ['liberar_consulta_serpro', 'consultar_certidao', 'redefinir_codigo_usuario']);
+  assert.deepEqual([...acoes].sort(), ['apagar_empresa', 'consultar_certidao', 'liberar_consulta_serpro', 'redefinir_codigo_usuario']);
 });
 
 const E = '33333333-3333-4333-8333-333333333333';
@@ -109,4 +109,33 @@ test('ver certidões vencendo: só lê e entrega empresa, validade e situação'
   const { ctx, modelo, chamadasApi } = montar(api, [{ chamadas: [{ nome: 'ver_certidoes_vencendo', args: { tenantId: T } }] }, { texto: 'resumo' }]);
   await conversar(ctx, modelo, 'o que vence de certidão?', []);
   assert.deepEqual(chamadasApi, [['GET', `/api/certidoes/vencendo?tenantId=${T}`]]);
+const EMP = { status: 200, corpo: { empresas: [{ id: C, cnpj: '10368859000101', legal_name: 'Empresa Teste Ltda', state: 'GO' }] } };
+test('apagar empresa: só propõe o cartão (nome+CNPJ); nada é apagado antes de confirmar', async () => {
+  const feitas: Array<[string, string, unknown]> = [];
+  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return EMP; };
+  const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: C } }] }, { texto: 'confira o cartão' }]);
+  const r = await conversar(ctx, modelo, 'apaga a Empresa Teste', []);
+  assert.equal(r.acoes.length, 1);
+  assert.equal(r.acoes[0].irreversivel, true);
+  assert.match(r.acoes[0].descricao.join(' '), /Empresa Teste Ltda.*10368859000101/);
+  assert.ok(feitas.every(([m]) => m === 'GET'), 'antes de confirmar só pode ter leitura');
+});
+test('apagar empresa: ao confirmar, uma única chamada para a empresa certa e avisa se os outros sistemas não confirmaram', async () => {
+  const feitas: Array<[string, string, unknown]> = [];
+  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return m === 'GET' ? EMP : { status: 200, corpo: { documentosPreservados: true, cascata: { situacao: 'falhou', mensagem: 'O Fiscal não respondeu.' } } }; };
+  const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: C } }] }, { texto: 'ok' }]);
+  const r = await conversar(ctx, modelo, 'apaga', []);
+  const conf = await confirmarAcao(ctx, r.acoes[0].id);
+  assert.equal(conf.sucesso, true);
+  assert.match(String(conf.mensagem), /ATENÇÃO.*O Fiscal não respondeu/);
+  const posts = feitas.filter(([m]) => m === 'POST');
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0][1], `/api/companies/${C}/excluir`);
+  assert.deepEqual(posts[0][2], { tenantId: T });
+});
+test('apagar empresa: id inválido, "todas" ou empresa fora do escritório não geram cartão', async () => {
+  const api: ChamarApi = async () => EMP;
+  const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: 'todas' } }, { nome: 'apagar_empresa', args: { tenantId: T, companyId: '55555555-5555-4555-8555-555555555555' } }, { nome: 'apagar_empresa', args: { companyId: C } }] }, { texto: 'não' }]);
+  const r = await conversar(ctx, modelo, 'apaga todas', []);
+  assert.equal(r.acoes.length, 0);
 });

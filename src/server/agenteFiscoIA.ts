@@ -117,6 +117,34 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'acao',
+    declaracao: { name: 'apagar_empresa', description: 'Propõe APAGAR o cadastro de UMA empresa em Fiscal, DP, Contábil e Fisco IA (as notas e os documentos ficam guardados; o CNPJ pode ser cadastrado de novo depois). Só use depois de o usuário confirmar, falando, o NOME e o CNPJ da empresa nesta conversa. Uma empresa por vez; nunca "apagar todas". Descubra os ids em listar_escritorios e listar_empresas. O usuário ainda confirma no cartão; só proprietário ou administrador do escritório consegue.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId }, required: ['tenantId', 'companyId'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe o escritório e a empresa pelo id; use listar_escritorios e listar_empresas para achar. Apago uma empresa por vez.' };
+      const r = await ctx.chamarApi('GET', `/api/companies?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const e = (r.corpo?.empresas || []).find((x: any) => x.id === companyId);
+      if (!e) return { erro: 'Empresa não encontrada neste escritório (ou já apagada).' };
+      const cnpj = String(e.cnpj || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      return {
+        cnpj, params: { tenantId, companyId }, irreversivel: true,
+        titulo: `Apagar empresa: ${e.legal_name}`,
+        descricao: [`Empresa: ${e.legal_name} (CNPJ ${e.cnpj})`, 'O cadastro sai do Fiscal, do DP, do Contábil e do Fisco IA.', 'Notas, documentos e certificados ficam guardados. Você pode cadastrar o CNPJ de novo depois.'],
+        aviso: 'Apaga o cadastro nos quatro sistemas. Confira o nome e o CNPJ antes de confirmar.',
+        resumo: `Apagar o cadastro de ${e.legal_name} (CNPJ ${e.cnpj}) em Fiscal, DP, Contábil e Fisco IA`,
+      };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', `/api/companies/${q(String(params.companyId))}/excluir`, { tenantId: params.tenantId });
+      if (!ok(r)) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      const c = r.corpo?.cascata;
+      return c?.situacao === 'ok'
+        ? { sucesso: true, mensagem: 'Empresa apagada em Fiscal, DP, Contábil e Fisco IA. Notas e documentos continuam guardados.' }
+        : { sucesso: true, mensagem: `Empresa apagada só no Fisco IA (notas e documentos continuam guardados). ATENÇÃO: ${c?.mensagem || 'não foi possível avisar os outros sistemas.'}` };
+    },
+  },
+  {
     tipo: 'leitura',
     declaracao: { name: 'ver_certidoes_vencendo', description: 'Mostra as certidões guardadas (CND federal, estadual, municipal, CRF do FGTS, CNDT) que já venceram ou vencem em até 30 dias, por empresa. Só lê o que já está guardado; não consulta nenhum órgão e não gasta nada.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
     async executar(ctx, args) {
@@ -221,6 +249,7 @@ COMO ENTENDER QUEM FALA
 - Conversa de rotina ("obrigado", "ok", "tchau") não precisa de consulta: responda em uma frase curta.
 
 MAPA DO SISTEMA (onde fica cada coisa no Fisco IA)
+(Em Cadastro de empresas fica o botão "Apagar empresa", uma por vez, com segunda confirmação.)
 Painel; Agenda; CND; DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO; Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
 Quando perguntarem "onde eu faço X", diga o nome da tela. Não invente telas que não estão nesta lista.
 
@@ -233,8 +262,12 @@ LIBERAÇÃO DAS CONSULTAS AO SERPRO (só o dono do sistema)
 - Toda empresa de escritório cliente começa travada: nem a consulta grátis da semana funciona até o dono liberar aquela empresa. Quando o dono pedir "libera/trava a consulta da empresa X", use ver_liberacoes_serpro (busca pelo nome) e depois liberar_consulta_serpro com o id; ele confirma no cartão. Uma empresa por vez; não existe "liberar todas".
 - Quando perguntarem quem está esperando liberação, use ver_liberacoes_serpro e diga quantas e quais.
 
+APAGAR EMPRESA (por voz ou texto)
+- Quando pedirem para apagar/excluir uma empresa: descubra a empresa com listar_escritorios e listar_empresas, diga o NOME e o CNPJ completos e pergunte "Confirma apagar o cadastro da empresa X, CNPJ Y, no Fiscal, DP, Contábil e Fisco IA? As notas e os documentos ficam guardados." Só use apagar_empresa depois que a pessoa responder que sim, falando ou escrevendo, NESTA conversa. Depois ela ainda confirma no cartão.
+- Uma empresa por vez. Se pedirem "apagar todas", recuse e explique que é uma de cada vez, com confirmação. Se o resultado disser que os outros sistemas não confirmaram, repita esse aviso com clareza.
+
 LIMITES (diga com clareza quando o pedido bater neles)
-- Aqui você só consulta e confere (a única coisa que você propõe mudar é a liberação das consultas ao Serpro, e o dono confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
+- Aqui você só consulta e confere (as únicas coisas que você propõe mudar são a liberação das consultas ao Serpro e apagar uma empresa, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 

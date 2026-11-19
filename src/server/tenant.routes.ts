@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { obterUsuarioDaSessao } from './auth.routes';
 import { comContextoTenant, obterPoolBanco } from './persistence';
-import { validarCnpj } from '../services/cnpj/cnpjValidation';
+import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
+import { tokenValido } from './agentesEntreSistemas';
+import { arquivarPorCnpj, avisarHubDoFiscal, origemValida } from './exclusaoEmpresa';
 
 const router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -192,7 +194,9 @@ router.put('/companies/:companyId', async (req, res) => {
   }
 });
 
-router.delete('/companies/:companyId', async (req, res) => {
+// Excluir empresa = arquivar aqui (nada é apagado) e avisar o hub do Fiscal, que apaga no Fiscal, DP e Contábil.
+// O aviso é best-effort: se falhar, o arquivamento continua valendo e a tela recebe o motivo em `cascata`.
+async function excluirEmpresa(req: any, res: any) {
   const pool = obterPoolBanco();
   if (!pool) return res.status(503).json({ mensagem: 'Banco permanente não configurado.' });
   const tenantId = typeof req.body?.tenantId === 'string' ? req.body.tenantId : '';
@@ -221,9 +225,34 @@ router.delete('/companies/:companyId', async (req, res) => {
     if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!scoped.resultado) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador pode arquivar empresas.' });
     if (!scoped.resultado.rowCount) return res.status(404).json({ mensagem: 'Empresa não encontrada ou já arquivada.' });
-    return res.json({ empresa: scoped.resultado.rows[0], documentosPreservados: true });
+    const empresa = scoped.resultado.rows[0];
+    const cascata = await avisarHubDoFiscal(String(empresa.cnpj).trim(), user.email);
+    return res.json({ empresa, documentosPreservados: true, cascata });
   } catch {
     return res.status(503).json({ mensagem: 'Não foi possível arquivar a empresa. Nenhum documento fiscal foi apagado.' });
+  }
+}
+router.delete('/companies/:companyId', excluirEmpresa);
+// Mesma ação por POST, para a Agente IA (que só faz GET/POST). Continua exigindo a sessão e a confirmação no cartão.
+router.post('/companies/:companyId/excluir', excluirEmpresa);
+
+// Ponte entre sistemas (credencial de integração): o hub do Fiscal manda arquivar aqui o CNPJ que foi excluído lá.
+// Arquiva (não apaga) em TODOS os escritórios que o tenham; um CNPJ por vez; idempotente (repetir devolve arquivadas: 0).
+router.delete('/integracao/empresa/:cnpj', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) return res.status(503).json({ sucesso: false, mensagem: 'Integração não configurada.' });
+  if (!tokenValido(req.get('authorization'))) return res.status(401).json({ sucesso: false, mensagem: 'Credencial de integração inválida.' });
+  const cnpj = normalizarCnpj(req.params.cnpj);
+  if (!validarCnpj(cnpj)) return res.status(400).json({ sucesso: false, mensagem: 'CNPJ inválido.' });
+  const pool = obterPoolBanco();
+  if (!pool) return res.status(503).json({ sucesso: false, mensagem: 'Banco permanente não configurado.' });
+  try {
+    const arquivadas = await arquivarPorCnpj(pool, cnpj, origemValida(req.body?.origem));
+    return res.json({ sucesso: true, cnpj, arquivadas });
+  } catch (erro) {
+    const codigo = typeof erro === 'object' && erro !== null && 'code' in erro ? String((erro as { code?: unknown }).code) : '';
+    if (codigo === '42883') return res.status(503).json({ sucesso: false, mensagem: 'Atualização 022 do banco ainda não aplicada; nada foi arquivado.' });
+    return res.status(503).json({ sucesso: false, mensagem: 'Não foi possível arquivar agora. Nada foi apagado; tente de novo.' });
   }
 });
 

@@ -26,6 +26,7 @@ import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import conferenciaRoutes from "./src/server/conferencia.routes";
 import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
 import { executarEmpresasDoFiscal } from "./src/server/empresasDoFiscal";
+import { conferirExclusoes } from "./src/server/exclusaoEmpresa";
 import serproRoutes from "./src/server/serpro.routes";
 import certidoesRoutes from "./src/server/certidoes.routes";
 import { conferirVencimentoCertidoes } from "./src/server/conferidorCertidoes";
@@ -423,6 +424,26 @@ const rodarConferidorCertidoes = () => { executarRobo('conferidor_certidoes', as
 const timerConferidorCertidoes = setInterval(rodarConferidorCertidoes, 6 * 60 * 60_000);
 setTimeout(rodarConferidorCertidoes, 3 * 60_000).unref();
 timerConferidorCertidoes.unref();
+
+registrarRobo({ id: 'conferidor_exclusoes', nome: 'Robô Conferidor de Exclusões (Fiscal ↔ Fisco IA)', posto: 'conferidor', missao: 'A cada 2 horas, conferir se alguma empresa excluída em um sistema ainda está ativa em outro (arquivada no Fisco IA e ativa no Fiscal, ou trazida do Fiscal e que o Fiscal não lista mais). Só lê; não apaga, não arquiva e não recria nada. Se achar, aparece como alerta aqui.', intervaloMs: 2 * 60 * 60_000 });
+const rodarConferidorExclusoes = () => executarRobo('conferidor_exclusoes', async () => { const r = await conferirExclusoes(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor de exclusões] ${r}`); return r; });
+const timerConferidorExclusoes = setInterval(() => { rodarConferidorExclusoes().catch((e) => console.error('[Conferidor de exclusões]', e?.message || e)); }, 2 * 60 * 60_000);
+setTimeout(() => { rodarConferidorExclusoes().catch((e) => console.error('[Conferidor de exclusões]', e?.message || e)); }, 3 * 60_000).unref();
+timerConferidorExclusoes.unref();
+// "Rodar agora": só o dono do sistema (a conferência olha CNPJs de todos os escritórios). Só lê.
+app.post('/api/robos/conferidor_exclusoes/rodar', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false });
+  const u = await obterUsuarioDaSessao(req);
+  if (!u) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
+  if (u.ehAdmin !== true) return res.status(403).json({ sucesso: false, mensagem: 'Somente o dono do sistema roda esta conferência.' });
+  try {
+    const r = await rodarConferidorExclusoes();
+    return res.json({ sucesso: true, ok: true, mensagem: r ?? 'Já em execução.' });
+  } catch (e: any) {
+    return res.json({ sucesso: true, ok: false, mensagem: String(e?.message || 'Falha na conferência.').slice(0, 600) });
+  }
+});
 
 const limitesIA = new Map<string, { total: number; reiniciaEm: number }>();
 app.set('trust proxy', 1);
