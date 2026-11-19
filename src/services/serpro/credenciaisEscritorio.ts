@@ -30,7 +30,10 @@ export function credencialGlobal(env: Record<string, string | undefined>): Crede
 let preparada = new WeakSet<Consulta>();
 async function tabela(db: Consulta) {
   if (preparada.has(db)) return;
+  // A tabela nasce pela migração 025. Aqui só tenta criar (bancos antigos); sem permissão, segue: se a tabela existir, a consulta funciona.
+  try {
   await db.query(`CREATE TABLE IF NOT EXISTS serpro_credenciais_escritorio (escritorio_id text PRIMARY KEY, contratante_cnpj text NOT NULL, segredo bytea NOT NULL, nonce bytea NOT NULL, auth_tag bytea NOT NULL, key_version text NOT NULL, atualizado_em timestamptz NOT NULL DEFAULT now())`);
+  } catch { /* sem permissão de criar: a migração cuida */ }
   preparada.add(db);
 }
 export function validarEscritorioId(id: unknown): string | null { const s = String(id ?? ''); return /^[A-Za-z0-9._-]{1,64}$/.test(s) ? s : null; }
