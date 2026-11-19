@@ -9,6 +9,7 @@ import { comContextoTenant, obterPoolBanco } from './persistence';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
+import { situacaoDoCnpjNoEscritorio } from './exclusaoEmpresa';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
@@ -569,6 +570,12 @@ router.post('/consulta', async (req, res) => {
 // ---- Ponte DP → Fisco IA (credencial de integração) ----
 // O DP pede consulta de uma empresa pelo CNPJ. Só atende empresas cadastradas no Fisco IA da conta
 // administradora (a dona); a regra de cota e de confirmação de custo é a mesma da tela.
+/** CNPJ que foi excluído (arquivado) e não tem cadastro ativo: a ponte não recria; a pessoa recadastra à mão se quiser. */
+export class EmpresaExcluidaError extends Error {
+  constructor() { super('Esta empresa foi excluída do Fisco IA. Cadastre o CNPJ novamente na tela de empresas se quiser voltar a usá-lo.'); this.name = 'EmpresaExcluidaError'; }
+}
+export const MENSAGEM_EMPRESA_EXCLUIDA = 'Empresa excluída: este CNPJ foi arquivado no Fisco IA, então nada foi consultado nem cobrado. Para voltar a usar, cadastre o CNPJ novamente na tela de empresas.';
+
 async function localizarEmpresaDaDona(cnpj: string, criar?: { razaoSocial: string; escritorio?: OrigemConsulta }): Promise<{ userId: string; tenantId: string; companyId: string; cota: CotaEmpresa } | null> {
   const pool = obterPoolBanco();
   if (!pool) return null;
@@ -584,14 +591,21 @@ async function localizarEmpresaDaDona(cnpj: string, criar?: { razaoSocial: strin
       tenants = m.rows.map(x => String(x.tenant_id));
       await c.query('COMMIT');
     } catch { await c.query('ROLLBACK').catch(() => undefined); } finally { c.release(); }
+    let arquivada = false;
     for (const tenantId of tenants) {
       const r = await comContextoTenant(userId, tenantId, async client => {
-        const q = await client.query(`SELECT id, cnpj, metadata->'serproCota' AS cota FROM fiscoia.companies WHERE tenant_id = $1 AND archived_at IS NULL`, [tenantId]);
-        const achou = q.rows.find(x => normalizarCnpj(String(x.cnpj)) === cnpj);
-        return achou ? { companyId: String(achou.id), cota: (achou.cota as CotaEmpresa | null) ?? { consultas: [] } } : null;
+        const q = await client.query(`SELECT id, cnpj, metadata->'serproCota' AS cota, (archived_at IS NOT NULL) AS arquivada FROM fiscoia.companies WHERE tenant_id = $1`, [tenantId]);
+        const sit = situacaoDoCnpjNoEscritorio(q.rows, cnpj);
+        if (sit.tipo === 'arquivada') return { arquivada: true as const };
+        return sit.tipo === 'ativa' ? { companyId: String(sit.linha.id), cota: (sit.linha.cota as CotaEmpresa | null) ?? { consultas: [] } } : null;
       }, PAPEIS_CONSULTA);
-      if (r.autorizado && 'resultado' in r && r.resultado) return { userId, tenantId, ...r.resultado };
+      if (r.autorizado && 'resultado' in r && r.resultado) {
+        if ('arquivada' in r.resultado) { arquivada = true; continue; }
+        return { userId, tenantId, ...r.resultado };
+      }
     }
+    // Só arquivada (excluída) e nenhuma ativa: não cria cadastro novo por este caminho.
+    if (criar && arquivada) throw new EmpresaExcluidaError();
     // Empresa de escritório cliente (vem do DP): a conta central guarda o registro para controlar a cota
     // semanal por CNPJ. O registro nasce só quando a consulta é de fato pedida.
     if (criar && tenants[0]) {
@@ -641,7 +655,10 @@ router.post('/ponte/liberacao', async (req, res) => {
     if (lib === true) return res.json({ liberada: true });
     if (lib === false) await pedirLiberacao(e.companyId);
     return res.json({ liberada: false });
-  } catch { return res.status(503).json({ liberada: false, mensagem: 'Não foi possível conferir a liberação.' }); }
+  } catch (erro) {
+    if (erro instanceof EmpresaExcluidaError) return res.status(409).json({ liberada: false, empresaExcluida: true, mensagem: MENSAGEM_EMPRESA_EXCLUIDA });
+    return res.status(503).json({ liberada: false, mensagem: 'Não foi possível conferir a liberação.' });
+  }
 });
 
 router.post('/ponte/consulta', async (req, res) => {
@@ -661,7 +678,10 @@ router.post('/ponte/consulta', async (req, res) => {
     if (!e) return res.status(503).json({ consultado: false, mensagem: 'Não foi possível registrar a empresa para controle da cota. Nada foi consultado nem cobrado.' });
     const r = await executarConsulta({ userId: e.userId, tenantId: e.tenantId, companyId: e.companyId, servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: true, ...fonteDoDp(req.body?.escritorio) });
     return res.status(r.status).json(r.corpo);
-  } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' }); }
+  } catch (erro) {
+    if (erro instanceof EmpresaExcluidaError) return res.status(409).json({ consultado: false, empresaExcluida: true, mensagem: MENSAGEM_EMPRESA_EXCLUIDA });
+    return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' });
+  }
 });
 
 // ---- Uso do Serpro feito por OUTRO sistema (Fiscal): só registra, na mesma conta de cota e de cobrança ----
@@ -699,6 +719,7 @@ router.post('/ponte/uso', async (req, res) => {
     return res.json({ registrado: true, cobrada: r.resultado.cobrada, ...('repetido' in r.resultado ? { repetido: true } : {}) });
   } catch (erro) {
     // Antes o erro real sumia e o Fiscal repetia o envio sem que ninguém soubesse o motivo. Agora o motivo vai para o log (sem CNPJ nem dados do cliente).
+    if (erro instanceof EmpresaExcluidaError) return res.status(409).json({ registrado: false, empresaExcluida: true, mensagem: MENSAGEM_EMPRESA_EXCLUIDA });
     console.error('[ponte/uso] falha ao gravar o uso:', erro instanceof Error ? `${erro.name}: ${erro.message}` : 'erro desconhecido');
     return res.status(503).json({ registrado: false, mensagem: 'Falha ao gravar o uso.' });
   }
@@ -793,7 +814,7 @@ router.post('/ponte/dctfweb/transmitir', async (req, res) => {
       return res.status(502).json({ transmitida: false, statusGateway: r.status, mensagem: r.status === 403 ? 'O SERPRO negou o acesso: confira a procuração 00103 (DCTFWeb) da empresa no e-CAC.' : 'O SERPRO não confirmou a transmissão. Confira o recibo no e-CAC antes de tentar de novo.', mensagens, hashXml: hash });
     }
     return res.json({ transmitida: true, numeroRecibo: recibo, hashXml: hash, transmitidaEm: new Date().toISOString(), mensagens: (bruto as { mensagens?: unknown })?.mensagens, mensagem: 'Declaração transmitida e recibo recebido.' });
-  } catch { return res.status(503).json({ transmitida: false, mensagem: 'Falha ao transmitir. Confira no e-CAC se a declaração foi entregue antes de repetir.' }); }
+  } catch (erro) { if (erro instanceof EmpresaExcluidaError) return res.status(409).json({ transmitida: false, empresaExcluida: true, mensagem: MENSAGEM_EMPRESA_EXCLUIDA }); return res.status(503).json({ transmitida: false, mensagem: 'Falha ao transmitir. Confira no e-CAC se a declaração foi entregue antes de repetir.' }); }
 });
 
 // ---- Credenciais do SERPRO por escritório (ponte do DP; nunca devolvem o conteúdo, só "configurada") ----

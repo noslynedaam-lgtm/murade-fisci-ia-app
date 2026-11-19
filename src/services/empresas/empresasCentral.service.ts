@@ -168,13 +168,22 @@ export async function salvarCertificadoA1Central(
   return { recebidoEm: result.recebidoEm, mensagem: result.mensagem || 'A1 cifrado e salvo no banco permanente.', validade: result.validade || undefined, emissor: result.emissor || undefined };
 }
 
+export interface CascataExclusao { situacao: 'ok' | 'falhou' | 'nao_configurada'; mensagem: string }
+// Resultado do aviso aos outros sistemas na última exclusão (a tela lê depois de apagar, sem mudar o contrato do contexto).
+let ultimaCascata: CascataExclusao | null = null;
+export function lerUltimaCascataExclusao(): CascataExclusao | null { return ultimaCascata; }
+
 export async function arquivarEmpresaCentral(companyId: string, tenantId: string): Promise<void> {
   if (!companyId || !tenantId) throw new Error('Escritório e empresa são necessários para arquivar o cadastro central.');
-  const result = await requisicao<{ empresa?: { id: string }; documentosPreservados?: boolean }>(
+  ultimaCascata = null;
+  const result = await requisicao<{ empresa?: { id: string }; documentosPreservados?: boolean; cascata?: CascataExclusao }>(
     `/api/companies/${encodeURIComponent(companyId)}`,
     { method: 'DELETE', body: JSON.stringify({ tenantId }) },
   );
   if (result.empresa?.id !== companyId || result.documentosPreservados !== true) {
     throw new Error('O servidor não confirmou o arquivamento com preservação dos documentos.');
   }
+  ultimaCascata = result.cascata && typeof result.cascata.mensagem === 'string'
+    ? { situacao: result.cascata.situacao === 'ok' ? 'ok' : result.cascata.situacao === 'nao_configurada' ? 'nao_configurada' : 'falhou', mensagem: result.cascata.mensagem }
+    : { situacao: 'falhou', mensagem: 'O servidor não informou se os outros sistemas foram avisados. Confira no Fiscal, DP e Contábil.' };
 }

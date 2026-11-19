@@ -10,6 +10,7 @@ import CadastroEmpresaScreen from '../CadastroEmpresa';
 import GeracaoGuiasScreen from '../GeracaoGuiasScreen';
 import ModalCertificadoEmpresa from './ModalCertificadoEmpresa';
 import { confirmarNaTela } from '../../utils/dialogoNaTela';
+import { lerUltimaCascataExclusao } from '../../services/empresas/empresasCentral.service';
 
 interface EmpresasScreenProps {
   maxCnpjs?: number;
@@ -27,9 +28,9 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
   const [empresaParaDeletar, setEmpresaParaDeletar] = useState<EmpresaDados | null>(null);
   const [toastMensagem, setToastMensagem] = useState<string | null>(null);
 
-  const mostrarToast = (msg: string) => {
+  const mostrarToast = (msg: string, duracaoMs = 3500) => {
     setToastMensagem(msg);
-    setTimeout(() => setToastMensagem(null), 3500);
+    setTimeout(() => setToastMensagem(null), duracaoMs);
   };
 
   const handleSalvarNovaEmpresa = (nova: EmpresaDados) => {
@@ -72,13 +73,19 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
     const nome = empresaParaDeletar.razaoSocial;
     const cadastroCentral = Boolean(empresaParaDeletar.idCentral);
     // Segunda confirmação, dentro da página (no celular ninguém apaga sem querer).
-    const certeza = await confirmarNaTela(`EXCLUIR – ÚLTIMA CONFIRMAÇÃO\n\n${cadastroCentral ? 'Arquivar' : 'Apagar de verdade'} a empresa "${nome}"?${cadastroCentral ? '' : ' Isso não pode ser desfeito.'}`);
+    const certeza = await confirmarNaTela(`EXCLUIR – ÚLTIMA CONFIRMAÇÃO\n\n${cadastroCentral ? 'Apagar o cadastro (Fiscal, DP, Contábil e Fisco IA; notas e documentos ficam guardados)' : 'Apagar de verdade'} da empresa "${nome}"?${cadastroCentral ? '' : ' Isso não pode ser desfeito.'}`);
     if (!certeza) { setEmpresaParaDeletar(null); return; }
     const sucesso = await removerEmpresa(empresaParaDeletar.id);
     if (sucesso) {
-      mostrarToast(cadastroCentral
-        ? `Empresa "${nome}" arquivada. Os documentos fiscais permanentes foram preservados.`
-        : `Empresa "${nome}" e os dados fiscais locais associados foram excluídos deste navegador.`);
+      const cascata = cadastroCentral ? lerUltimaCascataExclusao() : null;
+      if (cadastroCentral && cascata?.situacao !== 'ok') {
+        // Aviso longo: o arquivamento aqui foi feito, mas os outros sistemas não confirmaram.
+        mostrarToast(`Empresa "${nome}" apagada só aqui no Fisco IA (notas e documentos continuam guardados). ATENÇÃO: ${cascata?.mensagem || 'não foi possível avisar os outros sistemas.'}`, 20000);
+      } else {
+        mostrarToast(cadastroCentral
+          ? `Empresa "${nome}" apagada do cadastro em Fiscal, DP, Contábil e Fisco IA. Notas e documentos continuam guardados.`
+          : `Empresa "${nome}" e os dados fiscais locais associados foram excluídos deste navegador.`);
+      }
     } else {
       mostrarToast('Não foi possível excluir a empresa e confirmar a limpeza dos XMLs locais. O cadastro foi preservado.');
     }
@@ -517,7 +524,7 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
               <p className="text-xs text-slate-600 leading-relaxed">
                 {empresaParaDeletar.idCentral ? (
                   <>
-                    Arquivar <strong className="text-slate-900 font-semibold">{empresaParaDeletar.razaoSocial}</strong> (CNPJ: {empresaParaDeletar.cnpj}) da carteira. O cadastro continuará guardado no banco, e nenhum documento fiscal será apagado. Você poderá cadastrar novamente o CNPJ; restauração do cadastro antigo exige suporte administrativo.
+                    Apagar o cadastro de <strong className="text-slate-900 font-semibold">{empresaParaDeletar.razaoSocial}</strong> (CNPJ: {empresaParaDeletar.cnpj}) em <strong className="text-slate-900 font-semibold">Fiscal, DP, Contábil e Fisco IA</strong>. As notas e os documentos ficam guardados e nada fiscal é apagado. Você poderá cadastrar o CNPJ novamente depois; restaurar o cadastro antigo exige suporte administrativo.
                   </>
                 ) : (
                   <>
@@ -541,7 +548,7 @@ export default function EmpresasScreen({ maxCnpjs = 500, onIrParaGuias }: Empres
                 onClick={() => void confirmarExclusao()}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors shadow-sm"
               >
-                {empresaParaDeletar.idCentral ? 'Arquivar Empresa' : 'Sim, Excluir Empresa'}
+                {empresaParaDeletar.idCentral ? 'Apagar Empresa' : 'Sim, Excluir Empresa'}
               </button>
             </div>
           </div>
