@@ -81,3 +81,9 @@ test('escritório liberado por inteiro pelo dono usa a credencial do dono quando
   const pediuPropria = decidirFonteCredencial({ dono: false, pedida: 'propria', viaPonte: true, propriaExiste: false, liberadoPeloDono: true });
   assert.equal(pediuPropria.ok, false);
 });
+
+test('consulta: escritório liberado por inteiro OU empresa liberada pelo dono entram como liberadoPeloDono', async () => {
+  const { readFileSync } = await import('node:fs');
+  const s = readFileSync('src/server/serpro.routes.ts', 'utf8');
+  assert.match(s, /const liberadoPeloDono = e\.donoDoSistema === true \? false : \(await tenantLiberado\(tenantId\)\) \|\| \(await escritorioLiberado\(e\.escritorio\?\.nome\)\) \|\| \(await empresaLiberada\(companyId\)\) === true;/);
+});

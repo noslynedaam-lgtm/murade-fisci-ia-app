@@ -295,7 +295,9 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     if (servico.daCiencia && e.confirmarCiencia !== true) return resp(409, { consultado: false, exigeCiencia: true, mensagem: 'Abrir esta mensagem conta como CIÊNCIA da intimação e começa a contar os prazos, igual a abrir no e-CAC. Confirme que quer abrir. Nada foi consultado nem cobrado.' });
     const { tenantId, companyId } = e;
     if (!UUID.test(tenantId) || !UUID.test(companyId)) return resp(400, { mensagem: 'Escritório ou empresa inválidos.' });
-    const liberadoPeloDono = e.donoDoSistema === true ? false : (await tenantLiberado(tenantId)) || (await escritorioLiberado(e.escritorio?.nome));
+    // Liberado pelo dono = escritório liberado por inteiro OU esta empresa liberada no painel do dono. Nesses casos a consulta
+    // usa o plano do dono (Integra Contador dele), a não ser que o escritório tenha cadastrado credencial própria.
+    const liberadoPeloDono = e.donoDoSistema === true ? false : (await tenantLiberado(tenantId)) || (await escritorioLiberado(e.escritorio?.nome)) || (await empresaLiberada(companyId)) === true;
     const fonte = await resolverCredencial({ donoDoSistema: e.donoDoSistema, escritorioId: e.escritorio?.id ?? tenantId, credencialPedida: e.credencialPedida, viaPonte: e.viaPonte, liberadoPeloDono });
     if (fonte.ok === false) return resp(fonte.http, { consultado: false, mensagem: fonte.mensagem });
     const cred = fonte.cred;
