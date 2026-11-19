@@ -25,7 +25,7 @@ import fiscalDocumentRoutes from "./src/server/fiscalDocuments.routes";
 import fiscalSourceSyncRoutes from "./src/server/fiscalSourceSync.routes";
 import conferenciaRoutes from "./src/server/conferencia.routes";
 import { iniciarSincronizacaoAutomatica } from "./src/server/sincronizacaoAutomatica";
-import { executarEmpresasDoFiscal } from "./src/server/empresasDoFiscal";
+import { executarEmpresasDoFiscal, ultimoResultadoEmpresasFiscal } from "./src/server/empresasDoFiscal";
 import { conferirExclusoes } from "./src/server/exclusaoEmpresa";
 import serproRoutes from "./src/server/serpro.routes";
 import certidoesRoutes from "./src/server/certidoes.routes";
@@ -393,6 +393,26 @@ app.get('/api/robos/status', async (req, res) => {
   if (!(await obterUsuarioDaSessao(req))) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
   return res.json({ sucesso: true, ...statusRobos() });
 });
+// Opção manual do dono do sistema: roda agora o robô de empresas do Fiscal (inclui o preenchimento do CNPJ dos escritórios) e mostra o resultado e os avisos.
+app.post('/api/robos/empresas-fiscal/rodar', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!mesmaOrigem(req)) return res.status(403).json({ sucesso: false });
+  const u = await obterUsuarioDaSessao(req).catch(() => null);
+  if (!u) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
+  if (!u.ehAdmin) return res.status(403).json({ sucesso: false, mensagem: 'Somente o dono do sistema roda este robô.' });
+  if (!process.env.MURADE_INTEGRATION_TOKEN) return res.status(503).json({ sucesso: false, mensagem: 'A integração com o Murade Fiscal não está configurada neste servidor.' });
+  try {
+    const mensagem = await executarRobo('empresas_fiscal', executarEmpresasDoFiscal);
+    return res.json({ sucesso: true, mensagem: mensagem ?? 'O robô já estava rodando; tente de novo em instantes.', resultado: ultimoResultadoEmpresasFiscal() });
+  } catch (e: any) { return res.status(502).json({ sucesso: false, mensagem: String(e?.message || 'Falha ao rodar o robô.').slice(0, 200) }); }
+});
+app.get('/api/robos/empresas-fiscal/ultimo', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const u = await obterUsuarioDaSessao(req).catch(() => null);
+  if (!u) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
+  if (!u.ehAdmin) return res.status(403).json({ sucesso: false, mensagem: 'Somente o dono do sistema vê este resultado.' });
+  return res.json({ sucesso: true, resultado: ultimoResultadoEmpresasFiscal() });
+});
 // Mensagens entre Agentes IA dos sistemas Murade (token de integração).
 app.post('/api/integracao/agente/mensagem', async (req, res) => {
   const token = process.env.MURADE_INTEGRATION_TOKEN;
@@ -402,7 +422,7 @@ app.post('/api/integracao/agente/mensagem', async (req, res) => {
   catch { return res.status(503).json({ ok: false, erro: 'Não foi possível registrar agora.' }); }
 });
 registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Ler do Murade Fiscal as notas já guardadas e levá-las ao Fisco IA, uma empresa por vez. Não consulta a SEFAZ.', intervaloMs: 60_000 });
-registrarRobo({ id: 'empresas_fiscal', nome: 'Robô de Empresas (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Trazer ao Fisco IA toda empresa cadastrada no Murade Fiscal, no escritório certo (e-mail do dono igual). Só cria o que falta; nunca altera nem reativa o que foi excluído.', intervaloMs: 10 * 60_000 });
+registrarRobo({ id: 'empresas_fiscal', nome: 'Robô de Empresas (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Trazer ao Fisco IA toda empresa cadastrada no Murade Fiscal, no escritório certo (e-mail do dono igual). Só cria o que falta; nunca altera nem reativa o que foi excluído. Também preenche o CNPJ do escritório quando está vazio e o Fiscal o tem.', intervaloMs: 10 * 60_000 });
 registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.', intervaloMs: 60_000 });
 const timerMensageiro = setInterval(() => { executarRobo('mensageiro', () => centralDePedidos.reenviarPendentes()).catch(() => undefined); }, 60_000);
 timerMensageiro.unref();
