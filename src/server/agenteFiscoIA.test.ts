@@ -109,10 +109,12 @@ test('ver certidões vencendo: só lê e entrega empresa, validade e situação'
   const { ctx, modelo, chamadasApi } = montar(api, [{ chamadas: [{ nome: 'ver_certidoes_vencendo', args: { tenantId: T } }] }, { texto: 'resumo' }]);
   await conversar(ctx, modelo, 'o que vence de certidão?', []);
   assert.deepEqual(chamadasApi, [['GET', `/api/certidoes/vencendo?tenantId=${T}`]]);
-const EMP = { status: 200, corpo: { empresas: [{ id: C, cnpj: '10368859000101', legal_name: 'Empresa Teste Ltda', state: 'GO' }] } };
+});
+
+const EMP_APAGAR = { status: 200, corpo: { empresas: [{ id: C, cnpj: '10368859000101', legal_name: 'Empresa Teste Ltda', state: 'GO' }] } };
 test('apagar empresa: só propõe o cartão (nome+CNPJ); nada é apagado antes de confirmar', async () => {
   const feitas: Array<[string, string, unknown]> = [];
-  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return EMP; };
+  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return EMP_APAGAR; };
   const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: C } }] }, { texto: 'confira o cartão' }]);
   const r = await conversar(ctx, modelo, 'apaga a Empresa Teste', []);
   assert.equal(r.acoes.length, 1);
@@ -122,7 +124,7 @@ test('apagar empresa: só propõe o cartão (nome+CNPJ); nada é apagado antes d
 });
 test('apagar empresa: ao confirmar, uma única chamada para a empresa certa e avisa se os outros sistemas não confirmaram', async () => {
   const feitas: Array<[string, string, unknown]> = [];
-  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return m === 'GET' ? EMP : { status: 200, corpo: { documentosPreservados: true, cascata: { situacao: 'falhou', mensagem: 'O Fiscal não respondeu.' } } }; };
+  const api: ChamarApi = async (m, c, b) => { feitas.push([m, c, b]); return m === 'GET' ? EMP_APAGAR : { status: 200, corpo: { documentosPreservados: true, cascata: { situacao: 'falhou', mensagem: 'O Fiscal não respondeu.' } } }; };
   const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: C } }] }, { texto: 'ok' }]);
   const r = await conversar(ctx, modelo, 'apaga', []);
   const conf = await confirmarAcao(ctx, r.acoes[0].id);
@@ -134,7 +136,7 @@ test('apagar empresa: ao confirmar, uma única chamada para a empresa certa e av
   assert.deepEqual(posts[0][2], { tenantId: T });
 });
 test('apagar empresa: id inválido, "todas" ou empresa fora do escritório não geram cartão', async () => {
-  const api: ChamarApi = async () => EMP;
+  const api: ChamarApi = async () => EMP_APAGAR;
   const { ctx, modelo } = montar(api, [{ chamadas: [{ nome: 'apagar_empresa', args: { tenantId: T, companyId: 'todas' } }, { nome: 'apagar_empresa', args: { tenantId: T, companyId: '55555555-5555-4555-8555-555555555555' } }, { nome: 'apagar_empresa', args: { companyId: C } }] }, { texto: 'não' }]);
   const r = await conversar(ctx, modelo, 'apaga todas', []);
   assert.equal(r.acoes.length, 0);
