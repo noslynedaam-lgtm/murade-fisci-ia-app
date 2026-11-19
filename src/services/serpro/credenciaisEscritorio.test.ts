@@ -72,3 +72,12 @@ test('As rotas de consulta e transmissão não leem credencial do ambiente por f
   assert.equal(/res\.json\(\{[^}]*(consumerKey|consumerSecret|certSenha|certPfxBase64)/.test(rotas), false);
   assert.equal(/console\.(log|error)\([^)]*(consumerKey|consumerSecret|certSenha)/.test(src), false);
 });
+
+test('escritório liberado por inteiro pelo dono usa a credencial do dono quando não tem a própria; com a própria, usa a própria', () => {
+  assert.deepEqual(decidirFonteCredencial({ dono: false, viaPonte: false, propriaExiste: false, liberadoPeloDono: true }), { ok: true, fonte: 'global' });
+  assert.deepEqual(decidirFonteCredencial({ dono: false, viaPonte: false, propriaExiste: true, liberadoPeloDono: true }), { ok: true, fonte: 'propria' });
+  const naoLiberado = decidirFonteCredencial({ dono: false, viaPonte: false, propriaExiste: false, liberadoPeloDono: false });
+  assert.equal(naoLiberado.ok, false);
+  const pediuPropria = decidirFonteCredencial({ dono: false, pedida: 'propria', viaPonte: true, propriaExiste: false, liberadoPeloDono: true });
+  assert.equal(pediuPropria.ok, false);
+});

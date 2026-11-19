@@ -268,12 +268,12 @@ function fonteDoDp(esc: unknown): { donoDoSistema: boolean; credencialPedida?: u
 }
 
 /** Escolhe a credencial do SERPRO deste pedido: global só para o dono do sistema (ou quando o DP já conferiu modo/vagas); senão a própria do escritório. Recusa antes de gastar. */
-async function resolverCredencial(p: { donoDoSistema?: boolean; escritorioId?: string; credencialPedida?: unknown; viaPonte?: boolean }): Promise<{ ok: true; cred: CredencialSerpro } | { ok: false; http: number; mensagem: string }> {
+async function resolverCredencial(p: { donoDoSistema?: boolean; escritorioId?: string; credencialPedida?: unknown; viaPonte?: boolean; liberadoPeloDono?: boolean }): Promise<{ ok: true; cred: CredencialSerpro } | { ok: false; http: number; mensagem: string }> {
   const pool = obterPoolBanco();
   const id = validarEscritorioId(p.escritorioId);
   let propriaExiste = false;
   if (!p.donoDoSistema && id && pool) { try { propriaExiste = await credencialExiste(pool, id); } catch { return { ok: false, http: 503, mensagem: 'Não foi possível conferir a credencial do escritório agora. Nada foi consultado nem cobrado.' }; } }
-  const dec = decidirFonteCredencial({ dono: p.donoDoSistema === true, pedida: p.credencialPedida, viaPonte: p.viaPonte === true, propriaExiste });
+  const dec = decidirFonteCredencial({ dono: p.donoDoSistema === true, pedida: p.credencialPedida, viaPonte: p.viaPonte === true, propriaExiste, liberadoPeloDono: p.liberadoPeloDono === true });
   if (dec.ok === false) return dec;
   if (process.env.SERPRO_CONSULTAS_HABILITADAS !== 'true') return { ok: false, http: 503, mensagem: 'Consultas pagas desligadas neste sistema. Nada foi consultado nem cobrado.' };
   if (dec.fonte === 'global') {
@@ -295,7 +295,8 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
     if (servico.daCiencia && e.confirmarCiencia !== true) return resp(409, { consultado: false, exigeCiencia: true, mensagem: 'Abrir esta mensagem conta como CIÊNCIA da intimação e começa a contar os prazos, igual a abrir no e-CAC. Confirme que quer abrir. Nada foi consultado nem cobrado.' });
     const { tenantId, companyId } = e;
     if (!UUID.test(tenantId) || !UUID.test(companyId)) return resp(400, { mensagem: 'Escritório ou empresa inválidos.' });
-    const fonte = await resolverCredencial({ donoDoSistema: e.donoDoSistema, escritorioId: e.escritorio?.id ?? tenantId, credencialPedida: e.credencialPedida, viaPonte: e.viaPonte });
+    const liberadoPeloDono = e.donoDoSistema === true ? false : (await tenantLiberado(tenantId)) || (await escritorioLiberado(e.escritorio?.nome));
+    const fonte = await resolverCredencial({ donoDoSistema: e.donoDoSistema, escritorioId: e.escritorio?.id ?? tenantId, credencialPedida: e.credencialPedida, viaPonte: e.viaPonte, liberadoPeloDono });
     if (fonte.ok === false) return resp(fonte.http, { consultado: false, mensagem: fonte.mensagem });
     const cred = fonte.cred;
     const confirmouCusto = e.confirmarCusto;
@@ -430,6 +431,12 @@ export async function empresaLiberada(companyId: string): Promise<boolean | null
   } catch { return null; }
 }
 
+/** O escritório do Fisco IA (pelo proprietário) está liberado por inteiro pela conta administradora? Falso se não deu para conferir. */
+async function tenantLiberado(tenantId: string): Promise<boolean> {
+  const pool = obterPoolBanco();
+  if (!pool || !UUID.test(tenantId)) return false;
+  try { return (await pool.query('SELECT fiscoia.serpro_tenant_released($1::uuid) AS ok', [tenantId])).rows[0]?.ok === true; } catch { return false; }
+}
 /** O escritório (login que o Fiscal manda) está liberado por inteiro? Falso se não deu para conferir. */
 async function escritorioLiberado(login: string | undefined): Promise<boolean> {
   const pool = obterPoolBanco();

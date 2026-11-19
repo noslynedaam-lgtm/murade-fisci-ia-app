@@ -11,8 +11,11 @@ export type Consulta = { query: (sql: string, params?: unknown[]) => Promise<{ r
 
 export type DecisaoFonte = { ok: true; fonte: 'global' | 'propria' } | { ok: false; http: number; mensagem: string };
 /** Qual credencial usar. `viaPonte` = pedido do DP (credencial de integração), que já decidiu modo teste/efetivo e vagas. */
-export function decidirFonteCredencial(p: { dono: boolean; pedida?: unknown; viaPonte: boolean; propriaExiste: boolean }): DecisaoFonte {
+export function decidirFonteCredencial(p: { dono: boolean; pedida?: unknown; viaPonte: boolean; propriaExiste: boolean; liberadoPeloDono?: boolean }): DecisaoFonte {
   if (p.dono) return { ok: true, fonte: 'global' };
+  // Escritório que o dono liberou por inteiro (hoje, o da contadora do dono) e que não cadastrou credencial própria usa a
+  // credencial do dono. Quem tem credencial própria continua usando a própria. Só a conta administradora libera um escritório.
+  if (p.liberadoPeloDono === true && !p.propriaExiste && p.pedida !== 'propria') return { ok: true, fonte: 'global' };
   const pedida = p.pedida === 'global' || p.pedida === 'propria' ? p.pedida : undefined;
   if (pedida === 'global') return p.viaPonte ? { ok: true, fonte: 'global' } : { ok: false, http: 403, mensagem: 'A credencial do dono do sistema não vale para este escritório. Nada foi consultado nem cobrado.' };
   if (pedida === 'propria' || (!p.viaPonte && !pedida)) {
