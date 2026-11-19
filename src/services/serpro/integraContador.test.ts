@@ -89,3 +89,12 @@ test('montarPedido: autor é o escritório informado; sem informar, é o contrat
   assert.equal(p.contratante.numero, contratante);
   assert.throws(() => montarPedido(sv, contratante, contribuinte, {}, '123'), /autor/);
 });
+
+test('mês e ano: aceita os jeitos comuns de digitar e só converte quando não há dúvida', async () => {
+  const { normalizarAnoMes, validarDadosParcsn } = await import('./integraContador');
+  for (const v of ['202610', '2026-10', '2026/10', '10/2026', '10-2026', '102026', '10.2026']) assert.equal(normalizarAnoMes(v), '202610', v);
+  assert.equal(normalizarAnoMes('1/2026'), '202601');
+  assert.equal(normalizarAnoMes('2026/1'), '202601');
+  for (const v of ['132026', '13/2026', '10/26', 'abc', '', '2026']) assert.equal(normalizarAnoMes(v), v, v);
+  assert.equal(validarDadosParcsn('GERARDAS161', { parcelaParaEmitir: normalizarAnoMes('102026') }), null);
+});

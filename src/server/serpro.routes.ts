@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from 'express';
 import https from 'node:https';
 import { prepararPfx, pfxDeVariavel } from './pfxCompat';
 import { obterUsuarioDaSessao } from './auth.routes';
-import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosCaixaPostal, validarDadosDctfweb, validarDadosParcsn, validarDadosPgmei } from '../services/serpro/integraContador';
+import { CATALOGO_SERVICOS, avaliarProntidao, montarPedido, validarDadosCaixaPostal, validarDadosDctfweb, validarDadosParcsn, validarDadosPgmei, CAMPOS_ANO_MES, normalizarAnoMes } from '../services/serpro/integraContador';
 import { acharPdfBase64, lerProtocoloSitfis, lerXmlDeclaracao, lerReciboTransmissao } from '../services/serpro/resultadoSerpro';
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
@@ -306,7 +306,8 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
       const valor = String(e.dados?.[campo.nome] ?? '').trim();
       if (!valor && campo.opcional) continue;
       if (!/^[0-9A-Za-z._/-]{1,40}$/.test(valor)) return resp(400, { mensagem: `Informe o campo "${campo.rotulo}" (letras e números, sem espaços).` });
-      dadosEntrada[campo.nome] = valor;
+      // Mês e ano: aceita 10/2026, 102026, 2026-10 etc. e manda AAAAMM ao Serpro (vale para todos os escritórios).
+      dadosEntrada[campo.nome] = CAMPOS_ANO_MES.has(campo.nome) ? normalizarAnoMes(valor) : valor;
     }
 
     if (servico.idSistema === 'DCTFWEB') { const erroDados = validarDadosDctfweb(dadosEntrada); if (erroDados) return resp(400, { mensagem: erroDados }); }
