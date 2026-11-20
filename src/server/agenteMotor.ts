@@ -48,6 +48,7 @@ export interface MensagemWhatsAppParaTela {
 }
 import type { CentralDePedidos } from './agentesEntreSistemas';
 import { REGRAS_DE_ENTENDIMENTO, contextoDeRespostaCurta } from './agenteEntendimento';
+import { REGRA_PEDIDO_LONGO } from './agenteEtapas';
 
 export interface ContextoAgente {
   sessaoHash: string;
@@ -208,7 +209,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
   const rapida = await atalhoListarEmpresas(ctx, mensagem, porNome);
   if (rapida) return rapida;
   // Avisa o usuário de pedidos recebidos de outros sistemas que ainda aguardam resposta.
-  let instrucao = ctx.kit.instrucao + REGRAS_DE_ENTENDIMENTO;
+  let instrucao = ctx.kit.instrucao + REGRAS_DE_ENTENDIMENTO + REGRA_PEDIDO_LONGO;
   if (ctx.nomeUsuario) instrucao += `\n\nA pessoa que está falando com você se chama ${ctx.nomeUsuario}. Trate-a pelo nome de vez em quando, de forma natural, sem repetir em toda frase. Não diga bom dia, boa tarde nem boa noite: o sistema já faz isso sozinho.`;
   try {
     const abertos = ctx.central ? (await ctx.central.caixaDeEntrada(true)).filter((p) => p.estado === 'recebido').length : 0;
