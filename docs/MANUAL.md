@@ -594,8 +594,8 @@ Toda função nova deve ganhar rotina de robô e de conferidor no mesmo padrão 
 
 ## 22. Lista de itens "conferir"
 
-1. Endereço público real do serviço no Render (o código usa `https://murade-fisco-ia.onrender.com` como padrão).
-2. Repositório que o Render acompanha (o doc antigo cita outro repositório).
+1. ✅ Conferido no Render em 20/11/2026: endereço público `https://murade-fisco-ia.onrender.com` (serviço `murade-fisco-ia`, plano pago 0.5 CPU / 512 MB, região Oregon).
+2. ✅ Conferido em 20/11/2026: o Render acompanha `https://github.com/noslynedaam-lgtm/murade-fisci-ia-app`, branch `main`, publicação automática a cada commit (o doc antigo está desatualizado).
 3. Nomes exatos dos botões do Render ("Restart service", "Rollback") — o Render muda a interface às vezes.
 4. Custos do Serpro anotados no código (R$ 0,24 / 0,32 / 0,40) e o preço do serviço "Monitorar" (marcado como "A CONFIRMAR" no código) contra a fatura real.
 5. Itens do catálogo Integra Contador marcados como "pendente de confirmar no primeiro teste real" em `integraContador.ts`.
@@ -606,4 +606,4 @@ Toda função nova deve ganhar rotina de robô e de conferidor no mesmo padrão 
 10. Nomes dos modelos Gemini usados em `server.ts`.
 11. `npm run test:protocol` não foi rodado neste levantamento.
 12. Ligação direta com o Contábil (não encontrada além das citadas na seção 20).
-13. Comandos de build/start configurados no Render (Settings).
+13. ✅ Conferido em 20/11/2026: build `npm ci && npm run build`, start `npm start`.
