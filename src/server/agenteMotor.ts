@@ -77,7 +77,7 @@ interface AcaoPendente {
 
 const VALIDADE_ACAO_MS = 15 * 60_000;
 const MAX_PENDENTES_POR_SESSAO = 20;
-const MAX_PASSOS_MODELO = 6;
+const MAX_PASSOS_MODELO = 10;
 const MAX_CHAMADAS_POR_PASSO = 4;
 const LIMITE_RESULTADO_FERRAMENTA = 12_000;
 
@@ -215,7 +215,7 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
     if (abertos > 0) instrucao += `\n\nAVISO: há ${abertos} pedido(s) recebido(s) de outros sistemas aguardando resposta. Na sua resposta, diga isso ao usuário em uma frase e ofereça mostrar (ver_pedidos_entre_sistemas).`;
   } catch { /* a caixa indisponível não impede a conversa */ }
   const conteudos: any[] = historico.slice(-10).filter((t) => t && typeof t.texto === 'string' && t.texto.trim()).map((t) => ({
-    role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 1500) }],
+    role: t.papel === 'ia' ? 'model' : 'user', parts: [{ text: t.texto.slice(0, 8000) }],
   }));
   conteudos.push({ role: 'user', parts: [{ text: `Data de hoje: ${ctx.hoje}\n${contextoDeRespostaCurta(mensagem, historico)}${mensagem}` }] });
 
@@ -261,7 +261,14 @@ export async function conversar(ctx: ContextoAgente, modelo: ModeloIA, mensagem:
     }
     conteudos.push({ role: 'user', parts: respostas });
   }
-  return { resposta: 'Esse pedido ficou longo demais para eu resolver de uma vez. Pode dividir em partes menores?', acoes, whatsapp };
+  // Passou do número de rodadas: em vez de desistir, pede ao modelo uma resposta final, SEM ferramentas, com o que já
+  // foi levantado (texto longo ou pedido com várias partes nunca deve virar "não entendi").
+  try {
+    conteudos.push({ role: 'user', parts: [{ text: 'Responda agora ao usuário em português, com tudo o que você já levantou nas consultas acima. Se alguma parte do pedido ficou sem resposta, diga qual e o que falta, em uma frase. Não chame mais ferramentas.' }] });
+    const fim = await modelo({ instrucao, conteudos, declaracoes: [] });
+    if (fim.texto.trim()) return { resposta: fim.texto.trim(), acoes, whatsapp };
+  } catch (erro: any) { console.error('Falha na resposta final da Agente IA:', erro?.message || erro); }
+  return { resposta: 'Fiz várias consultas para responder e não consegui fechar tudo de uma vez. Me diga qual parte do pedido você quer primeiro que eu continuo daí.', acoes, whatsapp };
 }
 
 export async function confirmarAcao(ctx: ContextoAgente, id: string): Promise<{ sucesso: boolean; mensagem: string; detalhes?: unknown }> {

@@ -359,7 +359,7 @@ app.post('/api/ai/agente', async (req, res) => {
   if (!ctx) return res.status(401).json({ error: 'Entre no Fisco IA para usar a agente.' });
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
   if (!message) return res.status(400).json({ error: 'Digite seu pedido.' });
-  if (message.length > 4000) return res.status(413).json({ error: 'O pedido deve ter até 4.000 caracteres.' });
+  if (message.length > 30000) return res.status(413).json({ error: 'O pedido deve ter até 30.000 caracteres. Para texto maior, anexe o arquivo.' });
   if (!getGenAI()) return res.status(503).json({ error: 'Agente indisponível: configure GEMINI_API_KEY no servidor.' });
   if (!limiteUsoAgenteIA(ctx.sessaoHash)) return res.status(429).json({ error: 'Muitos pedidos em pouco tempo. Aguarde alguns minutos.' });
   const historico = Array.isArray(req.body?.historico)
@@ -494,8 +494,8 @@ app.post("/api/ia-fiscal/consultar", async (req, res) => {
     if (!pergunta || typeof pergunta !== "string" || !pergunta.trim()) {
       return res.status(400).json({ erro: "A pergunta é obrigatória." });
     }
-    if (pergunta.length > 4000) {
-      return res.status(413).json({ erro: "A pergunta deve ter até 4.000 caracteres." });
+    if (pergunta.length > 30000) {
+      return res.status(413).json({ erro: "A pergunta deve ter até 30.000 caracteres. Para texto maior, anexe o arquivo." });
     }
 
     // Determina se é a primeira mensagem do usuário na conversa
@@ -514,9 +514,9 @@ app.post("/api/ia-fiscal/consultar", async (req, res) => {
     if (historicoSeguro.length > 0) {
       for (const h of historicoSeguro) {
         if (h.autor === "usuario") {
-          contents.push({ role: "user", parts: [{ text: h.texto.slice(0, 4000) }] });
+          contents.push({ role: "user", parts: [{ text: h.texto.slice(0, 8000) }] });
         } else if (h.autor === "ia") {
-          contents.push({ role: "model", parts: [{ text: h.texto.slice(0, 4000) }] });
+          contents.push({ role: "model", parts: [{ text: h.texto.slice(0, 8000) }] });
         }
       }
     }
