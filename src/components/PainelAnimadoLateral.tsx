@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useFecharNoVoltar } from '../hooks/useVoltarCelular';
 import { 
   Bot, 
   Cpu, 
@@ -48,6 +49,8 @@ export function PainelAnimadoLateral({
   
   // Modo de tamanho: 'pequeno' (padrão compacto que sobe pequeno e devagar) ou 'expandido' (tela completa com abas)
   const [modoTamanho, setModoTamanho] = useState<'pequeno' | 'expandido'>('pequeno');
+  // Voltar do celular: o painel expandido (tela cheia com abas) volta ao tamanho pequeno.
+  useFecharNoVoltar(!fechado && !minimizado && modoTamanho === 'expandido', () => setModoTamanho('pequeno'));
   
   // Aba ativa: 'robo' | 'cert' | 'monitor' | 'dadosReais'
   const [abaAtiva, setAbaAtiva] = useState<'robo' | 'cert' | 'monitor' | 'dadosReais'>('robo');

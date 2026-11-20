@@ -17,6 +17,7 @@
     "test:protocol": "tsx --test src/server/sefazDistribution.protocol.test.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
+    "test:voltar": "tsx --test src/utils/voltarCelular.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

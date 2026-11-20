@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useFecharNoVoltar, useVoltarCelular } from './hooks/useVoltarCelular';
 import Navbar from './components/Navbar';
 import MenuLateral from './components/MenuLateral';
 import DashboardFiscal from './screens/Dashboard/DashboardFiscal';
@@ -358,6 +359,20 @@ export default function App() {
     limparTokenConviteDaUrl();
     setModoAuth('login');
   };
+
+  // Botão VOLTAR do celular/navegador (só depois de entrar): volta para a tela anterior em vez de fechar o app;
+  // antes fecha o que estiver aberto por cima. A troca de tela passa pela mesma proteção do menu (handleNavegacao).
+  useVoltarCelular({
+    telaAtual: abaAtiva,
+    telaInicial: 'dashboard',
+    irParaTela: (tela) => handleNavegacao(tela),
+    ativo: !verificandoSessao && modoAuth === 'app' && !!usuarioAtual && !precisaAtivar2fa,
+  });
+  useFecharNoVoltar(menuLateralAbertoMobile, () => setMenuLateralAbertoMobile(false));
+  useFecharNoVoltar(mostrarPortalSistemas, () => setMostrarPortalSistemas(false));
+  useFecharNoVoltar(mostrarSeguranca, () => setMostrarSeguranca(false));
+  useFecharNoVoltar(modalEmailsAberto, () => setModalEmailsAberto(false));
+  useFecharNoVoltar(modalCalculadoraAberto, () => setModalCalculadoraAberto(false));
 
   if (verificandoSessao) {
     return (
