@@ -30,6 +30,9 @@ import { conferirExclusoes } from "./src/server/exclusaoEmpresa";
 import serproRoutes from "./src/server/serpro.routes";
 import certidoesRoutes from "./src/server/certidoes.routes";
 import { conferirVencimentoCertidoes } from "./src/server/conferidorCertidoes";
+import { prepararBuscaCertidoes } from "./src/server/roboPreparadorCertidoes";
+import { devePrepararAgora } from "./src/services/certidoes/painelCertidoes";
+import { hojeBrasilia } from "./src/services/certidoes/certidoes";
 import carteiraFiscalRoutes from "./src/server/carteiraFiscal.routes";
 import dadosEscritorioRoutes from "./src/server/dadosEscritorio.routes";
 import { conferirAgendaFiscal, conferirCarteiraFiscal, conferirCertificadosA1 } from "./src/server/conferidoresCarteira";
@@ -449,6 +452,16 @@ const rodarConferidorCertidoes = () => { executarRobo('conferidor_certidoes', as
 const timerConferidorCertidoes = setInterval(rodarConferidorCertidoes, 6 * 60 * 60_000);
 setTimeout(rodarConferidorCertidoes, 3 * 60_000).unref();
 timerConferidorCertidoes.unref();
+// Robô preparador das certidões semiautomáticas: de madrugada (1h às 5h de Brasília), uma vez por dia, conta por escritório o que falta buscar.
+// Não entra em portal de órgão (pedem captcha); a busca é da pessoa pelo botão "Buscar agora" da tela CND, que lê o PDF baixado.
+registrarRobo({ id: 'preparador_certidoes', nome: 'Robô Preparador das Certidões (estadual, municipal, FGTS, trabalhista)', posto: 'conferidor', missao: 'Uma vez por noite (entre 1h e 5h de Brasília), contar em cada escritório as certidões estadual, municipal, CRF do FGTS e CNDT que faltam, venceram ou vencem logo (7 dias o CRF, 15 as demais), para a fila do botão "Buscar agora". Só lê; não entra nos portais (pedem captcha), não gasta nada e não altera nada.', intervaloMs: 30 * 60_000 });
+let ultimaPreparacaoCertidoes: string | null = null;
+const rodarPreparadorCertidoes = () => {
+  const hoje = hojeBrasilia();
+  if (!devePrepararAgora(new Date(), ultimaPreparacaoCertidoes, hoje)) return;
+  executarRobo('preparador_certidoes', async () => { const r = await prepararBuscaCertidoes(obterPoolBanco(), hoje); ultimaPreparacaoCertidoes = hoje; console.log(`[Preparador das certidões] ${r}`); }).catch((e) => console.error('[Preparador das certidões]', e?.message || e));
+};
+setInterval(rodarPreparadorCertidoes, 30 * 60_000).unref();
 
 // Conferidores da carteira fiscal, do certificado A1 e da Agenda Fiscal: só LEEM o que já está guardado (sem custo, sem consultar o Serpro).
 // O "rodar agora" de cada escritório fica na tela da carteira (POST /api/carteira-fiscal/conferir) e na Agente IA.

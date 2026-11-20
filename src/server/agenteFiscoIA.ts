@@ -160,6 +160,46 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_painel_certidoes', description: 'Painel das certidões do escritório (sem custo, só lê o que está guardado): por empresa, as 5 certidões (federal, estadual, municipal, CRF do FGTS e CNDT) em verde (em dia), amarelo (vence logo, sem validade ou positiva com efeito de negativa), vermelho (vencida, positiva ou não emitida) ou cinza (ainda não buscada), mais os próximos vencimentos. Use para "como estão as certidões", "quais certidões vencem", "quais faltam".', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: { type: 'STRING', description: 'Opcional: id da empresa (UUID) para ver só ela.' }, so: { type: 'STRING', description: 'Opcional: "pendentes" para listar só empresas com algo vermelho, amarelo ou cinza.' } }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const companyId = args.companyId === undefined || args.companyId === '' ? null : idDe(args.companyId);
+      if (args.companyId && !companyId) return { erro: 'Id da empresa inválido; use listar_empresas.' };
+      const r = await ctx.chamarApi('GET', `/api/certidoes/painel?tenantId=${q(tenantId)}${companyId ? `&companyId=${q(companyId)}` : ''}`);
+      if (!ok(r)) return erroApi(r);
+      const linhas: any[] = (r.corpo?.linhas || []).filter((l: any) => args.so !== 'pendentes' || l.pior !== 'verde');
+      return {
+        hoje: r.corpo?.hoje, contagem: r.corpo?.contagem, totalParaBuscar: r.corpo?.totalABuscar,
+        empresas: linhas.slice(0, 30).map((l) => ({ empresa: l.empresa.nome, cnpj: l.empresa.cnpj, certidoes: Object.values(l.certidoes).map((c: any) => ({ certidao: ADAPTADORES[c.tipo as TipoCertidao]?.rotulo ?? c.tipo, cor: c.cor, situacao: c.texto, validade: c.validade })), paraBuscar: (l.aBuscar || []).map((t: TipoCertidao) => ADAPTADORES[t].rotulo) })),
+        proximosVencimentos: (r.corpo?.proximosVencimentos || []).slice(0, 15).map((v: any) => ({ empresa: v.empresa, certidao: ADAPTADORES[v.tipo as TipoCertidao]?.rotulo ?? v.tipo, validade: v.validade, situacao: v.texto })),
+        aviso: linhas.length > 30 ? 'Mostrando 30 empresas; peça uma empresa específica para ver as outras.' : undefined,
+        observacao: 'Situação das certidões GUARDADAS no sistema; não é consulta ao órgão feita agora.',
+      };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'buscar_certidoes_empresa', description: 'Para "busca as certidões da empresa X": mostra quais certidões da empresa faltam, venceram ou vencem logo e prepara a busca. Estadual, municipal, CRF do FGTS e CNDT são SEMIAUTOMÁTICAS (os portais pedem captcha): na tela CND, botão "Buscar agora" da empresa, o sistema copia o CNPJ, abre o portal certo e lê o PDF que a pessoa baixar. A CND federal é a consulta paga do Serpro (consultar_certidao). Não consulta órgão nem gasta nada.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId }, required: ['tenantId', 'companyId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe o escritório e a empresa pelos ids; use listar_escritorios e listar_empresas.' };
+      const r = await ctx.chamarApi('GET', `/api/certidoes/painel?tenantId=${q(tenantId)}&companyId=${q(companyId)}`);
+      if (!ok(r)) return erroApi(r);
+      const l = (r.corpo?.linhas || [])[0];
+      if (!l) return { erro: 'Empresa não encontrada neste escritório.' };
+      const portais = r.corpo?.portais?.[companyId] || {};
+      const buscar = (l.aBuscar || []) as TipoCertidao[];
+      return {
+        empresa: l.empresa.nome, cnpj: l.empresa.cnpj,
+        situacaoAtual: Object.values(l.certidoes).map((c: any) => ({ certidao: ADAPTADORES[c.tipo as TipoCertidao]?.rotulo ?? c.tipo, cor: c.cor, situacao: c.texto, validade: c.validade })),
+        paraBuscar: buscar.map((t) => ({ certidao: ADAPTADORES[t].rotulo, portal: portais[t] || 'portal do órgão do estado/município da empresa (tela Órgãos públicos)' })),
+        comoBuscar: buscar.length === 0 ? 'Nenhuma certidão semiautomática para buscar agora.' : 'Abra a tela CND e toque em "Buscar agora" na linha da empresa. Para cada certidão: toque em "Copiar CNPJ e abrir portal", cole o CNPJ, digite os caracteres da imagem, baixe o PDF e solte o PDF no quadro da mesma certidão. O sistema lê número, situação e validade; confira e toque em "Confirmar e guardar".',
+        federal: l.certidoes?.federal?.cor !== 'verde' ? 'A CND federal pode ser consultada pela consulta paga do Serpro (consultar_certidao), só com confirmação do custo.' : undefined,
+      };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'consultar_certidao', description: 'Propõe CONSULTAR a certidão de UMA empresa no órgão. Hoje só a CND federal (Receita Federal + PGFN) tem consulta automática, e ela é PAGA pelo Serpro: por isso só roda depois de a pessoa confirmar o custo no cartão. Estadual, municipal, FGTS e trabalhista não têm consulta automática: nesses casos a ferramenta devolve o portal para a pessoa emitir. Uma empresa e um tipo por vez.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, tipo: { type: 'STRING', description: 'federal, estadual, municipal, fgts ou trabalhista.' } }, required: ['tenantId', 'companyId', 'tipo'] } },
     async preparar(ctx, args) {
@@ -168,7 +208,7 @@ const FERRAMENTAS: Ferramenta[] = [
       const tipo = String(args.tipo || '').trim().toLowerCase();
       const adaptador = (ADAPTADORES as Record<string, (typeof ADAPTADORES)[TipoCertidao]>)[tipo];
       if (!adaptador) return { erro: 'Tipo inválido. Use federal, estadual, municipal, fgts ou trabalhista.' };
-      if (adaptador.modo === 'manual') return { erro: `${adaptador.rotulo}: ${adaptador.como}${adaptador.portalOficial ? ` Portal oficial: ${adaptador.portalOficial}` : ' Abra o portal do órgão da UF ou do município da empresa na tela CND / Certidões.'} Nada foi consultado nem cobrado.` };
+      if (adaptador.modo !== 'automatica_paga') return { erro: `${adaptador.rotulo}: ${adaptador.como}${adaptador.portalOficial ? ` Portal oficial: ${adaptador.portalOficial}` : ' Abra o portal do órgão da UF ou do município da empresa na tela CND / Certidões.'} Nada foi consultado nem cobrado.` };
       const r = await ctx.chamarApi('GET', `/api/companies?tenantId=${q(tenantId)}`);
       if (!ok(r)) return erroApi(r);
       const e = (r.corpo?.empresas || []).find((x: any) => x.id === companyId);
@@ -352,7 +392,7 @@ COMO RESPONDER (suas respostas são lidas em voz alta)
 - Nunca esconda o CNPJ com asteriscos nem responda de forma genérica: use a ferramenta e entregue o que ela devolveu.
 
 VENCIMENTOS E ALERTAS (seja atenta, proativa e inteligente)
-- Certidões (CND): para saber o que venceu ou vence, use ver_certidoes_vencendo. Para consultar, use consultar_certidao: só a CND federal tem consulta automática, é PAGA e só roda depois de a pessoa confirmar no cartão; antes de propor, diga em voz alta que é paga e pergunte se quer consultar. Estadual, municipal, FGTS e trabalhista são emitidas pela pessoa no portal do órgão. Nunca diga que uma certidão está regular sem o resultado guardado pelo sistema; validade só a que o órgão informou.
+- Certidões (CND): para "quais certidões vencem" use ver_certidoes_vencendo (ou ver_painel_certidoes para o quadro completo com cores). Para "busca as certidões da empresa X" use buscar_certidoes_empresa e explique o passo a passo que ela devolver: estadual, municipal, CRF do FGTS e CNDT são SEMIAUTOMÁTICAS (os portais pedem captcha): na tela CND, botão "Buscar agora" da empresa, o sistema copia o CNPJ e abre o portal, a pessoa baixa o PDF e solta no quadro, e o sistema lê número, situação e validade para ela só confirmar. A CND federal é a única com consulta automática (consultar_certidao), é PAGA e só roda depois de a pessoa confirmar no cartão; antes de propor, diga em voz alta que é paga e pergunte se quer consultar. Nunca diga que uma certidão está regular sem o resultado guardado pelo sistema; validade só a que está no documento (ou a da norma, quando o documento não traz, e a pessoa confirmou).
 - Carteira fiscal (sem custo): para "como está a carteira", "quem está pendente", "situação fiscal da empresa X", "tem mensagem na Caixa Postal", "parcela atrasada", use ver_carteira_fiscal e ver_situacao_fiscal_guardada / ver_caixa_postal_guardada / ver_parcelamentos_guardados. Diga SEMPRE a data da consulta guardada; nunca apresente como situação de hoje. "Lida do PDF" é leitura automática: diga para confirmar no PDF. Para conferir tudo agora, use conferir_carteira_agora.
 - Consulta NOVA ao Serpro só com pedir_consulta_receita (uma empresa e um serviço por vez): antes diga em voz alta se é grátis ou quanto custa e pergunte se quer consultar; a pessoa ainda confirma no cartão. Consulta em lote de várias empresas é feita na tela SERPRO (botão "Consultar a carteira"), que mostra o total antes. Abrir mensagem da Caixa Postal conta como ciência: isso só na tela, nunca por você.
 - Certificado A1: use ver_certificados_vencendo. Agenda Fiscal: use ver_agenda_fiscal.

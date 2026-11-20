@@ -7,7 +7,9 @@ import { comContextoTenant, obterPoolBanco } from './persistence';
 import { empresaLiberada, infoDoEscritorio, pedirLiberacao } from './serpro.routes';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
-import { ADAPTADORES, TIPOS_CERTIDAO, certidoesQueRequeremAtencao, ehTipoCertidao, hojeBrasilia, textoDaFaixa, validarRegistroManual, type CertidaoGuardada, type SituacaoCertidao, type TipoCertidao } from '../services/certidoes/certidoes';
+import { ADAPTADORES, ROTULO_RESULTADO, TIPOS_CERTIDAO, certidoesQueRequeremAtencao, ehResultadoCertidao, ehTipoCertidao, hojeBrasilia, portalDaCertidao, textoDaFaixa, validarRegistroManual, type CertidaoGuardada, type SituacaoCertidao, type TipoCertidao } from '../services/certidoes/certidoes';
+import { PDF_MAX_BYTES, lerCertidaoDoPdf } from '../services/certidoes/leituraPdfCertidao';
+import { TIPOS_SEMIAUTOMATICOS, montarPainel, type CertidaoParaPainel, type EmpresaParaPainel } from '../services/certidoes/painelCertidoes';
 import { consultarCndFederal, lerConfigCnd, type ChamadaHttp } from '../services/certidoes/consultaCndFederal';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,10 +30,10 @@ export const dependencias = { http: httpReal as ChamadaHttp, env: process.env as
 const linhaParaTela = (x: any) => ({
   id: String(x.id), companyId: String(x.company_id), tipo: x.tipo as TipoCertidao, uf: x.uf ?? null, municipio: x.municipio ?? null, origem: x.origem, situacao: x.situacao as SituacaoCertidao,
   numero: x.numero ?? null, emissao: x.emissao ? new Date(x.emissao).toISOString().slice(0, 10) : null, validade: x.validade ? new Date(x.validade).toISOString().slice(0, 10) : null,
-  mensagem: x.mensagem ?? null, resultadoOrgao: x.resultado_orgao ?? null, codigoTipoOrgao: x.codigo_tipo_orgao ?? null, observacao: x.observacao ?? null, cobrada: x.cobrada === true, temPdf: x.tem_pdf === true, criadaEm: new Date(x.created_at).toISOString(),
+  resultado: x.resultado ?? null, mensagem: x.mensagem ?? null, resultadoOrgao: x.resultado_orgao ?? null, codigoTipoOrgao: x.codigo_tipo_orgao ?? null, observacao: x.observacao ?? null, cobrada: x.cobrada === true, temPdf: x.tem_pdf === true, criadaEm: new Date(x.created_at).toISOString(),
 });
 // Datas do tipo date voltam do driver como Date à meia-noite LOCAL; por isso a leitura é feita como texto no SQL.
-const COLUNAS = `id, company_id, tipo, uf, municipio, origem, situacao, numero, to_char(emissao,'YYYY-MM-DD') AS emissao, to_char(validade,'YYYY-MM-DD') AS validade, mensagem, resultado_orgao, codigo_tipo_orgao, observacao, cobrada, (pdf IS NOT NULL) AS tem_pdf, created_at`;
+const COLUNAS = `id, company_id, tipo, uf, municipio, origem, situacao, resultado, numero, to_char(emissao,'YYYY-MM-DD') AS emissao, to_char(validade,'YYYY-MM-DD') AS validade, mensagem, resultado_orgao, codigo_tipo_orgao, observacao, cobrada, (pdf IS NOT NULL) AS tem_pdf, created_at`;
 
 async function usuarioDoEscritorio(req: any, res: any, tenantId: string) {
   const user = await obterUsuarioDaSessao(req).catch(() => null);
@@ -150,7 +152,7 @@ router.post('/certidoes/consultar', async (req, res) => {
   const tipo = req.body?.tipo;
   if (!ehTipoCertidao(tipo)) return res.status(400).json({ consultado: false, mensagem: 'Tipo de certidão inválido.' });
   const ad = ADAPTADORES[tipo];
-  if (ad.modo === 'manual') return res.status(200).json({ consultado: false, manual: true, portal: ad.portalOficial, mensagem: `${ad.rotulo}: ${ad.como} Nada foi consultado nem cobrado.` });
+  if (ad.modo !== 'automatica_paga') return res.status(200).json({ consultado: false, manual: true, portal: ad.portalOficial, mensagem: `${ad.rotulo}: ${ad.como} Nada foi consultado nem cobrado.` });
   if (!UUID.test(companyId)) return res.status(400).json({ consultado: false, mensagem: 'Empresa inválida.' });
 
   // Mesmas regras de acesso da consulta ao Serpro: dono do sistema, ou dono/administrador do próprio escritório com CNPJ cadastrado.
@@ -196,6 +198,92 @@ router.post('/certidoes/consultar', async (req, res) => {
     console.log(`[certidoes] consulta federal: situacao=${out.situacao} cobrada=${out.cobrada}`);
     return res.status(200).json({ consultado: out.cobrada || out.statusOrgao !== null, situacao: out.situacao, mensagem: out.mensagem, cobrada: out.cobrada, certidao, guardada: certidao !== null, aviso: certidao ? undefined : 'A consulta foi feita, mas não foi possível guardar o resultado. Confira no Serpro antes de repetir.' });
   } catch { return res.status(503).json({ consultado: false, mensagem: 'Falha ao consultar. Nenhum dado foi inventado; confira o extrato do Serpro antes de repetir.' }); }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Certidões SEMIAUTOMÁTICAS (estadual, municipal, CRF do FGTS, CNDT): a pessoa emite no portal e solta o PDF; o sistema lê e propõe.
+// A CND federal NÃO passa por aqui (segue na consulta própria acima).
+// ---------------------------------------------------------------------------------------------------------------------------
+function pdfDoCorpo(v: unknown): Buffer | null {
+  if (typeof v !== 'string' || v.length < 20 || v.length > Math.ceil(PDF_MAX_BYTES / 3) * 4 + 8) return null;
+  const b = Buffer.from(v.replace(/^data:application\/pdf;base64,/, ''), 'base64');
+  return b.length > 0 && b.length <= PDF_MAX_BYTES && b.subarray(0, 5).toString('latin1') === '%PDF-' ? b : null;
+}
+async function empresaDoEscritorio(userId: string, tenantId: string, companyId: string) {
+  return comContextoTenant(userId, tenantId, async (c) => (await c.query('SELECT id, cnpj, legal_name, state, municipality FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL', [companyId, tenantId])).rows[0] ?? null);
+}
+
+/** Lê o PDF solto pela pessoa e PROPÕE os campos. Não guarda nada. */
+router.post('/certidoes/ler-pdf', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const tenantId = String(req.body?.tenantId ?? ''); const companyId = String(req.body?.companyId ?? '');
+  const user = await usuarioDoEscritorio(req, res, tenantId); if (!user) return;
+  if (!UUID.test(companyId)) return res.status(400).json({ mensagem: 'Empresa inválida.' });
+  const tipo = req.body?.tipo;
+  if (!ehTipoCertidao(tipo) || !TIPOS_SEMIAUTOMATICOS.includes(tipo)) return res.status(400).json({ mensagem: 'Escolha a certidão estadual, municipal, CRF do FGTS ou CNDT. A CND federal segue pela consulta própria.' });
+  const pdf = pdfDoCorpo(req.body?.pdfBase64);
+  if (!pdf) return res.status(400).json({ mensagem: 'Arquivo inválido: solte o PDF da certidão (até 3 MB).' });
+  try {
+    const emp = await empresaDoEscritorio(user.id, tenantId, companyId);
+    if (!emp.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!emp.resultado) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
+    const leitura = lerCertidaoDoPdf(tipo, pdf, { cnpjEsperado: String(emp.resultado.cnpj), uf: emp.resultado.state });
+    return res.json({ leitura, rotuloResultado: leitura.resultado ? ROTULO_RESULTADO[leitura.resultado] : null });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível ler o PDF agora. Preencha os campos olhando o documento.' }); }
+});
+
+/** Guarda a certidão do PDF depois que a pessoa CONFERIU os campos. O PDF é lido de novo aqui para conferir o CNPJ. */
+router.post('/certidoes/importar-pdf', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const tenantId = String(req.body?.tenantId ?? ''); const companyId = String(req.body?.companyId ?? '');
+  const user = await usuarioDoEscritorio(req, res, tenantId); if (!user) return;
+  if (!UUID.test(companyId)) return res.status(400).json({ mensagem: 'Empresa inválida.' });
+  const tipo = req.body?.tipo;
+  if (!ehTipoCertidao(tipo) || !TIPOS_SEMIAUTOMATICOS.includes(tipo)) return res.status(400).json({ mensagem: 'Escolha a certidão estadual, municipal, CRF do FGTS ou CNDT.' });
+  if (req.body?.confirmou !== true) return res.status(409).json({ mensagem: 'Confira os campos e confirme para guardar. Nada foi guardado.' });
+  const pdf = pdfDoCorpo(req.body?.pdfBase64);
+  if (!pdf) return res.status(400).json({ mensagem: 'Arquivo inválido: solte o PDF da certidão (até 3 MB).' });
+  const resultado = req.body?.resultado;
+  if (!ehResultadoCertidao(resultado)) return res.status(400).json({ mensagem: 'Escolha a situação: negativa, positiva com efeito de negativa ou positiva.' });
+  const v = validarRegistroManual({ tipo, numero: req.body?.numero, emissao: req.body?.emissao, validade: req.body?.validade, uf: req.body?.uf, municipio: req.body?.municipio, obs: req.body?.obs, resultadoOrgao: ROTULO_RESULTADO[resultado] });
+  if (v.ok === false) return res.status(400).json({ mensagem: v.mensagem });
+  try {
+    const emp = await empresaDoEscritorio(user.id, tenantId, companyId);
+    if (!emp.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!emp.resultado) return res.status(404).json({ mensagem: 'Empresa não encontrada.' });
+    const leitura = lerCertidaoDoPdf(tipo, pdf, { cnpjEsperado: String(emp.resultado.cnpj), uf: emp.resultado.state });
+    if (leitura.cnpjConfere === 'nao') return res.status(409).json({ mensagem: `O CNPJ que está no PDF não é o de ${emp.resultado.legal_name}. Baixe a certidão da empresa certa. Nada foi guardado.` });
+    const d = v.valor;
+    const uf = d.uf ?? (tipo === 'estadual' || tipo === 'municipal' ? emp.resultado.state ?? null : null);
+    const municipio = d.municipio ?? (tipo === 'municipal' ? emp.resultado.municipality ?? null : null);
+    const obs = [leitura.validadeOrigem === 'calculada_pela_norma' && leitura.validade === d.validade ? `Validade calculada pela norma (${leitura.fonteValidade}), confirmada pela pessoa.` : null, d.obs].filter(Boolean).join(' ') || null;
+    const r = await comContextoTenant(user.id, tenantId, async (c) => (await c.query(`INSERT INTO fiscoia.certidoes (tenant_id, company_id, tipo, uf, municipio, origem, situacao, resultado, numero, emissao, validade, resultado_orgao, observacao, pdf, criado_por)
+        VALUES ($1,$2,$3,$4,$5,'pdf_importado','emitida',$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${COLUNAS}`, [tenantId, companyId, tipo, uf, municipio, resultado, d.numero, d.emissao, d.validade, d.resultadoOrgao, obs, pdf, user.id])).rows[0]);
+    if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    return res.status(201).json({ certidao: linhaParaTela(r.resultado), mensagem: `${ADAPTADORES[tipo].rotulo} guardada, válida até ${d.validade.split('-').reverse().join('/')}.` });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível guardar a certidão. Nada foi guardado.' }); }
+});
+
+/** Painel do escritório: por empresa, as 5 certidões em verde/amarelo/vermelho (cinza = não buscada), próximos vencimentos e o que buscar. Só lê. */
+router.get('/certidoes/painel', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const tenantId = String(req.query.tenantId ?? '');
+  const user = await usuarioDoEscritorio(req, res, tenantId); if (!user) return;
+  const companyId = req.query.companyId ? String(req.query.companyId) : null;
+  if (companyId && !UUID.test(companyId)) return res.status(400).json({ mensagem: 'Empresa inválida.' });
+  try {
+    const r = await comContextoTenant(user.id, tenantId, async (c) => {
+      const emp = (await c.query('SELECT id, cnpj, legal_name, state, municipality FROM fiscoia.companies WHERE tenant_id = $1 AND archived_at IS NULL AND ($2::uuid IS NULL OR id = $2) ORDER BY legal_name LIMIT 2000', [tenantId, companyId])).rows;
+      const cert = (await c.query(`SELECT DISTINCT ON (company_id, tipo, situacao IN ('emitida','registrada_manualmente')) id, company_id, tipo, situacao, resultado, numero, origem, to_char(emissao,'YYYY-MM-DD') AS emissao, to_char(validade,'YYYY-MM-DD') AS validade, (pdf IS NOT NULL) AS tem_pdf, created_at
+          FROM fiscoia.certidoes WHERE tenant_id = $1 AND ($2::uuid IS NULL OR company_id = $2) ORDER BY company_id, tipo, situacao IN ('emitida','registrada_manualmente'), created_at DESC`, [tenantId, companyId])).rows;
+      return { emp, cert };
+    });
+    if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    const empresas: EmpresaParaPainel[] = (r.resultado?.emp ?? []).map((e: any) => ({ id: String(e.id), nome: String(e.legal_name), cnpj: String(e.cnpj), uf: e.state ?? null, municipio: e.municipality ?? null }));
+    const certidoes: CertidaoParaPainel[] = (r.resultado?.cert ?? []).map((x: any) => ({ id: String(x.id), companyId: String(x.company_id), tipo: x.tipo, situacao: x.situacao, resultado: x.resultado ?? null, numero: x.numero ?? null, emissao: x.emissao ?? null, validade: x.validade ?? null, temPdf: x.tem_pdf === true, origem: x.origem, criadaEm: new Date(x.created_at).toISOString() }));
+    const painel = montarPainel(empresas, certidoes, hojeBrasilia());
+    return res.json({ ...painel, portais: Object.fromEntries(empresas.map((e) => [e.id, Object.fromEntries(TIPOS_SEMIAUTOMATICOS.map((t) => [t, portalDaCertidao(t, e.uf, e.municipio)]))])) });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível montar o painel das certidões agora.' }); }
 });
 
 export default router;

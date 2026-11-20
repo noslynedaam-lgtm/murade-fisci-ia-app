@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ExternalLink, FileDown, History, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useEmpresa } from '../../context/EmpresaContext';
-import { ADAPTADORES, TIPOS_CERTIDAO, type TipoCertidao } from '../../services/certidoes/certidoes';
+import { ADAPTADORES, ROTULO_RESULTADO, TIPOS_CERTIDAO, portalDaCertidao, type ResultadoCertidao, type TipoCertidao } from '../../services/certidoes/certidoes';
+import BuscaCertidaoAssistida from './BuscaCertidaoAssistida';
 
 interface Guardada {
-  id: string; tipo: TipoCertidao; uf: string | null; municipio: string | null; origem: 'consulta_serpro' | 'manual'; situacao: string;
+  id: string; tipo: TipoCertidao; uf: string | null; municipio: string | null; origem: 'consulta_serpro' | 'manual' | 'pdf_importado'; situacao: string; resultado: ResultadoCertidao | null;
   numero: string | null; emissao: string | null; validade: string | null; mensagem: string | null; codigoTipoOrgao: string | null; temPdf: boolean; criadaEm: string; cobrada: boolean;
 }
 interface Vencendo { id: string; empresa: string; rotuloTipo: string; validade: string | null; faixa: string; situacaoTexto: string }
@@ -29,6 +30,7 @@ export default function PainelConsultaCertidoes({ obterLink }: { obterLink: (tip
   const [confirmar, setConfirmar] = useState(false);
   const [aviso, setAviso] = useState<{ tom: 'ok' | 'erro' | 'info'; texto: string } | null>(null);
   const [historico, setHistorico] = useState(false);
+  const [buscarTipo, setBuscarTipo] = useState<TipoCertidao | null>(null);
   const tenantId = empresa?.tenantIdCentral; const companyId = empresa?.idCentral;
 
   const carregar = useCallback(async () => {
@@ -112,13 +114,13 @@ export default function PainelConsultaCertidoes({ obterLink }: { obterLink: (tip
       <ul className="divide-y divide-slate-100">
         {TIPOS_CERTIDAO.map((t) => {
           const ad = ADAPTADORES[t]; const u = ultimaDe(t); const automatica = ad.modo === 'automatica_paga';
-          const link = obterLink(t, empresa?.uf, empresa?.cidade) ?? ad.portalOficial ?? undefined;
+          const link = portalDaCertidao(t, empresa?.uf, empresa?.cidade) ?? obterLink(t, empresa?.uf, empresa?.cidade) ?? ad.portalOficial ?? undefined;
           return (
             <li key={t} className="py-2.5 flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-slate-900">{ad.rotulo}</p>
-                  <p className="text-[11px] text-slate-500">{ad.orgao} · {automatica ? 'consulta automática (paga, só no clique)' : 'emissão pelo portal do órgão'}</p>
+                  <p className="text-[11px] text-slate-500">{ad.orgao} · {automatica ? 'consulta automática (paga, só no clique)' : 'semiautomática: o sistema abre o portal e lê o PDF'}</p>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {automatica && (
@@ -126,14 +128,15 @@ export default function PainelConsultaCertidoes({ obterLink }: { obterLink: (tip
                       {consultando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}Consultar agora
                     </button>
                   )}
+                  {!automatica && <button type="button" onClick={() => setBuscarTipo(t)} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"><Search className="w-3.5 h-3.5" />Buscar agora</button>}
                   {link && <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" />Abrir portal</a>}
                 </div>
               </div>
               {automatica && federalConfigurada === false && <p className="text-[11px] text-amber-800">A consulta automática ainda não foi contratada neste servidor (produto &quot;Consulta CND&quot; do Serpro). Use o portal da Receita por enquanto.</p>}
-              {!automatica && <p className="text-[11px] text-slate-500">{ad.como} Depois de emitir, registre a certidão em &quot;Cadastrar Certidão&quot; para acompanhar o vencimento.</p>}
+              {!automatica && <p className="text-[11px] text-slate-500">{ad.como}</p>}
               {u && (
                 <div className="text-[11px] text-slate-700 bg-slate-50 rounded-lg p-2">
-                  <p><strong>{ROTULO_SITUACAO[u.situacao] ?? u.situacao}</strong> · consultada em {br(u.criadaEm.slice(0, 10))}</p>
+                  <p><strong>{u.resultado ? ROTULO_RESULTADO[u.resultado] : (ROTULO_SITUACAO[u.situacao] ?? u.situacao)}</strong> · {u.origem === 'pdf_importado' ? 'PDF lido e conferido em' : 'consultada em'} {br(u.criadaEm.slice(0, 10))}</p>
                   {u.mensagem && <p>{u.mensagem}</p>}
                   {(u.numero || u.validade) && <p>Número de controle: {u.numero ?? '—'} · Emissão: {br(u.emissao)} · Validade: {br(u.validade)}{u.codigoTipoOrgao ? ` · Tipo informado pelo órgão: código ${u.codigoTipoOrgao} (confira no PDF)` : ''}</p>}
                   {u.temPdf && tenantId && <a className="inline-flex items-center gap-1 font-bold text-blue-700 mt-0.5" href={`/api/certidoes/${u.id}/pdf?tenantId=${tenantId}`} target="_blank" rel="noopener noreferrer"><FileDown className="w-3.5 h-3.5" />Abrir PDF da certidão</a>}
@@ -152,13 +155,21 @@ export default function PainelConsultaCertidoes({ obterLink }: { obterLink: (tip
             {!carregando && guardadas.length === 0 && <li className="text-xs text-slate-500">Nenhuma certidão guardada para esta empresa.</li>}
             {guardadas.map((g) => (
               <li key={g.id} className="text-[11px] border border-slate-200 rounded-lg p-2 flex items-start justify-between gap-2">
-                <span>{ADAPTADORES[g.tipo].rotulo} · {ROTULO_SITUACAO[g.situacao] ?? g.situacao} · {g.origem === 'manual' ? 'manual' : 'Serpro'} · nº {g.numero ?? '—'} · validade {br(g.validade)} · {br(g.criadaEm.slice(0, 10))}</span>
+                <span>{ADAPTADORES[g.tipo].rotulo} · {ROTULO_SITUACAO[g.situacao] ?? g.situacao} · {g.origem === 'manual' ? 'manual' : g.origem === 'pdf_importado' ? 'PDF lido' : 'Serpro'} · nº {g.numero ?? '—'} · validade {br(g.validade)} · {br(g.criadaEm.slice(0, 10))}</span>
                 <button type="button" aria-label="Excluir este registro" onClick={() => void excluir(g)} className="text-rose-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {buscarTipo && tenantId && companyId && empresa && (
+        <BuscaCertidaoAssistida
+          tenantId={tenantId} empresa={{ id: companyId, nome: empresa.razaoSocial, cnpj: empresa.cnpj || '', uf: empresa.uf || null, municipio: empresa.cidade || null }}
+          tipos={[buscarTipo]} portais={{ [buscarTipo]: portalDaCertidao(buscarTipo, empresa.uf, empresa.cidade) ?? obterLink(buscarTipo, empresa.uf, empresa.cidade) ?? ADAPTADORES[buscarTipo].portalOficial }}
+          onFechar={() => setBuscarTipo(null)} onGuardou={() => void carregar()}
+        />
+      )}
 
       {confirmar && (
         <div role="dialog" aria-modal="true" aria-labelledby="titulo-confirma-cnd" className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3">

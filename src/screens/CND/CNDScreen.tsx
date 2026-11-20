@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import BotaoVoltar from '../../components/BotaoVoltar';
 import PainelConsultaCertidoes from './PainelConsultaCertidoes';
+import PainelCertidoesEmpresas from './PainelCertidoesEmpresas';
 import { useEmpresa } from '../../context/EmpresaContext';
 import { EVENTO_CND_LOCAL_ATUALIZADA } from '../../services/cnd/cndMonitor.service';
 
@@ -398,6 +399,8 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
           {mensagemStatus}
         </div>
       )}
+
+      <PainelCertidoesEmpresas linkReserva={(tipo, uf, cidade) => obterLinkPortalCnd({ id: 0, clienteId: '', clienteNome: '', clienteDoc: '', tipo, uf, municipio: cidade, numero: '', emissao: '', validade: '' })} />
 
       <PainelConsultaCertidoes obterLink={(tipo, uf, cidade) => obterLinkPortalCnd({ id: 0, clienteId: '', clienteNome: '', clienteDoc: '', tipo, uf, municipio: cidade, numero: '', emissao: '', validade: '' })} />
 

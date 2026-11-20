@@ -1,16 +1,18 @@
 // Certidões (CND) do Fisco IA: tipos, forma de consulta de cada tipo e regra de vencimento.
 //
 // Cada tipo tem um ADAPTADOR. Só o tipo "federal" tem consulta automática, pelo produto oficial "Consulta CND" do Serpro
-// (certidão conjunta RFB + PGFN). Os demais não têm API oficial localizada e abrem o portal do órgão, onde a própria pessoa emite.
+// (certidão conjunta RFB + PGFN). Os demais não têm API oficial localizada e os portais pedem verificação humana (captcha) ou
+// bloqueiam acesso automatizado: são SEMIAUTOMÁTICOS — o sistema copia o CNPJ e abre o portal certo, a pessoa emite, solta o PDF
+// e o sistema lê o PDF e preenche número, situação e validade para ela só confirmar (leituraPdfCertidao.ts).
 // Nada aqui inventa prazo de validade: a validade é a que o órgão informou (ou a que a pessoa digitou do documento emitido).
 import { validarCnpj, normalizarCnpj } from '../cnpj/cnpjValidation';
 
 export const TIPOS_CERTIDAO = ['federal', 'estadual', 'municipal', 'fgts', 'trabalhista'] as const;
 export type TipoCertidao = typeof TIPOS_CERTIDAO[number];
 
-export type ModoConsulta = 'automatica_paga' | 'manual';
+export type ModoConsulta = 'automatica_paga' | 'semiautomatica';
 export type SituacaoCertidao = 'emitida' | 'nao_emitida' | 'em_processamento' | 'indisponivel' | 'erro' | 'registrada_manualmente';
-export type OrigemCertidao = 'consulta_serpro' | 'manual';
+export type OrigemCertidao = 'consulta_serpro' | 'manual' | 'pdf_importado';
 
 export interface AdaptadorCertidao {
   tipo: TipoCertidao;
@@ -33,26 +35,45 @@ export const ADAPTADORES: Record<TipoCertidao, AdaptadorCertidao> = {
     fontesOficiais: ['https://www.gov.br/conecta/catalogo/apis/consultar-certidao-negativa-de-debito', 'https://www.store.serpro.gov.br/consulta-cnd'],
   },
   estadual: {
-    tipo: 'estadual', rotulo: 'CND Estadual (SEFAZ)', orgao: 'Secretaria da Fazenda do estado', modo: 'manual',
-    como: 'Sem serviço oficial de consulta automática localizado. A emissão é feita no portal da SEFAZ do estado da empresa.',
-    portalOficial: null, fontesOficiais: [],
+    tipo: 'estadual', rotulo: 'CND Estadual (SEFAZ)', orgao: 'Secretaria da Fazenda/Economia do estado', modo: 'semiautomatica',
+    como: 'Sem API oficial aberta para consulta automática. O sistema copia o CNPJ e abre o portal da SEFAZ do estado; você emite lá, solta o PDF aqui e o sistema lê número, situação e validade para você só confirmar.',
+    portalOficial: null, fontesOficiais: ['https://appasp.economia.go.gov.br/Legislacao/arquivos/SECRETARIO/IN/IN_1173_2013.htm'],
   },
   municipal: {
-    tipo: 'municipal', rotulo: 'CND Municipal (Prefeitura)', orgao: 'Prefeitura do município', modo: 'manual',
-    como: 'Sem serviço oficial de consulta automática localizado. A emissão é feita no portal da prefeitura do município da empresa.',
-    portalOficial: null, fontesOficiais: [],
+    tipo: 'municipal', rotulo: 'CND Municipal (Prefeitura)', orgao: 'Prefeitura do município', modo: 'semiautomatica',
+    como: 'Sem API oficial aberta; o portal da Prefeitura de Goiânia pede os caracteres de uma imagem (captcha). O sistema copia o CNPJ e abre o portal; você emite, solta o PDF aqui e o sistema lê número, situação e validade.',
+    portalOficial: null, fontesOficiais: ['https://www.goiania.go.gov.br/sistemas/sccer/asp/sccer00300f0.asp'],
   },
   fgts: {
-    tipo: 'fgts', rotulo: 'CRF - Regularidade do FGTS', orgao: 'Caixa Econômica Federal', modo: 'manual',
-    como: 'Sem serviço oficial de consulta automática localizado. A consulta e a emissão são feitas no portal da Caixa.',
-    portalOficial: 'https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf', fontesOficiais: [],
+    tipo: 'fgts', rotulo: 'CRF - Regularidade do FGTS', orgao: 'Caixa Econômica Federal', modo: 'semiautomatica',
+    como: 'Sem API oficial aberta; a consulta da Caixa pede um código de imagem (captcha). O sistema copia o CNPJ e abre o portal; você emite o CRF, solta o PDF aqui e o sistema lê número, situação e validade.',
+    portalOficial: 'https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf', fontesOficiais: ['https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaEmpregador.jsf'],
   },
   trabalhista: {
-    tipo: 'trabalhista', rotulo: 'CNDT - Débitos Trabalhistas', orgao: 'Tribunal Superior do Trabalho (Justiça do Trabalho)', modo: 'manual',
-    como: 'Sem serviço oficial de consulta automática localizado. A emissão é gratuita no portal do TST.',
-    portalOficial: 'https://www.tst.jus.br/certidao', fontesOficiais: [],
+    tipo: 'trabalhista', rotulo: 'CNDT - Débitos Trabalhistas', orgao: 'Tribunal Superior do Trabalho (Justiça do Trabalho)', modo: 'semiautomatica',
+    como: 'Emissão gratuita no portal do TST (CLT, art. 642-A), que pede os caracteres de uma imagem (captcha). O sistema copia o CNPJ e abre o portal; você emite, solta o PDF aqui e o sistema lê número, situação e validade (180 dias).',
+    portalOficial: 'https://www.tst.jus.br/certidao', fontesOficiais: ['https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm'],
   },
 };
+
+/** Portais oficiais conhecidos por UF/município. Nenhum aceita o CNPJ pela URL: o sistema copia o CNPJ para a pessoa colar. */
+const PORTAL_ESTADUAL: Record<string, string> = { GO: 'https://www.sefaz.go.gov.br/Certidao/Emissao/' };
+const PORTAL_MUNICIPAL: Record<string, string> = { 'GO|goiania': 'https://www.goiania.go.gov.br/sistemas/sccer/asp/sccer00300f0.asp' };
+export function portalDaCertidao(tipo: TipoCertidao, uf?: string | null, municipio?: string | null): string | null {
+  if (tipo === 'estadual') return PORTAL_ESTADUAL[(uf ?? '').toUpperCase()] ?? null;
+  if (tipo === 'municipal') {
+    const m = (municipio ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    return PORTAL_MUNICIPAL[`${(uf ?? '').toUpperCase()}|${m}`] ?? null;
+  }
+  return ADAPTADORES[tipo].portalOficial;
+}
+
+/** Resultado escrito na certidão (para o painel verde/amarelo/vermelho). */
+export type ResultadoCertidao = 'negativa' | 'positiva_efeito_negativa' | 'positiva';
+export const ROTULO_RESULTADO: Record<ResultadoCertidao, string> = {
+  negativa: 'Negativa (sem débitos)', positiva_efeito_negativa: 'Positiva com efeito de negativa (vale como negativa)', positiva: 'Positiva (há débitos)',
+};
+export const ehResultadoCertidao = (v: unknown): v is ResultadoCertidao => v === 'negativa' || v === 'positiva_efeito_negativa' || v === 'positiva';
 
 export const ehTipoCertidao = (v: unknown): v is TipoCertidao => typeof v === 'string' && (TIPOS_CERTIDAO as readonly string[]).includes(v);
 
