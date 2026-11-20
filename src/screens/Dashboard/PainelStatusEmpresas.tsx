@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Building2, 
   CheckCircle2, 
@@ -33,6 +33,7 @@ import { normalizarCnpj } from '../../services/cnpj/cnpjValidation';
 import { 
   obterStatusTodasEmpresas, 
   atualizarStatusCompliance,
+  EVENTO_STATUS_COMPLIANCE_ATUALIZADO,
   COMPETENCIA_PADRAO 
 } from '../../services/compliance/complianceEmpresas.service';
 
@@ -80,6 +81,13 @@ export default function PainelStatusEmpresas({ onNavegar }: PainelStatusEmpresas
       mostrarToast(error instanceof Error ? error.message : 'Não foi possível salvar o registro manual.');
     }
   };
+
+  // Mudança trazida do servidor do escritório (outra pessoa da equipe): relê o relatório.
+  useEffect(() => {
+    const recarregar = () => setVersaoEstado(v => v + 1);
+    window.addEventListener(EVENTO_STATUS_COMPLIANCE_ATUALIZADO, recarregar);
+    return () => window.removeEventListener(EVENTO_STATUS_COMPLIANCE_ATUALIZADO, recarregar);
+  }, []);
 
   // Mapa de compliance para todas as empresas da carteira
   const resultadoCompliance = useMemo(() => {

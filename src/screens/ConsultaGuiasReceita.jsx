@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { EVENTO_GUIAS_ATUALIZADAS } from '../services/escritorio/espelhoEscritorio';
 import BotaoVoltar from '../components/BotaoVoltar';
 import { 
   Receipt, Calendar, AlertTriangle, CheckCircle2, 
@@ -66,6 +67,13 @@ export default function ConsultaGuiasReceita({ onVoltar = null }) {
   useEffect(() => () => {
     sequenciaConsultaRef.current += 1;
   }, []);
+
+  // Guias mudadas por outra pessoa da equipe (trazidas do servidor do escritório): relê a lista desta empresa.
+  useEffect(() => {
+    const recarregar = () => { if (cnpj && validarCnpj(normalizarCnpj(cnpj))) executarBuscaComCnpj(cnpj); };
+    window.addEventListener(EVENTO_GUIAS_ATUALIZADAS, recarregar);
+    return () => window.removeEventListener(EVENTO_GUIAS_ATUALIZADAS, recarregar);
+  }, [cnpj]);
 
   // Sincroniza quando o usuário altera a empresa ativa no seletor global ou em qualquer tela
   useEffect(() => {

@@ -10,6 +10,7 @@ import {
 import { useEmpresa } from '../context/EmpresaContext';
 import { formatarCnpj, normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
 import SeletorEmpresaGlobal from '../components/SeletorEmpresaGlobal';
+import { EVENTO_GUIAS_ATUALIZADAS } from '../services/escritorio/espelhoEscritorio';
 import { 
   consultarGuiasDiretoReceitaFederal
 } from '../services/serpro/guiasReceita.service';
@@ -119,6 +120,13 @@ export default function GuiasINSSScreen({ navigation = null, onVoltar = null } =
 
     executarBuscaComCnpj(cnpj);
   };
+
+  // Guias mudadas por outra pessoa da equipe (trazidas do servidor do escritório): relê a lista desta empresa.
+  useEffect(() => {
+    const recarregar = () => { if (cnpj && validarCnpj(normalizarCnpj(cnpj))) executarBuscaComCnpj(cnpj); };
+    window.addEventListener(EVENTO_GUIAS_ATUALIZADAS, recarregar);
+    return () => window.removeEventListener(EVENTO_GUIAS_ATUALIZADAS, recarregar);
+  }, [cnpj]);
 
   // Carrega automaticamente a busca ao entrar se tiver CNPJ válido
   useEffect(() => {

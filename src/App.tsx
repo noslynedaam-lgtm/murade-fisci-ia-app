@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { iniciarEspelhoEscritorio } from './services/escritorio/espelhoEscritorio';
 import { useFecharNoVoltar, useVoltarCelular } from './hooks/useVoltarCelular';
 import Navbar from './components/Navbar';
 import MenuLateral from './components/MenuLateral';
@@ -179,6 +180,9 @@ export default function App() {
   // a cada poucos minutos. Não altera a duração da sessão (celular: 90 dias).
   const sessaoAtivaRef = useRef(false);
   sessaoAtivaRef.current = modoAuth === 'app' && !!usuarioAtual;
+  // Agenda Fiscal, Relatório de Conformidade e Guias INSS/DCTFWeb: espelho no servidor do escritório (a equipe vê a mesma coisa).
+  const sessaoNoApp = modoAuth === 'app' && !!usuarioAtual;
+  useEffect(() => (sessaoNoApp ? iniciarEspelhoEscritorio() : undefined), [sessaoNoApp]);
   useEffect(() => {
     let checando = false;
     let ultimaChecagem = Date.now();

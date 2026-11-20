@@ -1,4 +1,5 @@
 import { EmpresaDados, StatusComplianceEmpresa } from '../../types';
+import { avisarMudancaLocal } from '../escritorio/espelhoEscritorio';
 
 const STORAGE_KEY = 'fiscoia_compliance_empresas_status';
 export const EVENTO_STATUS_COMPLIANCE_ATUALIZADO = 'fiscoia_status_compliance_atualizado';
@@ -62,6 +63,7 @@ export function salvarTodosStatusNoStorage(dados: Record<string, StatusComplianc
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dados));
     if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENTO_STATUS_COMPLIANCE_ATUALIZADO));
+    avisarMudancaLocal('compliance_status'); // leva para o servidor do escritório (a equipe toda vê)
     return true;
   } catch (err) {
     console.error('Erro ao salvar status de compliance no storage:', err);

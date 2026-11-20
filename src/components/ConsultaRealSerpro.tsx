@@ -95,7 +95,7 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       if (r.status === 402 && d.exigeConfirmacao) { setExigeConfirmar(d.mensagem || 'Esta consulta custa R$ 1,00, cobrada por fora da mensalidade do escritório.'); return; }
       setExigeConfirmar(null);
       if (r.status === 401) setResposta({ ok: false, titulo: 'Sua sessão venceu', texto: 'Saia e entre de novo no Fisco IA e repita a consulta.' });
-      else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: 'Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.', bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
+      else if (r.ok && d.consultado) setResposta({ ok: true, titulo: 'Consulta feita no SERPRO', texto: `Resposta oficial da Receita/SERPRO. Nada foi inventado ou alterado no sistema.${(d as { guardado?: boolean }).guardado === true ? ' Resultado guardado na Carteira fiscal (histórico).' : (d as { guardado?: boolean }).guardado === false ? ' Atenção: o resultado não pôde ser guardado na Carteira fiscal.' : ''}`, bruto: d.bruto, relatorio: d.relatorio, servico, consultadoEm: d.consultadoEm });
       else setResposta({ ok: false, titulo: 'Consulta não concluída', texto: [d.mensagem, d.faltando?.length ? `Falta: ${d.faltando.join('; ')}` : '', d.statusGateway ? `(resposta do SERPRO: HTTP ${d.statusGateway})` : ''].filter(Boolean).join(' ') || `Erro HTTP ${r.status}.`, bruto: d.bruto || d.cabecalhos ? { resposta: d.bruto || '(sem corpo na resposta)', cabecalhos: d.cabecalhos } : undefined });
       setVersaoCota(v => v + 1);
     } catch {

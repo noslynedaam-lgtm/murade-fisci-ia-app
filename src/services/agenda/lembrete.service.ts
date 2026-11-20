@@ -1,4 +1,5 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns';
+import { avisarMudancaLocal } from '../escritorio/espelhoEscritorio';
 import { ItemAgendaFiscal, StatusVencimento } from '../../types';
 
 const STORAGE_KEY = 'murade_agenda_lembretes_locais_v1';
@@ -68,6 +69,7 @@ export function salvarLembretesFiscais(lembretes: LembreteFiscalLocal[]): boolea
       || new Set(lembretes.map(lembrete => lembrete.id)).size !== lembretes.length) return false;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(lembretes));
     if (typeof window !== 'undefined') window.dispatchEvent(new Event(EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS));
+    avisarMudancaLocal('agenda_lembretes'); // leva para o servidor do escritório (a equipe toda vê)
     return true;
   } catch (error) {
     console.error('Não foi possível salvar os lembretes locais:', error);

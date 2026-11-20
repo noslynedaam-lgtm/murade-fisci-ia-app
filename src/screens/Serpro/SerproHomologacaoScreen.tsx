@@ -50,6 +50,7 @@ import {
 } from '../../services/serpro/sincronizacaoSerpro.service';
 import { useEmpresa } from '../../context/EmpresaContext';
 import ConsultaRealSerpro from '../../components/ConsultaRealSerpro';
+import CarteiraFiscal from '../../components/CarteiraFiscal';
 
 interface SerproHomologacaoScreenProps {
   onVoltar?: () => void;
@@ -708,6 +709,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               </div>
             </div>
 
+            <div className="mt-6"><CarteiraFiscal /></div>
             <div className="mt-6"><ConsultaRealSerpro companyId={idsEmpresaFiscal?.companyId} tenantId={idsEmpresaFiscal?.tenantId} razaoSocial={empresaAtiva?.razaoSocial} cnpj={empresaAtiva?.cnpj} /></div>
 
             {/* PAINEL DE RESULTADO COMPLETO DA SINCRONIZAÇÃO */}

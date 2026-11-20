@@ -1,6 +1,7 @@
 /** Acesso a registros locais de guias; integração oficial RFB/SERPRO não configurada. */
 
 import { buscarDadosCNPJ } from '../cnpj/receitaFederal.service';
+import { avisarMudancaLocal } from '../escritorio/espelhoEscritorio';
 import { normalizarCnpj, validarCnpj } from '../cnpj/cnpjValidation';
 
 export interface GuiaReceitaFederal {
@@ -148,6 +149,7 @@ export function salvarGuiasEmpresa(cnpj: string, guias: GuiaReceitaFederal[]): b
     const cnpjLimpo = normalizarCnpj(cnpj);
     if (!validarCnpj(cnpjLimpo)) return false;
     localStorage.setItem(`fiscoia_guias_receita_${cnpjLimpo}`, JSON.stringify(guias));
+    avisarMudancaLocal('guias_receita'); // leva para o servidor do escritório (a equipe toda vê)
     return true;
   } catch (e) {
     console.warn('Erro ao salvar guias da empresa:', e);
@@ -193,6 +195,7 @@ export function resetarOuLimparGuiasIncorretas(cnpj: string): GuiaReceitaFederal
   const cnpjLimpo = normalizarCnpj(cnpj);
   if (!validarCnpj(cnpjLimpo)) throw new Error('CNPJ inválido para remover registros locais.');
   localStorage.removeItem(`fiscoia_guias_receita_${cnpjLimpo}`);
+  avisarMudancaLocal('guias_receita');
   return [];
 }
 

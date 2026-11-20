@@ -9,6 +9,7 @@ import SeletorEmpresaGlobal from '../../components/SeletorEmpresaGlobal';
 import CardLembrete from './CardLembrete';
 import {
   chaveNotificacaoLembrete,
+  EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS,
   gerarAgenda,
   listarLembretesFiscais,
   LembreteFiscalLocal,
@@ -167,8 +168,11 @@ export default function AgendaFiscalScreen() {
         setLeituraLembretes(listarLembretesFiscais());
       }
     };
+    // Mudança trazida do servidor do escritório (outra pessoa da equipe) ou gravada aqui.
+    const recarregarDoEscritorio = () => setLeituraLembretes(listarLembretesFiscais());
     window.addEventListener('storage', recarregarSeAlterada);
-    return () => window.removeEventListener('storage', recarregarSeAlterada);
+    window.addEventListener(EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS, recarregarDoEscritorio);
+    return () => { window.removeEventListener('storage', recarregarSeAlterada); window.removeEventListener(EVENTO_LEMBRETES_FISCAIS_ATUALIZADOS, recarregarDoEscritorio); };
   }, []);
 
   const ativarNotificacoes = async () => {
