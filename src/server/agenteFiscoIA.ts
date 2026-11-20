@@ -520,6 +520,16 @@ const FERRAMENTAS: Ferramenta[] = [
       return { resposta: r.corpo.resposta, referencia: r.corpo.referencia, fontes: r.corpo.fontesWeb || [] };
     },
   },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'situacao_cadastro_escritorio', description: 'Mostra a situação do CADASTRO DO ESCRITÓRIO no Fisco IA (CNPJ do escritório, que é o autor do pedido no Serpro) e onde fazer o cadastro único (no DP, com o certificado A1 do escritório e a lista "Você tem procuração?" das empresas). Use para "qual a situação do cadastro do escritório", "cadastra meu escritório" ou perguntas sobre procurações.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório (use listar_escritorios).' };
+      const r = await ctx.chamarApi('GET', `/api/escritorio/cadastro-situacao?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      return { ...r.corpo, observacao: 'O cadastro único do escritório (dados, certificado e procurações) é feito no DP e vale para todos os sistemas; entregue o link linkDP. Nunca peça certificado ou senha pelo chat. A credencial do Serpro do escritório (Consumer Key/Secret do contrato) continua à parte.' };
+    },
+  },
 ];
 
 const INSTRUCAO_BASE = `Você é a Agente IA do Murade Fisco IA (radar de conferência), em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
@@ -572,4 +582,4 @@ LIMITES (diga com clareza quando o pedido bater neles)
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 
-export const kitFiscoIA: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS };
+export const kitFiscoIA: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS + '\n- Cadastro do escritório: é feito uma vez no DP (dados, certificado A1 e-CNPJ e procurações das empresas) e vale para todos os sistemas; use situacao_cadastro_escritorio e entregue o link do DP. Nunca peça certificado ou senha pelo chat.' };

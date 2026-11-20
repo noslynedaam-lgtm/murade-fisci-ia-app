@@ -180,7 +180,7 @@ export async function sincronizarCnpjDosEscritorios(pool: Pool, empresas: Empres
   try { semCnpj = (await pool.query('SELECT * FROM fiscoia.integration_offices_without_cnpj()')).rows.map((x: any) => ({ id: String(x.id), name: String(x.name), ownerEmail: String(x.owner_email ?? '') })); } catch { return; }
   for (const t of semCnpj) {
     if (!tratados.has(t.id)) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e não tem correspondência no Fiscal (e-mail do proprietário ${t.ownerEmail || 'desconhecido'}): cadastre em Painel MURADE → Escritórios contratantes.`);
-    else if (!semFuncao && tratados.get(t.id) === undefined) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e o Fiscal também não tem o CNPJ dele: cadastre no Fiscal (Usuários e empresas → CNPJ do escritório) ou em Painel MURADE → Escritórios contratantes.`);
+    else if (!semFuncao && tratados.get(t.id) === undefined) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e o Fiscal também não tem o CNPJ dele: o escritório faz o cadastro do escritório no DP (Configurações > Cadastro do escritório), que chega ao Fiscal e daqui é preenchido sozinho; ou cadastre em Painel MURADE → Escritórios contratantes.`);
   }
 }
 
