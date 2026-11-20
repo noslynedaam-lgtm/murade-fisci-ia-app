@@ -7,7 +7,9 @@
  * que mudou lá é trazido; item apagado aqui é apagado lá. Item que o servidor recusar continua só neste aparelho e é reenviado.
  * Se os dados do aparelho estiverem ilegíveis, nada é enviado nem sobrescrito (os registros ficam preservados).
  */
-import { diferencas, type Colecao } from './dadosEscritorio';
+import { diferencas } from './dadosEscritorio';
+// Só estas três coleções têm cópia no navegador. As demais (relatório do cliente, tarefas, DT-e) são lidas direto do servidor.
+type Colecao = 'agenda_lembretes' | 'compliance_status' | 'guias_receita';
 import { lerEscritorioAtivo } from '../empresas/empresasCentral.service';
 
 type Mapa = Record<string, unknown>;

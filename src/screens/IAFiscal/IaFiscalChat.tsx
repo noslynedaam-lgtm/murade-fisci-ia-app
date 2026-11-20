@@ -27,6 +27,7 @@ interface AcaoAgenteCartao {
 
 interface MensagemChat {
   acoes?: AcaoAgenteCartao[];
+  whatsapp?: { empresa: string; numero: string | null; link: string }[];
   id: string;
   autor: 'usuario' | 'ia';
   texto: string;
@@ -226,6 +227,8 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             id: `ia-${Date.now()}`, autor: 'ia', texto: dadosAgente.resposta,
             timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
             referencia: 'Agente IA: dados do próprio sistema', origem: 'AGENTE_IA', acoes,
+            // Mensagens de WhatsApp preparadas pela Agente: só links wa.me (https://wa.me/...), o usuário clica e envia.
+            whatsapp: Array.isArray(dadosAgente.whatsapp) ? dadosAgente.whatsapp.filter((w: any) => w && typeof w.link === 'string' && w.link.startsWith('https://wa.me/')).map((w: any) => ({ empresa: String(w.empresa || ''), numero: typeof w.numero === 'string' ? w.numero : null, link: w.link })) : [],
           }]);
           if (respostaAudioAtiva) falarTexto(dadosAgente.resposta);
           return;
@@ -781,6 +784,11 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
                   {msg.texto}
                 </div>
 
+                {!!msg.whatsapp?.length && msg.whatsapp.map((w, i) => (
+                  <a key={`wa-${i}`} href={w.link} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 text-[11px] font-bold text-white">
+                    Abrir no WhatsApp{w.empresa ? ` — ${w.empresa}` : ''}{w.numero ? '' : ' (escolha o contato)'}
+                  </a>
+                ))}
                 {!!msg.acoes?.length && msg.acoes.map((a) => (
                   <div key={a.id} className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-slate-800">
                     <div className="text-[12px] font-bold">{a.titulo}</div>

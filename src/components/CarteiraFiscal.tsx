@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleDashed, FileText, Loader2, PlayCircle, RefreshCw, ShieldAlert, StopCircle } from 'lucide-react';
 import { useEmpresa } from '../context/EmpresaContext';
 import { lerEscritorioAtivo } from '../services/empresas/empresasCentral.service';
+import RelatorioClienteModal from './RelatorioClienteModal';
 
 type Geral = 'pendente' | 'atencao' | 'regular' | 'sem_consulta';
 interface LinhaCarteira {
@@ -42,6 +43,7 @@ export default function CarteiraFiscal() {
   const [executando, setExecutando] = useState<{ feitos: number; total: number } | null>(null);
   const [resultados, setResultados] = useState<ResultadoItem[]>([]);
   const parar = React.useRef(false);
+  const [relatorioDe, setRelatorioDe] = useState<{ companyId: string; nome: string } | null>(null);
 
   const carregar = useCallback(async () => {
     if (!tenantId) return;
@@ -186,7 +188,8 @@ export default function CarteiraFiscal() {
                 {lote && <input type="checkbox" aria-label={`Marcar ${e.nome}`} checked={selecionadas.has(e.companyId)} onChange={() => alternar(e.companyId)} />}
                 <span className="font-bold text-sm min-w-0 break-words">{e.nome}</span>
                 <span className="text-slate-600">{e.cnpj}</span>
-                <span className={`ml-auto px-2 py-0.5 rounded-full font-black ${e.geral === 'pendente' ? 'bg-rose-600 text-white' : e.geral === 'atencao' ? 'bg-amber-500 text-white' : e.geral === 'regular' ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-900'}`}>{ROTULO[e.geral]}</span>
+                <button type="button" onClick={() => setRelatorioDe({ companyId: e.companyId, nome: e.nome })} className="ml-auto px-2 py-1 rounded-lg bg-white border border-indigo-300 text-indigo-800 font-bold flex items-center gap-1"><FileText className="w-3.5 h-3.5" />Gerar relatório</button>
+                <span className={`px-2 py-0.5 rounded-full font-black ${e.geral === 'pendente' ? 'bg-rose-600 text-white' : e.geral === 'atencao' ? 'bg-amber-500 text-white' : e.geral === 'regular' ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-900'}`}>{ROTULO[e.geral]}</span>
               </div>
               <div className="mt-1.5 grid gap-1 sm:grid-cols-2">
                 <p className="flex flex-wrap items-center gap-1">
@@ -203,6 +206,7 @@ export default function CarteiraFiscal() {
           );
         })}
       </ul>
+      {relatorioDe && <RelatorioClienteModal tenantId={tenantId} companyId={relatorioDe.companyId} nome={relatorioDe.nome} onFechar={() => setRelatorioDe(null)} />}
       {carteira && visiveis.length === 0 && <p className="text-xs text-slate-600">{filtro === 'atencao' ? 'Nenhuma empresa pedindo atenção no que já está guardado.' : 'Nenhuma empresa cadastrada neste escritório.'}</p>}
     </section>
   );

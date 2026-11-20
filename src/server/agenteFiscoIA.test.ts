@@ -27,9 +27,12 @@ test('o Fisco IA não tem nenhuma ferramenta que altere notas, certificado ou ca
   const locais = kitFiscoIA.ferramentas.filter((f) => !['perguntar_a_outro_sistema', 'pedir_a_outro_sistema', 'ver_pedidos_entre_sistemas', 'responder_pedido_de_outro_sistema'].includes(f.declaracao.name));
   assert.ok(locais.length > 0);
   // As únicas ações permitidas: pedir UMA consulta nova ao Serpro (cartão com o custo), liberar as consultas ao Serpro (só a conta administradora consegue), consultar a CND federal (paga), apagar UMA empresa (arquiva; nada fiscal é apagado) e redefinir o código de segurança de
-  // quem perdeu o celular (dono, ou responsável sobre a própria equipe). Todas só valem depois de o dono confirmar no cartão.
-  const acoes = locais.filter((f) => f.tipo !== 'leitura').map((f) => f.declaracao.name);
-  assert.deepEqual([...acoes].sort(), ['apagar_empresa', 'consultar_certidao', 'liberar_consulta_serpro', 'pedir_consulta_receita', 'redefinir_codigo_usuario']);
+  // quem perdeu o celular (dono, ou responsável sobre a própria equipe), criar UMA tarefa na lista da equipe e marcar UM item do checklist do DT-e
+  // de Goiás (nenhuma das duas mexe em nota, certificado ou cadastro). Todas só valem depois de o dono confirmar no cartão.
+  // A preparação do WhatsApp do relatório é só um link wa.me que o usuário abre e envia.
+  const acoes = locais.filter((f) => f.tipo === 'acao').map((f) => f.declaracao.name);
+  assert.deepEqual([...acoes].sort(), ['apagar_empresa', 'consultar_certidao', 'criar_tarefa_equipe', 'liberar_consulta_serpro', 'marcar_dte_goias', 'pedir_consulta_receita', 'redefinir_codigo_usuario']);
+  assert.deepEqual(locais.filter((f) => f.tipo === 'mensagem').map((f) => f.declaracao.name), ['preparar_whatsapp_relatorio']);
 });
 
 const E = '33333333-3333-4333-8333-333333333333';

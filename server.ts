@@ -37,6 +37,8 @@ import { hojeBrasilia } from "./src/services/certidoes/certidoes";
 import carteiraFiscalRoutes from "./src/server/carteiraFiscal.routes";
 import dadosEscritorioRoutes from "./src/server/dadosEscritorio.routes";
 import { conferirAgendaFiscal, conferirCarteiraFiscal, conferirCertificadosA1 } from "./src/server/conferidoresCarteira";
+import relatorioClienteRoutes from "./src/server/relatorioCliente.routes";
+import { conferirTarefasEDte } from "./src/server/conferidorTarefasDte";
 import licencaRoutes from './src/server/licenca.routes';
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
@@ -87,6 +89,7 @@ app.use('/api/serpro', serproRoutes);
 app.use('/api', certidoesRoutes);
 app.use('/api', carteiraFiscalRoutes);
 app.use('/api', dadosEscritorioRoutes);
+app.use('/api', relatorioClienteRoutes);
 app.use('/api', licencaRoutes);
 app.use('/api', companyCertificateRoutes);
 app.use('/api', sefazDistributionRoutes);
@@ -488,6 +491,11 @@ const rodarConferidorAgenda = () => { executarRobo('conferidor_agenda_fiscal', a
 const timerConferidorAgenda = setInterval(rodarConferidorAgenda, 2 * 60 * 60_000);
 setTimeout(rodarConferidorAgenda, 6 * 60_000).unref();
 timerConferidorAgenda.unref();
+registrarRobo({ id: 'conferidor_tarefas_dte', nome: 'Robô Conferidor das Tarefas da Equipe e do DT-e de Goiás', posto: 'conferidor', missao: 'A cada 2 horas, conferir as tarefas da equipe (abertas e atrasadas, inclusive as criadas pelo relatório do cliente) e o checklist do DT-e de Goiás de cada empresa (credenciamento, e-mail do escritório para os avisos, procuração do DT-e e lembrete de conferir a caixa). Só lê o que já está guardado; não entra no DT-e, não consulta nenhum órgão e não altera nada.', intervaloMs: 2 * 60 * 60_000 });
+const rodarConferidorTarefasDte = () => { executarRobo('conferidor_tarefas_dte', async () => { const r = await conferirTarefasEDte(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor das tarefas e do DT-e] ${r}`); }).catch((e) => console.error('[Conferidor das tarefas e do DT-e]', e?.message || e)); };
+const timerConferidorTarefasDte = setInterval(rodarConferidorTarefasDte, 2 * 60 * 60_000);
+setTimeout(rodarConferidorTarefasDte, 7 * 60_000).unref();
+timerConferidorTarefasDte.unref();
 
 registrarRobo({ id: 'conferidor_exclusoes', nome: 'Robô Conferidor de Exclusões (Fiscal ↔ Fisco IA)', posto: 'conferidor', missao: 'A cada 2 horas, conferir se alguma empresa excluída em um sistema ainda está ativa em outro (arquivada no Fisco IA e ativa no Fiscal, ou trazida do Fiscal e que o Fiscal não lista mais). Só lê; não apaga, não arquiva e não recria nada. Se achar, aparece como alerta aqui.', intervaloMs: 2 * 60 * 60_000 });
 const rodarConferidorExclusoes = () => executarRobo('conferidor_exclusoes', async () => { const r = await conferirExclusoes(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor de exclusões] ${r}`); return r; });

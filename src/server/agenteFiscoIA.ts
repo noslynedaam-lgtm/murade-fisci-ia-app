@@ -5,6 +5,9 @@ import { erroApi, ok, q, type Ferramenta, type KitAgente } from './agenteMotor';
 import { ADAPTADORES, type TipoCertidao } from '../services/certidoes/certidoes';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
 import { VALOR_CONSULTA_COBRADA } from '../services/serpro/consumoSerpro';
+import { novaTarefa, type OrigemTarefa } from '../services/escritorio/tarefasEquipe';
+import { ESTADOS_ITEM, ITENS_CHECKLIST, ROTULO_ESTADO, pendenciasDoChecklist, type EstadoItemDte } from '../services/dte/dteGoias';
+import { linkWhatsApp, numeroWhatsApp } from '../services/relatorio/relatorioCliente';
 
 /** Consultas ao Serpro que a Agente pode propor (sem campos a preencher, e nenhuma dá ciência de intimação). */
 const SERVICOS_CONSULTA_AGENTE = new Set(['situacaoFiscal', 'caixaPostalNovas', 'caixaPostalLista', ...['parcsn', 'parcsnEsp', 'parcmei', 'parcmeiEsp', 'pertsn', 'pertmei', 'relpsn'].flatMap((m) => [`${m}Pedidos`, `${m}Parcelas`])]);
@@ -341,6 +344,142 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'ver_relatorio_cliente', description: 'Monta (sem custo) o relatório para o cliente de UMA empresa com o que já está guardado: situação fiscal, certidões e validades, parcelamentos e parcelas em atraso, Caixa Postal (sem abrir mensagens) e certificado A1, em linguagem simples, e lista as pendências (que podem virar tarefa da equipe). Não consulta o Serpro.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId }, required: ['tenantId', 'companyId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe escritório e empresa; use listar_escritorios e listar_empresas.' };
+      const r = await ctx.chamarApi('GET', `/api/relatorio-cliente?tenantId=${q(tenantId)}&companyId=${q(companyId)}`);
+      if (!ok(r)) return erroApi(r);
+      const rel = r.corpo?.relatorio || {};
+      return {
+        empresa: rel.empresa, situacaoGeral: rel.geral?.titulo, resumo: rel.geral?.frase,
+        secoes: (rel.secoes || []).map((s: any) => ({ titulo: s.titulo, cor: s.cor, linhas: (s.linhas || []).map((l: any) => l.texto) })),
+        pendencias: (rel.pendencias || []).map((p: any) => ({ codigo: p.codigo, paraCliente: p.paraCliente, gravidade: p.gravidade, texto: p.texto, tarefaSugerida: p.tarefa })),
+        whatsappComNumero: Boolean(r.corpo?.whatsapp?.numero),
+        comoGerarPdf: 'Tela SERPRO, Carteira fiscal: na linha da empresa, botão "Gerar relatório". Lá tem "Baixar PDF", "Compartilhar PDF" e "Enviar resumo pelo WhatsApp".',
+        observacao: 'Feito com as consultas guardadas, com a data de cada uma; nenhuma consulta nova foi feita.',
+      };
+    },
+  },
+  {
+    tipo: 'mensagem',
+    declaracao: { name: 'preparar_whatsapp_relatorio', description: 'Prepara a mensagem de WhatsApp (link wa.me, sem custo) com o resumo do relatório de UMA empresa para o cliente. O usuário clica e envia; o PDF completo ele compartilha pela tela. Use o telefone cadastrado da empresa ou o número que o usuário disser.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, numero: { type: 'STRING', description: 'Opcional: WhatsApp do cliente com DDD.' } }, required: ['tenantId', 'companyId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe escritório e empresa; use listar_escritorios e listar_empresas.' };
+      const r = await ctx.chamarApi('GET', `/api/relatorio-cliente?tenantId=${q(tenantId)}&companyId=${q(companyId)}`);
+      if (!ok(r)) return { erro: String(erroApi(r).erro) };
+      const texto = String(r.corpo?.whatsapp?.texto || '');
+      if (!texto) return { erro: 'Não consegui montar o resumo.' };
+      const numero = numeroWhatsApp(args.numero) ?? (typeof r.corpo?.whatsapp?.numero === 'string' ? r.corpo.whatsapp.numero : null);
+      return { mensagem: { empresa: String(r.corpo?.relatorio?.empresa?.nome || ''), numero, texto, link: linkWhatsApp(numero, texto) } };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_tarefas_equipe', description: 'Lista as tarefas da equipe do escritório (abertas primeiro, com prazo, empresa e de onde vieram: manual, relatório do cliente, DT-e ou Agente). Sem custo.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/escritorio/dados?tenantId=${q(tenantId)}&colecao=tarefas_equipe`);
+      if (!ok(r)) return erroApi(r);
+      const lista = (r.corpo?.itens || []).map((i: any) => i.dados).filter((t: any) => t && typeof t.titulo === 'string');
+      const abertas = lista.filter((t: any) => t.concluida !== true).sort((a: any, b: any) => String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
+      return { hoje: ctx.hoje, abertas: abertas.slice(0, 40).map((t: any) => ({ titulo: t.titulo, empresa: t.empresa || null, prazo: t.prazo, atrasada: Boolean(t.prazo && t.prazo < ctx.hoje), origem: t.origem })), concluidas: lista.length - abertas.length, aviso: abertas.length > 40 ? 'Mostrando 40; há mais.' : undefined };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'criar_tarefa_equipe', description: 'Propõe CRIAR uma tarefa para a equipe do escritório (por exemplo, a partir de uma pendência do relatório do cliente ou do DT-e). Uma tarefa por vez; o usuário confirma no cartão. Para tarefa de uma pendência do relatório, passe o codigo da pendência (de ver_relatorio_cliente), assim clicar duas vezes não duplica.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, titulo: { type: 'STRING', description: 'O que fazer (3 a 200 letras).' }, companyId: { type: 'STRING', description: 'Opcional: id da empresa (UUID).' }, prazo: { type: 'STRING', description: 'Opcional: prazo AAAA-MM-DD.' }, codigo: { type: 'STRING', description: 'Opcional: código da pendência do relatório (ex.: certidao-estadual).' } }, required: ['tenantId', 'titulo'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const titulo = typeof args.titulo === 'string' ? args.titulo.trim().slice(0, 200) : '';
+      if (titulo.length < 3) return { erro: 'Diga o que a tarefa pede.' };
+      if (args.prazo && !DATA.test(String(args.prazo))) return { erro: 'Prazo no formato AAAA-MM-DD.' };
+      const companyId = args.companyId ? idDe(args.companyId) : null;
+      if (args.companyId && !companyId) return { erro: 'Id da empresa inválido; use listar_empresas.' };
+      let empresa = { nome: '', cnpj: '' };
+      if (companyId) {
+        const r = await ctx.chamarApi('GET', `/api/companies?tenantId=${q(tenantId)}`);
+        if (!ok(r)) return erroApi(r);
+        const e = (r.corpo?.empresas || []).find((x: any) => x.id === companyId);
+        if (!e) return { erro: 'Empresa não encontrada neste escritório.' };
+        empresa = { nome: String(e.legal_name), cnpj: String(e.cnpj) };
+      }
+      const codigo = typeof args.codigo === 'string' && /^[a-z0-9-]{3,40}$/.test(args.codigo) ? args.codigo : null;
+      const origem: OrigemTarefa = codigo && companyId ? 'relatorio_cliente' : 'agente';
+      return {
+        cnpj: empresa.cnpj.replace(/\D/g, ''), params: { tenantId, titulo, companyId, empresa: empresa.nome, cnpjEmpresa: empresa.cnpj, prazo: args.prazo ? String(args.prazo) : null, codigo, origem },
+        titulo: 'Criar tarefa para a equipe', descricao: [titulo, ...(empresa.nome ? [`Empresa: ${empresa.nome} (CNPJ ${empresa.cnpj})`] : []), ...(args.prazo ? [`Prazo: ${String(args.prazo).split('-').reverse().join('/')}`] : [])],
+        resumo: `Tarefa da equipe: ${titulo.slice(0, 120)}`,
+      };
+    },
+    async executar(ctx, params) {
+      const t = novaTarefa({ origem: params.origem, titulo: params.titulo, empresaId: params.companyId ?? '', empresa: params.empresa ?? '', cnpj: params.cnpjEmpresa ?? '', prazo: params.prazo, codigo: params.codigo });
+      const r = await ctx.chamarApi('POST', '/api/escritorio/dados/sincronizar', { tenantId: params.tenantId, colecao: 'tarefas_equipe', gravar: [{ chave: t.id, dados: t }], apagar: [] });
+      if (!ok(r)) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      if (r.corpo?.recusados?.length) return { sucesso: false, mensagem: String(r.corpo.recusados[0].motivo) };
+      return { sucesso: true, mensagem: 'Tarefa criada na lista da equipe (tela SERPRO, quadro "Tarefas da equipe").' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_dte_goias', description: 'DT-e de Goiás (Domicílio Tributário Eletrônico): resumo do checklist das empresas de Goiás (credenciada, e-mail do escritório para os avisos, procuração do DT-e para o escritório) e o guia oficial de como fazer. O sistema NÃO lê a caixa do DT-e (não há API oficial e abrir mensagem dá ciência). Sem custo.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/dte-goias?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const mapa = new Map((r.corpo?.checklists || []).map((c: any) => [c.empresaId, c]));
+      const go = (r.corpo?.empresas || []).filter((e: any) => e.uf === 'GO');
+      return {
+        resumo: r.corpo?.resumo,
+        empresasComPendencia: go.map((e: any) => ({ id: e.id, empresa: e.nome, cnpj: e.cnpj, falta: pendenciasDoChecklist((mapa.get(e.id) as any) || { credenciada: null, emailAvisos: null, procuracao: null }).map((p) => `${p.rotulo}: ${p.situacao === 'nao_tem' ? 'não tem' : 'sem resposta'}`) })).filter((x: any) => x.falta.length).slice(0, 30),
+        guia: (r.corpo?.guia || []).map((g: any) => ({ passo: g.titulo, itens: g.itens, fonte: g.fonte })),
+        porQueNaoLeAutomatico: r.corpo?.porQueSemLeituraAutomatica,
+        onde: 'Tela "DT-e Goiás" no menu.',
+      };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'marcar_dte_goias', description: 'Propõe MARCAR um item do checklist do DT-e de Goiás de UMA empresa: campo credenciada, emailAvisos ou procuracao, com estado tem, nao_tem ou nao_se_aplica. O usuário confirma no cartão.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, campo: { type: 'STRING', description: 'credenciada, emailAvisos ou procuracao.' }, estado: { type: 'STRING', description: 'tem, nao_tem ou nao_se_aplica.' } }, required: ['tenantId', 'companyId', 'campo', 'estado'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe escritório e empresa; use listar_escritorios e listar_empresas.' };
+      const item = ITENS_CHECKLIST.find((i) => i.campo === args.campo);
+      if (!item) return { erro: 'Campo inválido: use credenciada, emailAvisos ou procuracao.' };
+      if (!(ESTADOS_ITEM as readonly string[]).includes(String(args.estado))) return { erro: 'Estado inválido: use tem, nao_tem ou nao_se_aplica.' };
+      const r = await ctx.chamarApi('GET', `/api/dte-goias?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const e = (r.corpo?.empresas || []).find((x: any) => x.id === companyId);
+      if (!e) return { erro: 'Empresa não encontrada neste escritório.' };
+      const atual = (r.corpo?.checklists || []).find((c: any) => c.empresaId === companyId) || null;
+      const estado = args.estado as EstadoItemDte;
+      return {
+        cnpj: String(e.cnpj).replace(/\D/g, ''), params: { tenantId, companyId, campo: item.campo, estado, empresa: e.nome, cnpjEmpresa: e.cnpj, uf: e.uf, atual },
+        titulo: `DT-e Goiás: ${e.nome}`, descricao: [`${item.rotulo}: ${ROTULO_ESTADO[estado]}`, `Empresa: ${e.nome} (CNPJ ${e.cnpj})`], resumo: `DT-e Goiás ${e.nome}: ${item.rotulo} = ${ROTULO_ESTADO[estado]}`,
+      };
+    },
+    async executar(ctx, params) {
+      const base = params.atual || { empresaId: params.companyId, empresa: params.empresa, cnpj: params.cnpjEmpresa, uf: /^[A-Z]{2}$/.test(String(params.uf || '')) ? params.uf : null, credenciada: null, emailAvisos: null, procuracao: null, revisarEm: null, obs: null };
+      const dados = { ...base, [params.campo]: params.estado, atualizadoEm: new Date().toISOString() };
+      const r = await ctx.chamarApi('POST', '/api/escritorio/dados/sincronizar', { tenantId: params.tenantId, colecao: 'dte_go', gravar: [{ chave: params.companyId, dados }], apagar: [] });
+      if (!ok(r)) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      if (r.corpo?.recusados?.length) return { sucesso: false, mensagem: String(r.corpo.recusados[0].motivo) };
+      return { sucesso: true, mensagem: 'Checklist do DT-e atualizado.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'conferir_tarefas_dte_agora', description: 'Roda agora a conferência das tarefas da equipe (atrasadas) e do checklist do DT-e de Goiás (o que falta e lembretes vencidos). Sem custo; não entra no DT-e.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('POST', '/api/tarefas-dte/conferir', { tenantId });
+      if (!ok(r)) return erroApi(r);
+      return { mensagem: r.corpo?.mensagem, alertas: (r.corpo?.alertas || []).slice(0, 40), tarefas: r.corpo?.tarefas, dte: r.corpo?.dte };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'seguranca_login', description: 'Mostra a segurança do login das últimas 24 horas: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados, quantas contas têm o código de segurança ligado e se o dono do sistema está com ele ligado. Só o dono do sistema vê. Só lê; não bloqueia nem libera ninguém.', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/auth/2fa/resumo');
@@ -401,13 +540,18 @@ VENCIMENTOS E ALERTAS (seja atenta, proativa e inteligente)
 - Explique em linguagem simples, como a um cliente leigo: o que é a obrigação, o risco de atrasar (multa e juros, sem inventar percentuais) e o que fazer. Datas e valores só do que as ferramentas trouxerem; se a data for estimada, diga que é estimada.
 - Se não houver nada vencendo no período, diga isso de forma clara.
 
+RELATÓRIO PARA O CLIENTE, TAREFAS E DT-e DE GOIÁS (sem custo)
+- "Gera o relatório da empresa X" / "manda a situação para o cliente": use ver_relatorio_cliente, resuma em voz alta (situação geral e pendências) e diga que o PDF sai na tela SERPRO, Carteira fiscal, botão "Gerar relatório" da empresa. Para mandar o resumo por WhatsApp use preparar_whatsapp_relatorio (o usuário clica e envia; o link não anexa o PDF, que ele compartilha pela tela). O relatório usa só as consultas guardadas, com a data; não faz consulta nova.
+- Para virar tarefa: criar_tarefa_equipe (passe o codigo da pendência quando vier do relatório); a pessoa confirma no cartão. Para ver as tarefas: ver_tarefas_equipe.
+- DT-e de Goiás: use ver_dte_goias para o checklist e o passo a passo oficial; marcar_dte_goias para marcar tem/não tem/não se aplica (com confirmação). Explique que a procuração da Receita (e-CAC) não vale no DT-e: a procuração é feita no próprio DT-e pela empresa credenciada; o e-mail de aviso é um por estabelecimento e é informado no credenciamento. O sistema não lê a caixa do DT-e (não há API oficial e abrir mensagem dá ciência; sem abrir, a ciência ocorre 10 dias após a postagem). Para conferir tudo agora: conferir_tarefas_dte_agora.
+
 COMO ENTENDER QUEM FALA
 - Entenda o jeito de falar de cada pessoa: gírias, abreviações e apelidos de empresa ("o DAS do Mural", "a folha da fulana", "a nota do fulano"). Associe pelo nome mais parecido e, se houver dúvida real entre duas opções, pergunte UMA vez, de forma curta.
 - Conversa de rotina ("obrigado", "ok", "tchau") não precisa de consulta: responda em uma frase curta.
 
 MAPA DO SISTEMA (onde fica cada coisa no Fisco IA)
 (Em Cadastro de empresas fica o botão "Apagar empresa", uma por vez, com segunda confirmação.)
-Painel; Agenda; CND; DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO (com a Carteira fiscal e o botão "Consultar a carteira"); Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
+Painel; Agenda; CND; DT-e Goiás (guia e checklist do Domicílio Tributário Eletrônico); DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO (com a Carteira fiscal, o botão "Consultar a carteira", o botão "Gerar relatório" de cada empresa e o quadro "Tarefas da equipe"); Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
 Quando perguntarem "onde eu faço X", diga o nome da tela. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
@@ -424,7 +568,7 @@ APAGAR EMPRESA (por voz ou texto)
 - Uma empresa por vez. Se pedirem "apagar todas", recuse e explique que é uma de cada vez, com confirmação. Se o resultado disser que os outros sistemas não confirmaram, repita esse aviso com clareza.
 
 LIMITES (diga com clareza quando o pedido bater neles)
-- Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal e pedir uma consulta nova ao Serpro, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
+- Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal, pedir uma consulta nova ao Serpro, criar tarefa para a equipe e marcar o checklist do DT-e de Goiás, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 

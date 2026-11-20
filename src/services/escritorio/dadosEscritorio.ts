@@ -2,7 +2,11 @@
  * Dados do escritório que antes ficavam só no navegador (Agenda Fiscal, Relatório de Conformidade, Guias INSS/DCTFWeb) e agora
  * ficam no servidor, por escritório, para toda a equipe ver a mesma coisa. Peças puras: validação e comparação, sem rede.
  */
-export const COLECOES = ['agenda_lembretes', 'compliance_status', 'guias_receita'] as const;
+import { validarTarefa } from './tarefasEquipe';
+import { validarChecklist } from '../dte/dteGoias';
+import { validarConfigRelatorio } from '../relatorio/relatorioCliente';
+
+export const COLECOES = ['agenda_lembretes', 'compliance_status', 'guias_receita', 'relatorio_cliente', 'tarefas_equipe', 'dte_go'] as const;
 export type Colecao = typeof COLECOES[number];
 export const ehColecao = (v: unknown): v is Colecao => typeof v === 'string' && (COLECOES as readonly string[]).includes(v);
 
@@ -40,6 +44,9 @@ export function validarItem(colecao: Colecao, chave: unknown, dados: unknown): s
     if (typeof dados.dadosMesEnviados !== 'boolean' || typeof dados.dctfwebEnviada !== 'boolean' || typeof dados.cndEmitida !== 'boolean') return 'Registro de conformidade incompleto.';
     return null;
   }
+  if (colecao === 'tarefas_equipe') return validarTarefa(chave, dados);
+  if (colecao === 'dte_go') return validarChecklist(chave, dados);
+  if (colecao === 'relatorio_cliente') return chave === 'config' ? validarConfigRelatorio(dados) : 'Configuração inválida.';
   // guias_receita: a chave é o CNPJ (14 caracteres) e o conteúdo é a lista de guias daquela empresa.
   if (!/^[A-Z0-9]{14}$/.test(chave)) return 'CNPJ inválido.';
   if (!Array.isArray(dados) || dados.length > 2000 || !dados.every((g) => obj(g) && typeof g.id === 'string' && typeof g.competencia === 'string')) return 'Lista de guias inválida.';

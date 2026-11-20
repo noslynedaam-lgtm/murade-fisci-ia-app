@@ -8,6 +8,7 @@ import AgendaFiscalScreen from './screens/AgendaFiscal/AgendaFiscalScreen';
 import GuiasINSSScreen from './screens/GuiasINSSScreen';
 import ConsultaGuiasReceita from './screens/ConsultaGuiasReceita';
 import ProcuracaoScreen from './screens/Procuracao/ProcuracaoScreen';
+import DteGoiasScreen from './screens/DteGoias/DteGoiasScreen';
 import EmpresasScreen from './screens/Empresas/EmpresasScreen';
 import PlanosAssinatura from './screens/PlanosAssinatura';
 import AdminDashboard from './screens/AdminMurade/AdminDashboard';
@@ -259,6 +260,8 @@ export default function App() {
       destino = 'serpro';
     } else if (['procuracao', 'procuracaoecac'].includes(d)) {
       destino = 'procuracao';
+    } else if (['dtegoias', 'dte', 'dtego', 'domiciliotributario', 'domiciliotributarioeletronico'].includes(d)) {
+      destino = 'dteGoias';
     } else if (['orgaospublicos', 'orgaos', 'portalorgaos'].includes(d)) {
       destino = 'orgaos_publicos';
     } else if (['agenda', 'agendafiscal'].includes(d)) {
@@ -690,6 +693,10 @@ export default function App() {
               />
             )}
 
+            {abaAtiva === 'dteGoias' && (
+              <DteGoiasScreen onVoltar={() => handleNavegacao('dashboard')} />
+            )}
+
             {abaAtiva === 'serpro' && (
               <SerproHomologacaoScreen
                 onVoltar={() => handleNavegacao('dashboard')}
@@ -807,7 +814,7 @@ export default function App() {
             {/* 🛡️ Fallback de segurança contra telas em branco: se nenhuma rota coincidir, renderiza o Início / Dashboard */}
             {![
               'dashboard', 'agenda', 'cnd', 'dctfweb', 'consultaGuias', 'consulta-guias', 'rfb', 'receita',
-              'guiasINSS', 'guias-inss', 'inss', 'orgaos_publicos', 'orgaos', 'procuracao', 'serpro',
+              'guiasINSS', 'guias-inss', 'inss', 'orgaos_publicos', 'orgaos', 'procuracao', 'serpro', 'dteGoias',
               'guias', 'cadastro-empresa', 'empresas', 'videoAulas', 'minhaConta', 'planos', 'admin',
               'admin_faturamento', 'admin_bloqueio', 'admin_precos', 'configuracao', 'integracao',
               'automacaoFiscal', 'automacao', 'fiscal', 'iaVoz', 'modulos'

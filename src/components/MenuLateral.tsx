@@ -3,7 +3,7 @@ import {
   Crown, LayoutDashboard, Building2, CalendarCheck, 
   FileText, FileCheck, Bot, Video, 
   User, DollarSign, ShieldAlert, Tag, 
-  ChevronLeft, ChevronRight, X, LogOut, Receipt, CheckCircle2, Server,
+  ChevronLeft, ChevronRight, X, LogOut, Receipt, CheckCircle2, Server, Mailbox,
   UserPlus, ShieldCheck, ClipboardCheck, Settings, Cpu, Calculator, Volume2,
   Key, Eye, EyeOff, RefreshCw, Lock, Unlock, Radio, LayoutGrid
 } from 'lucide-react';
@@ -157,6 +157,7 @@ export default function MenuLateral({
     'Guias DCTFWeb / Receita Federal': 'dctfweb',
     'DCTFWeb (Guias INSS)': 'dctfweb',
     'Procuração RFB': 'procuracao',
+    'DT-e Goiás': 'dteGoias',
     'IA Fiscal': 'iaFiscal',
     'IA Murad Voz Natural': 'iaVoz',
     'IA Murade Voz Natural': 'iaVoz',
@@ -197,6 +198,7 @@ export default function MenuLateral({
     dctfweb: Receipt,
     guias: FileText,
     procuracao: FileCheck,
+    dteGoias: Mailbox,
     serpro: Server,
     iaFiscal: Bot,
     videoAulas: Video,
@@ -235,6 +237,7 @@ export default function MenuLateral({
     { id: 'dctfweb', rotulo: 'Guias', icone: Receipt },
     ...(!ocultarIntegracoes ? [{ id: 'serpro', rotulo: 'Integração SERPRO', icone: Server }] : []),
     { id: 'procuracao', rotulo: 'Procuração RFB', icone: FileCheck },
+    { id: 'dteGoias', rotulo: 'DT-e Goiás', icone: Mailbox },
     ...(!ocultarIntegracoes ? [{ id: 'configuracao', rotulo: 'Config. Integração', icone: Settings, tag: '3 Sistemas' }] : []),
     { id: 'minhaConta', rotulo: 'Minha Conta', icone: User },
     ...(isAdmin ? [{ id: 'admin', rotulo: 'Painel MURADE', icone: Crown, admin: true }] : []),
