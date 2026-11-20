@@ -82,7 +82,15 @@ router.get('/companies/:companyId/fiscal-certificate/status', async (req, res) =
         'SELECT id FROM fiscoia.companies WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL LIMIT 1',
         [ids.companyId, ids.tenantId],
       );
-      return { existe: Boolean(company.rows[0]), certificado: result.rows[0] || null };
+      let validade: string | null = null;
+      if (result.rows[0]) {
+        await client.query('SAVEPOINT validade_certificado');
+        try {
+          validade = (await client.query(`SELECT to_char(valid_until, 'YYYY-MM-DD') AS v FROM fiscoia.company_fiscal_certificates WHERE tenant_id = $1 AND company_id = $2`, [ids.tenantId, ids.companyId])).rows[0]?.v ?? null;
+          await client.query('RELEASE SAVEPOINT validade_certificado');
+        } catch { await client.query('ROLLBACK TO SAVEPOINT validade_certificado'); }
+      }
+      return { existe: Boolean(company.rows[0]), certificado: result.rows[0] || null, validade };
     });
     if (!scoped.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
     if (!scoped.resultado?.existe) return res.status(404).json({ mensagem: 'Empresa ativa não encontrada neste escritório.' });
@@ -91,6 +99,7 @@ router.get('/companies/:companyId/fiscal-certificate/status', async (req, res) =
       cadastradoNoServidor: Boolean(certificado),
       fingerprint: certificado ? String(certificado.pfx_sha256).trim().slice(0, 12) : null,
       recebidoEm: certificado?.uploaded_at || null,
+      validade: scoped.resultado.validade ?? null,
       certificadoValidadoPelaSefaz: false,
       consultaOficialAtiva: false,
       observacao: 'O cadastro protegido do A1 não significa que ele foi validado pela SEFAZ ou que uma consulta fiscal foi realizada.',
@@ -163,6 +172,15 @@ router.put('/companies/:companyId/fiscal-certificate', async (req, res) => {
         [ids.tenantId, ids.companyId, encrypted.ciphertext, encrypted.nonce, encrypted.authTag,
           encrypted.keyVersion, fingerprint, user.id],
       );
+      // Validade lida do próprio arquivo, para o aviso de vencimento (30/15/7 dias). Se a atualização 026 do banco ainda não
+      // rodou, a coluna não existe: o cadastro do certificado continua normal e só a validade fica para depois.
+      await client.query('SAVEPOINT validade_certificado');
+      try {
+        await client.query('UPDATE fiscoia.company_fiscal_certificates SET valid_until = $3::date WHERE tenant_id = $1 AND company_id = $2', [ids.tenantId, ids.companyId, dadosCert?.validade ?? null]);
+        await client.query('RELEASE SAVEPOINT validade_certificado');
+      } catch {
+        await client.query('ROLLBACK TO SAVEPOINT validade_certificado');
+      }
       await client.query(
         `INSERT INTO fiscoia.audit_events (tenant_id, actor_user_id, event_type, entity_type, entity_id, details)
          VALUES ($1, $2, 'fiscal_certificate.stored', 'company', $3, $4::jsonb)`,

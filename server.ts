@@ -30,6 +30,9 @@ import { conferirExclusoes } from "./src/server/exclusaoEmpresa";
 import serproRoutes from "./src/server/serpro.routes";
 import certidoesRoutes from "./src/server/certidoes.routes";
 import { conferirVencimentoCertidoes } from "./src/server/conferidorCertidoes";
+import carteiraFiscalRoutes from "./src/server/carteiraFiscal.routes";
+import dadosEscritorioRoutes from "./src/server/dadosEscritorio.routes";
+import { conferirAgendaFiscal, conferirCarteiraFiscal, conferirCertificadosA1 } from "./src/server/conferidoresCarteira";
 import licencaRoutes from './src/server/licenca.routes';
 import companyCertificateRoutes from "./src/server/companyCertificate.routes";
 import sefazDistributionRoutes from "./src/server/sefazDistribution.routes";
@@ -76,6 +79,8 @@ app.use('/api', fiscalSourceSyncRoutes);
 app.use('/api', conferenciaRoutes);
 app.use('/api/serpro', serproRoutes);
 app.use('/api', certidoesRoutes);
+app.use('/api', carteiraFiscalRoutes);
+app.use('/api', dadosEscritorioRoutes);
 app.use('/api', licencaRoutes);
 app.use('/api', companyCertificateRoutes);
 app.use('/api', sefazDistributionRoutes);
@@ -444,6 +449,24 @@ const rodarConferidorCertidoes = () => { executarRobo('conferidor_certidoes', as
 const timerConferidorCertidoes = setInterval(rodarConferidorCertidoes, 6 * 60 * 60_000);
 setTimeout(rodarConferidorCertidoes, 3 * 60_000).unref();
 timerConferidorCertidoes.unref();
+
+// Conferidores da carteira fiscal, do certificado A1 e da Agenda Fiscal: só LEEM o que já está guardado (sem custo, sem consultar o Serpro).
+// O "rodar agora" de cada escritório fica na tela da carteira (POST /api/carteira-fiscal/conferir) e na Agente IA.
+registrarRobo({ id: 'conferidor_carteira_fiscal', nome: 'Robô Conferidor da Carteira Fiscal (Serpro guardado)', posto: 'conferidor', missao: 'A cada 2 horas, conferir as últimas consultas GUARDADAS de cada empresa: situação fiscal com pendência ou a conferir, Caixa Postal com mensagem nova e parcela de parcelamento de mês anterior ainda disponível para emitir (indício de atraso). Só lê o que já foi guardado; não consulta o Serpro e não gasta crédito. Consultas novas só saem por clique da pessoa.', intervaloMs: 2 * 60 * 60_000 });
+const rodarConferidorCarteira = () => { executarRobo('conferidor_carteira_fiscal', async () => { const r = await conferirCarteiraFiscal(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor da carteira fiscal] ${r}`); }).catch((e) => console.error('[Conferidor da carteira fiscal]', e?.message || e)); };
+const timerConferidorCarteira = setInterval(rodarConferidorCarteira, 2 * 60 * 60_000);
+setTimeout(rodarConferidorCarteira, 4 * 60_000).unref();
+timerConferidorCarteira.unref();
+registrarRobo({ id: 'conferidor_certificados_a1', nome: 'Robô Conferidor de Vencimento do Certificado A1', posto: 'conferidor', missao: 'A cada 6 horas, conferir a validade dos certificados A1 guardados das empresas e avisar os vencidos e os que vencem em 7, 15 e 30 dias. A validade é lida do próprio arquivo do certificado. Só lê; não consulta nenhum órgão e não altera nada.', intervaloMs: 6 * 60 * 60_000 });
+const rodarConferidorCertificados = () => { executarRobo('conferidor_certificados_a1', async () => { const r = await conferirCertificadosA1(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor dos certificados A1] ${r}`); }).catch((e) => console.error('[Conferidor dos certificados A1]', e?.message || e)); };
+const timerConferidorCertificados = setInterval(rodarConferidorCertificados, 6 * 60 * 60_000);
+setTimeout(rodarConferidorCertificados, 5 * 60_000).unref();
+timerConferidorCertificados.unref();
+registrarRobo({ id: 'conferidor_agenda_fiscal', nome: 'Robô Conferidor da Agenda Fiscal', posto: 'conferidor', missao: 'A cada 2 horas, conferir os lembretes da Agenda Fiscal guardados no servidor e avisar os vencidos e os que vencem hoje. Só lê; não altera nenhum lembrete.', intervaloMs: 2 * 60 * 60_000 });
+const rodarConferidorAgenda = () => { executarRobo('conferidor_agenda_fiscal', async () => { const r = await conferirAgendaFiscal(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor da agenda fiscal] ${r}`); }).catch((e) => console.error('[Conferidor da agenda fiscal]', e?.message || e)); };
+const timerConferidorAgenda = setInterval(rodarConferidorAgenda, 2 * 60 * 60_000);
+setTimeout(rodarConferidorAgenda, 6 * 60_000).unref();
+timerConferidorAgenda.unref();
 
 registrarRobo({ id: 'conferidor_exclusoes', nome: 'Robô Conferidor de Exclusões (Fiscal ↔ Fisco IA)', posto: 'conferidor', missao: 'A cada 2 horas, conferir se alguma empresa excluída em um sistema ainda está ativa em outro (arquivada no Fisco IA e ativa no Fiscal, ou trazida do Fiscal e que o Fiscal não lista mais). Só lê; não apaga, não arquiva e não recria nada. Se achar, aparece como alerta aqui.', intervaloMs: 2 * 60 * 60_000 });
 const rodarConferidorExclusoes = () => executarRobo('conferidor_exclusoes', async () => { const r = await conferirExclusoes(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor de exclusões] ${r}`); return r; });

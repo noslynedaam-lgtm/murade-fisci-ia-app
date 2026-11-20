@@ -4,6 +4,10 @@
 import { erroApi, ok, q, type Ferramenta, type KitAgente } from './agenteMotor';
 import { ADAPTADORES, type TipoCertidao } from '../services/certidoes/certidoes';
 import { FERRAMENTAS_ENTRE_SISTEMAS, INSTRUCAO_ENTRE_SISTEMAS } from './ferramentasEntreSistemas';
+import { VALOR_CONSULTA_COBRADA } from '../services/serpro/consumoSerpro';
+
+/** Consultas ao Serpro que a Agente pode propor (sem campos a preencher, e nenhuma dá ciência de intimação). */
+const SERVICOS_CONSULTA_AGENTE = new Set(['situacaoFiscal', 'caixaPostalNovas', 'caixaPostalLista', ...['parcsn', 'parcsnEsp', 'parcmei', 'parcmeiEsp', 'pertsn', 'pertmei', 'relpsn'].flatMap((m) => [`${m}Pedidos`, `${m}Parcelas`])]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -187,6 +191,116 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
+    declaracao: { name: 'ver_carteira_fiscal', description: 'Painel da carteira do escritório com o que JÁ FOI consultado e guardado (sem custo): por empresa, situação fiscal (regular, pendente, a conferir ou sem consulta) com a data, mensagens novas na Caixa Postal, parcela de parcelamento em atraso e vencimento do certificado A1. Não consulta o Serpro.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, so: { type: 'STRING', description: 'Opcional: "pendentes" para listar só as que pedem atenção.' } }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/carteira-fiscal?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const lista: any[] = (r.corpo?.empresas || []).filter((e: any) => args.so !== 'pendentes' || e.geral === 'pendente' || e.geral === 'atencao');
+      return {
+        hoje: r.corpo?.hoje, totais: r.corpo?.totais,
+        empresas: lista.slice(0, 40).map((e) => ({ id: e.companyId, empresa: e.nome, cnpj: e.cnpj, situacaoGeral: e.geral,
+          situacaoFiscal: e.situacaoFiscal ? `${e.situacaoFiscal.situacao}${e.situacaoFiscal.origem === 'lida_do_pdf' ? ' (lida do PDF)' : e.situacaoFiscal.origem === 'marcada_pela_pessoa' ? ' (marcada pela pessoa)' : ''}, consulta de ${String(e.situacaoFiscal.consultadoEm || '').slice(0, 10)}` : 'sem consulta guardada',
+          caixaPostal: e.caixaPostal ? `${e.caixaPostal.novas ? 'tem mensagem nova' : 'sem mensagem nova'} (consulta de ${String(e.caixaPostal.consultadoEm || '').slice(0, 10)})` : 'sem consulta guardada',
+          parcelasAtrasadas: (e.parcelamentos?.atrasadas || []).map((a: any) => `${a.nomeModalidade} ${a.parcela}`), certificado: e.certificado?.situacaoTexto ?? 'sem certificado A1 cadastrado' })),
+        aviso: lista.length > 40 ? 'Mostrando 40; há mais.' : undefined,
+        observacao: 'São as últimas consultas GUARDADAS, com a data de cada uma; não é consulta de hoje. Situação "lida do PDF" é leitura automática do relatório: confirme no PDF. Parcela atrasada = parcela de mês anterior que ainda aparecia como disponível para emitir.',
+      };
+    },
+  },
+  ...(['situacao', 'caixa', 'parcelamentos'] as const).map((grupo): Ferramenta => ({
+    tipo: 'leitura',
+    declaracao: {
+      name: grupo === 'situacao' ? 'ver_situacao_fiscal_guardada' : grupo === 'caixa' ? 'ver_caixa_postal_guardada' : 'ver_parcelamentos_guardados',
+      description: grupo === 'situacao' ? 'Mostra as situações fiscais (SITFIS) já consultadas e guardadas de UMA empresa, com data e se foi lida do PDF ou marcada pela pessoa. Sem custo; não consulta o Serpro.'
+        : grupo === 'caixa' ? 'Mostra o que já foi consultado e guardado da Caixa Postal da Receita de UMA empresa (se havia mensagem nova e a lista de mensagens com assunto e data). Sem custo; não abre mensagem (abrir conta como ciência).'
+          : 'Mostra os parcelamentos (Simples, MEI, PERT, RELP) já consultados e guardados de UMA empresa: pedidos, detalhes e parcelas para emitir, com aviso de parcela de mês anterior ainda em aberto. Sem custo.',
+      parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId }, required: ['tenantId', 'companyId'] },
+    },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe escritório e empresa; use listar_escritorios e listar_empresas.' };
+      const r = await ctx.chamarApi('GET', `/api/carteira-fiscal/empresa?tenantId=${q(tenantId)}&companyId=${q(companyId)}&grupo=${grupo}`);
+      if (!ok(r)) return erroApi(r);
+      const res: any[] = r.corpo?.resultados || [];
+      if (!res.length) return { empresa: r.corpo?.empresa, resultados: [], observacao: 'Nada guardado ainda para esta empresa. Uma consulta nova pode ter custo (use pedir_consulta_receita, que mostra o custo antes).' };
+      return { empresa: r.corpo?.empresa, resultados: res.slice(0, 15).map((x) => ({ tipo: x.tipo, modalidade: x.nomeModalidade, consultadoEm: x.consultadoEm, situacao: x.situacao, origemSituacao: x.origemSituacao, novasMensagens: x.novasMensagens, temPdf: x.temPdf, resumo: x.resumo, atrasadas: x.atrasadas })), observacao: r.corpo?.observacao };
+    },
+  })),
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_certificados_vencendo', description: 'Mostra os certificados A1 das empresas do escritório que já venceram ou vencem em até 30 dias (e os sem validade registrada). A validade é lida do próprio arquivo. Sem custo.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/certificados/vencendo?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      return { hoje: r.corpo?.hoje, cadastrados: r.corpo?.cadastrados, total: r.corpo?.total, certificados: (r.corpo?.certificados || []).slice(0, 40).map((c: any) => ({ empresa: c.empresa, validade: c.validade, situacao: c.situacaoTexto })) };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_agenda_fiscal', description: 'Mostra os lembretes da Agenda Fiscal do escritório (guardados no servidor, os mesmos que toda a equipe vê): vencidos, de hoje e os próximos 30 dias. Os lembretes são cadastrados pela equipe; não são obrigações consultadas em órgão oficial.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/escritorio/dados?tenantId=${q(tenantId)}&colecao=agenda_lembretes`);
+      if (!ok(r)) return erroApi(r);
+      const hoje = Date.parse(`${ctx.hoje}T00:00:00Z`);
+      const itens = (r.corpo?.itens || []).map((i: any) => i.dados).filter((l: any) => l && l.concluido !== true && /^\d{4}-\d{2}-\d{2}$/.test(String(l.dataVencimento)))
+        .map((l: any) => ({ empresa: l.empresa, titulo: l.titulo, vencimento: l.dataVencimento, dias: Math.round((Date.parse(`${l.dataVencimento}T00:00:00Z`) - hoje) / 86_400_000) }))
+        .filter((l: any) => l.dias <= 30).sort((a: any, b: any) => a.dias - b.dias);
+      return { hoje: ctx.hoje, vencidos: itens.filter((l: any) => l.dias < 0), vencemHoje: itens.filter((l: any) => l.dias === 0), proximos: itens.filter((l: any) => l.dias > 0).slice(0, 30), observacao: 'Lembretes cadastrados pela equipe; confira a data no órgão.' };
+    },
+  },
+  {
+    tipo: 'leitura',
+    declaracao: { name: 'conferir_carteira_agora', description: 'Roda agora a conferência do escritório sobre o que já está guardado (situação fiscal pendente ou a conferir, Caixa Postal com mensagem nova, parcela atrasada, certificado A1 vencendo e lembretes vencidos da Agenda). Sem custo; não consulta o Serpro.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('POST', '/api/carteira-fiscal/conferir', { tenantId });
+      if (!ok(r)) return erroApi(r);
+      return { mensagem: r.corpo?.mensagem, alertas: (r.corpo?.alertas || []).slice(0, 40), totais: r.corpo?.totais };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'pedir_consulta_receita', description: 'Propõe UMA consulta NOVA ao Serpro (Integra Contador) para UMA empresa: situacaoFiscal, caixaPostalNovas (há mensagens novas?), caixaPostalLista (lista das não lidas) ou a lista de pedidos/parcelas de um parcelamento (parcsnPedidos, parcsnParcelas, parcmeiPedidos, parcmeiParcelas, pertsnPedidos, pertsnParcelas, pertmeiPedidos, pertmeiParcelas, relpsnPedidos, relpsnParcelas, parcsnEspPedidos, parcsnEspParcelas, parcmeiEspPedidos, parcmeiEspParcelas). Pode ter CUSTO: o cartão mostra se entra na consulta grátis da semana ou quanto custa, e só roda depois de a pessoa confirmar. O resultado fica guardado na carteira. Antes, veja se o resultado guardado já basta (ver_*_guardada).', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, servico: { type: 'STRING', description: 'Um dos serviços listados na descrição.' } }, required: ['tenantId', 'companyId', 'servico'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
+      if (!tenantId || !companyId) return { erro: 'Informe o escritório e a empresa pelos ids; use listar_escritorios e listar_empresas.' };
+      const servico = String(args.servico || '').trim();
+      if (!SERVICOS_CONSULTA_AGENTE.has(servico)) return { erro: 'Serviço não disponível por voz. Use situacaoFiscal, caixaPostalNovas, caixaPostalLista ou a lista de pedidos/parcelas de um parcelamento.' };
+      const [emp, cota, pront] = await Promise.all([
+        ctx.chamarApi('GET', `/api/companies?tenantId=${q(tenantId)}`),
+        ctx.chamarApi('GET', `/api/serpro/consultas/${q(companyId)}?tenantId=${q(tenantId)}`),
+        ctx.chamarApi('GET', '/api/serpro/prontidao'),
+      ]);
+      if (!ok(emp)) return erroApi(emp);
+      const e = (emp.corpo?.empresas || []).find((x: any) => x.id === companyId);
+      if (!e) return { erro: 'Empresa não encontrada neste escritório.' };
+      if (!ok(cota)) return erroApi(cota);
+      if (cota.corpo?.liberada === false) return { erro: 'A consulta ao Serpro ainda não foi liberada para esta empresa pelo fornecedor do sistema. Nada foi consultado nem cobrado.' };
+      const descricao = (pront.corpo?.servicos || []).find((x: any) => x.chave === servico)?.descricao || servico;
+      const cobrada = cota.corpo?.proximaConsultaCobrada === true;
+      const custo = cobrada ? `CUSTO: R$ ${Number(VALOR_CONSULTA_COBRADA).toFixed(2).replace('.', ',')}, cobrado por fora da mensalidade (a consulta grátis desta semana já foi usada).` : 'Sem custo: entra na consulta grátis desta semana da empresa.';
+      return {
+        cnpj: String(e.cnpj || '').replace(/\D/g, ''), params: { tenantId, companyId, servico, cobrada },
+        titulo: `Consultar no Serpro: ${descricao}`,
+        descricao: [`Empresa: ${e.legal_name} (CNPJ ${e.cnpj})`, custo, servico === 'situacaoFiscal' ? 'A situação fiscal leva alguns segundos (protocolo e relatório em PDF).' : 'Consulta oficial pelo Integra Contador.', 'O resultado fica guardado na carteira fiscal, com a data.'],
+        aviso: cobrada ? 'Ao confirmar, a consulta é feita agora e será cobrada.' : 'Ao confirmar, a consulta é feita agora e usa a consulta grátis da semana desta empresa.',
+        resumo: `Consulta Serpro ${servico} de ${e.legal_name} (${cobrada ? 'cobrada' : 'grátis da semana'})`,
+      };
+    },
+    async executar(ctx, params) {
+      const dados = params.servico === 'caixaPostalLista' ? { statusLeitura: '2', indicadorPagina: '0' } : {};
+      // confirmarCusto só vai como "sim" quando o cartão mostrou o custo. Se a cota grátis acabou entre o cartão e o clique, o servidor para e nada é cobrado.
+      const r = await ctx.chamarApi('POST', '/api/serpro/consulta', { tenantId: params.tenantId, companyId: params.companyId, servico: params.servico, dados, confirmarCusto: params.cobrada === true });
+      if (r.status === 402) return { sucesso: false, mensagem: 'A consulta grátis desta semana foi usada enquanto o cartão estava aberto. Nada foi consultado nem cobrado. Peça de novo para eu mostrar o custo.' };
+      if (!ok(r) || r.corpo?.consultado !== true) return { sucesso: false, mensagem: String(erroApi(r).erro) };
+      return { sucesso: true, mensagem: `Consulta feita no Serpro${r.corpo?.cobradaAparte ? ' (cobrada)' : ' (grátis da semana)'}.${r.corpo?.guardado === true ? ' Resultado guardado na carteira fiscal.' : r.corpo?.guardado === false ? ' ATENÇÃO: o resultado não pôde ser guardado na carteira.' : ''}` };
+    },
+  },
+  {
+    tipo: 'leitura',
     declaracao: { name: 'seguranca_login', description: 'Mostra a segurança do login das últimas 24 horas: senhas e códigos errados, bloqueios por excesso de tentativas, códigos de emergência usados, quantas contas têm o código de segurança ligado e se o dono do sistema está com ele ligado. Só o dono do sistema vê. Só lê; não bloqueia nem libera ninguém.', parameters: { type: 'OBJECT', properties: {} } },
     async executar(ctx) {
       const r = await ctx.chamarApi('GET', '/api/auth/2fa/resumo');
@@ -239,6 +353,9 @@ COMO RESPONDER (suas respostas são lidas em voz alta)
 
 VENCIMENTOS E ALERTAS (seja atenta, proativa e inteligente)
 - Certidões (CND): para saber o que venceu ou vence, use ver_certidoes_vencendo. Para consultar, use consultar_certidao: só a CND federal tem consulta automática, é PAGA e só roda depois de a pessoa confirmar no cartão; antes de propor, diga em voz alta que é paga e pergunte se quer consultar. Estadual, municipal, FGTS e trabalhista são emitidas pela pessoa no portal do órgão. Nunca diga que uma certidão está regular sem o resultado guardado pelo sistema; validade só a que o órgão informou.
+- Carteira fiscal (sem custo): para "como está a carteira", "quem está pendente", "situação fiscal da empresa X", "tem mensagem na Caixa Postal", "parcela atrasada", use ver_carteira_fiscal e ver_situacao_fiscal_guardada / ver_caixa_postal_guardada / ver_parcelamentos_guardados. Diga SEMPRE a data da consulta guardada; nunca apresente como situação de hoje. "Lida do PDF" é leitura automática: diga para confirmar no PDF. Para conferir tudo agora, use conferir_carteira_agora.
+- Consulta NOVA ao Serpro só com pedir_consulta_receita (uma empresa e um serviço por vez): antes diga em voz alta se é grátis ou quanto custa e pergunte se quer consultar; a pessoa ainda confirma no cartão. Consulta em lote de várias empresas é feita na tela SERPRO (botão "Consultar a carteira"), que mostra o total antes. Abrir mensagem da Caixa Postal conta como ciência: isso só na tela, nunca por você.
+- Certificado A1: use ver_certificados_vencendo. Agenda Fiscal: use ver_agenda_fiscal.
 - Quando perguntarem o que vence (hoje, amanhã, na semana, no mês), consulte SEMPRE as ferramentas de vencimentos, guias e lembretes antes de responder. Responda nesta ordem: 1) o que já venceu e continua em aberto; 2) o que vence hoje; 3) o que vence nos próximos dias; 4) diga também o que está em dia ou sem pendência. Para cada item diga a empresa, a obrigação ou o tributo, o valor (se houver) e a data.
 - Depois de listar, ofereça o próximo passo: avisar o cliente por WhatsApp (use preparar_whatsapp quando existir) ou deixar um lembrete. Diga com clareza o que você consegue fazer agora e o que depende de configuração: o envio automático por WhatsApp só funciona com a ligação da Meta configurada; sem ela você prepara a mensagem e o usuário envia.
 - Explique em linguagem simples, como a um cliente leigo: o que é a obrigação, o risco de atrasar (multa e juros, sem inventar percentuais) e o que fazer. Datas e valores só do que as ferramentas trouxerem; se a data for estimada, diga que é estimada.
@@ -250,7 +367,7 @@ COMO ENTENDER QUEM FALA
 
 MAPA DO SISTEMA (onde fica cada coisa no Fisco IA)
 (Em Cadastro de empresas fica o botão "Apagar empresa", uma por vez, com segunda confirmação.)
-Painel; Agenda; CND; DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO; Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
+Painel; Agenda; CND; DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO (com a Carteira fiscal e o botão "Consultar a carteira"); Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
 Quando perguntarem "onde eu faço X", diga o nome da tela. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
@@ -267,7 +384,7 @@ APAGAR EMPRESA (por voz ou texto)
 - Uma empresa por vez. Se pedirem "apagar todas", recuse e explique que é uma de cada vez, com confirmação. Se o resultado disser que os outros sistemas não confirmaram, repita esse aviso com clareza.
 
 LIMITES (diga com clareza quando o pedido bater neles)
-- Aqui você só consulta e confere (as únicas coisas que você propõe mudar são a liberação das consultas ao Serpro e apagar uma empresa, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
+- Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal e pedir uma consulta nova ao Serpro, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 

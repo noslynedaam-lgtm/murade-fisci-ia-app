@@ -7,7 +7,7 @@ import { acharPdfBase64, lerProtocoloSitfis, lerXmlDeclaracao, lerReciboTransmis
 import { avaliarCota, decidirConsulta, registrarConsulta, type CotaEmpresa, type OrigemConsulta } from '../services/serpro/cotaSemanal';
 import { comContextoTenant, obterPoolBanco } from './persistence';
 import { normalizarCnpj, validarCnpj } from '../services/cnpj/cnpjValidation';
-import { cicloDe, montarExtrato, extratoParaCsv, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
+import { cicloDe, montarExtrato, extratoParaCsv, VALOR_CONSULTA_COBRADA, type EmpresaConsumo, type OperacaoSerpro } from '../services/serpro/consumoSerpro';
 import { tokenValido } from './agentesEntreSistemas';
 import { situacaoDoCnpjNoEscritorio } from './exclusaoEmpresa';
 import { buscarTokenProcurador, SemTokenProcurador } from './tokenProcuradorFiscal';
@@ -15,6 +15,8 @@ import { fiscalInformouCnpjDoEscritorio } from './empresasDoFiscal';
 import { decidirAcessoConsulta, type DecisaoAcesso } from '../services/serpro/acessoConsulta';
 import { decidirLiberacaoEmpresa } from '../services/serpro/liberacaoEmpresa';
 import { carregarCredencial, credencialExiste, credencialGlobal, decidirFonteCredencial, guardarCredencial, removerCredencial, validarEscritorioId, type CredencialSerpro } from '../services/serpro/credenciaisEscritorio';
+import { guardarResultadoConsulta } from './carteiraFiscal.routes';
+import { LIMITE_EMPRESAS_LOTE, ehServicoLote, estimarLote, type EmpresaLote } from '../services/serpro/loteCarteira';
 import { assinarDeclaracaoDctfweb, lerCertificadoAssinante, montarDadosTransmissao, sha256Hex } from '../services/serpro/assinaturaDctfweb';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -415,7 +417,9 @@ async function executarConsulta(e: EntradaConsulta): Promise<{ status: number; c
         }
       }
     }
-    return resp(200, { relatorio, consultado: true, cobradaAparte: reserva.resultado.cobrada, cota: reserva.resultado.cota, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto });
+    // Guarda o resultado (situação fiscal com PDF, Caixa Postal, parcelamentos) para o histórico e o painel da carteira. Não gasta nada.
+    const guardado = await guardarResultadoConsulta({ userId: e.userId, tenantId, companyId, servico: servico.chave, dados: dadosEntrada, bruto, relatorio, cobrada: reserva.resultado.cobrada });
+    return resp(200, { relatorio, consultado: true, cobradaAparte: reserva.resultado.cobrada, cota: reserva.resultado.cota, fonte: 'SERPRO', servico: servico.chave, consultadoEm: new Date().toISOString(), bruto, ...(guardado === null ? {} : { guardado, ...(guardado ? {} : { avisoGuardar: 'A consulta foi feita, mas o resultado não pôde ser guardado no histórico da carteira.' }) }) });
   } catch {
     return resp(503, { consultado: false, mensagem: 'Falha ao consultar o SERPRO. Nenhum dado foi inventado.' });
   }
@@ -576,6 +580,46 @@ router.post('/consulta', async (req, res) => {
   const { escritorio, escritorioCnpj } = decisao;
   const r = await executarConsulta({ userId: user.id, tenantId, companyId: String(req.body?.companyId ?? ''), servico: String(req.body?.servico ?? ''), dados: req.body?.dados, confirmarCiencia: req.body?.confirmarCiencia === true, confirmarCusto: req.body?.confirmarCusto === true, escritorio, escritorioCnpj, exigirLiberacao: !user.ehAdmin && Boolean(escritorio), donoDoSistema: !escritorio });
   return res.status(r.status).json(r.corpo);
+});
+
+// "Consultar a carteira" em lote — SÓ A ESTIMATIVA (nada é consultado aqui). A pessoa escolhe empresas e tipo, vê quantas entram na cota
+// grátis da semana, quantas serão cobradas e o total; depois a tela faz UMA consulta por vez pela rota /consulta, que confere de novo
+// acesso, liberação, cota e custo. Nenhum robô chama esta rota.
+router.post('/lote/estimativa', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  let user;
+  try { user = await obterUsuarioDaSessao(req); } catch { return res.status(503).json({ mensagem: 'Não foi possível estimar agora. Nada foi consultado.' }); }
+  if (!user) return res.status(401).json({ mensagem: 'Sessão inválida ou expirada.' });
+  const tenantId = String(req.body?.tenantId ?? '');
+  if (!UUID.test(tenantId)) return res.status(400).json({ mensagem: 'Escritório inválido.' });
+  const servicos = Array.isArray(req.body?.servicos) ? [...new Set((req.body.servicos as unknown[]).filter(ehServicoLote))] : [];
+  if (!servicos.length) return res.status(400).json({ mensagem: 'Escolha o que consultar: situação fiscal e/ou mensagens novas da Caixa Postal.' });
+  const ids = Array.isArray(req.body?.companyIds) ? [...new Set((req.body.companyIds as unknown[]).map(String).filter((x) => UUID.test(x)))] : [];
+  if (!ids.length) return res.status(400).json({ mensagem: 'Escolha pelo menos uma empresa.' });
+  if (ids.length > LIMITE_EMPRESAS_LOTE) return res.status(400).json({ mensagem: `Escolha no máximo ${LIMITE_EMPRESAS_LOTE} empresas por vez.` });
+  let decisao: DecisaoAcesso;
+  try {
+    if (user.ehAdmin) decisao = decidirAcessoConsulta({ ehAdmin: true, tenantId, vinculado: true, info: null });
+    else {
+      const vinculo = await comContextoTenant(user.id, tenantId, async () => true, PAPEIS_CONSULTA);
+      decisao = decidirAcessoConsulta({ ehAdmin: false, tenantId, vinculado: vinculo.autorizado && 'resultado' in vinculo, info: vinculo.autorizado ? await infoDoEscritorio(tenantId) : null, fiscalTemCnpj: fiscalInformouCnpjDoEscritorio(tenantId) });
+    }
+  } catch { return res.status(503).json({ mensagem: 'Falha ao validar o escritório. Nada foi consultado.' }); }
+  if (decisao.ok === false) return res.status(decisao.http).json({ mensagem: decisao.mensagem });
+  const exigirLiberacao = !user.ehAdmin && Boolean(decisao.escritorio);
+  try {
+    const r = await comContextoTenant(user.id, tenantId, async (c) => (await c.query('SELECT id, cnpj, legal_name, metadata->\'serproCota\' AS cota FROM fiscoia.companies WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND archived_at IS NULL', [tenantId, ids])).rows, PAPEIS_CONSULTA);
+    if (!r.autorizado) return res.status(403).json({ mensagem: 'Este escritório não pertence à sua sessão.' });
+    if (!('resultado' in r) || !r.resultado) return res.status(403).json({ mensagem: 'Somente proprietário ou administrador pode fazer consultas oficiais.' });
+    const porId = new Map(r.resultado.map((x: any) => [String(x.id), x]));
+    const empresas: EmpresaLote[] = [];
+    for (const id of ids) {
+      const x: any = porId.get(id); if (!x) continue;
+      empresas.push({ id, nome: String(x.legal_name), cnpj: String(x.cnpj), cota: (x.cota as CotaEmpresa | null) ?? { consultas: [] }, liberada: exigirLiberacao ? (await empresaLiberada(id)) === true : true });
+    }
+    const est = estimarLote(empresas, servicos);
+    return res.json({ ...est, totais: { ...est.totais, ...(user.ehAdmin ? {} : { custoSerproMinimo: undefined }) }, valorPorConsultaCobrada: VALOR_CONSULTA_COBRADA, observacao: 'Estimativa: nada foi consultado. Cada consulta confere de novo a cota e o custo na hora; se algo mudar, a consulta para e pede nova confirmação.' });
+  } catch { return res.status(503).json({ mensagem: 'Não foi possível estimar agora. Nada foi consultado.' }); }
 });
 
 // ---- Ponte DP → Fisco IA (credencial de integração) ----

@@ -18,6 +18,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "test:voltar": "tsx --test src/utils/voltarCelular.test.ts",
+    "test:carteira": "tsx --test src/services/serpro/carteiraFiscal.test.ts src/services/escritorio/*.test.ts src/server/conferidoresCarteira.test.ts src/server/agenteCarteiraFiscal.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
