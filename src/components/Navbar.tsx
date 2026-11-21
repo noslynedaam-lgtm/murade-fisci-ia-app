@@ -7,6 +7,7 @@ import {
   ShieldCheck, ClipboardCheck, Lock, Unlock
 } from 'lucide-react';
 import { PLANOS } from '../config/planos';
+import { BotoesTamanhoLetra } from './BotoesTamanhoLetra';
 import { podeGerenciarEquipe } from '../services/auth/auth.service';
 import { UsuarioAuth } from '../types';
 import { ehUsuarioAdmin } from '../config/Permissoes';
@@ -178,6 +179,7 @@ export default function Navbar({
             <button type="button" id="btn-certificado-barra" onClick={abrirCertificado} title="Colocar ou atualizar o certificado digital A1 da empresa ativa" className={`flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 font-semibold cursor-pointer md:px-3 md:py-1 ${certOk ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-600 hover:bg-amber-700'}`}><Lock className="w-3 h-3" />{certOk ? `Certificado ${empresaAtiva?.certificado?.tipo || 'A1'}` : certNoServidor === null ? 'Verificando…' : 'Colocar Certificado'}</button>
             {podeGerenciar && <button type="button" onClick={() => setPainelUsuarios(true)} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 cursor-pointer whitespace-nowrap md:px-3 md:py-1"><span className="md:hidden">Usuários</span><span className="hidden md:inline">Usuários e licenças</span></button>}
             {onAbrirSeguranca && <button type="button" onClick={onAbrirSeguranca} title="Código de segurança no celular" className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 cursor-pointer whitespace-nowrap md:px-3 md:py-1">Segurança</button>}
+            <BotoesTamanhoLetra />
             {onLogout && <button type="button" onClick={onLogout} className="rounded bg-white/15 px-2 py-0.5 hover:bg-white/25 cursor-pointer whitespace-nowrap md:px-3 md:py-1">Sair</button>}
           </div>
         </div>
