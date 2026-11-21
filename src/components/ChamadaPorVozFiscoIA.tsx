@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from '../utils/vozHumana';
+import { EVENTO_AGENTE_PAROU, agenteAgindo, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, pararTudo, temParaRetomar, type ResultadoPararTudo } from '../utils/agenteParar';
+import { BotaoPararAgente } from './BotaoPararAgente';
 
 /**
  * Assistente só por voz do Fisco IA. Diga "Fisco" (ou "Fisco IA") e peça.
@@ -23,7 +25,8 @@ const textoSemMarcas = (t: string): string => String(t || '')
   .replace(/[\u{1F000}-\u{1FAFF}\u{FE0F}]/gu, '')
   .trim();
 const limparTextoVoz = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-const COMANDO_PARAR = /^(para|pare|parar|espera|espere|calma|silencio|cancela|cancelar|chega)( ja| agora| ai| por favor)?$/;
+// Nomes com que a pessoa chama a Agente antes do comando ("Fisco, para").
+const NOMES_CHAMADA = ['fisco', 'fisca'];
 
 export default function ChamadaPorVozFiscoIA() {
   const [ligada, setLigada] = useState<boolean>(() => {
@@ -104,6 +107,19 @@ export default function ChamadaPorVozFiscoIA() {
   const perguntarRef = useRef(perguntar);
   perguntarRef.current = perguntar;
 
+  // Depois de parar ("para", botão PARAR ou Esc): só o texto "Ok, parei." (sem voz) e ela espera; a resposta a caminho não é falada.
+  useEffect(() => {
+    const aoParar = (ev: Event) => {
+      const d = (ev as CustomEvent<ResultadoPararTudo & { origem?: string }>).detail;
+      geracaoRef.current += 1; aguardandoRef.current = false; janelaConversaRef.current = 0;
+      if (d?.origem === 'texto') { setAviso(''); return; } // digitado no chat: a resposta aparece lá
+      mostrar(d?.frase || 'Ok, parei.');
+    };
+    window.addEventListener(EVENTO_AGENTE_PAROU, aoParar);
+    return () => window.removeEventListener(EVENTO_AGENTE_PAROU, aoParar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Saudação do dia ("Bom dia, Herbert!") e pergunta do nome na primeira vez. Regra fixa no servidor: não gasta crédito de IA.
   useEffect(() => {
     if (!ligada) return;
@@ -144,25 +160,22 @@ export default function ChamadaPorVozFiscoIA() {
           const bruto = String(ev.results[i][0].transcript || '');
           const texto = limpar(bruto);
           if (!texto) continue;
-          // "Para" / "espera": interrompe a fala e cancela o pedido em andamento.
+          // "Para" / "chega" / "silêncio"...: para TUDO na hora, sem ir ao servidor.
+          // Parcial também vale enquanto ela fala (barge-in): não espera a frase terminar.
+          if (ehComandoParar(texto, NOMES_CHAMADA) && (ehFinal || agenteAgindo())) { aguardandoRef.current = false; pararTudo('voz'); continue; }
+          if (ehFinal && temParaRetomar() && ehComandoContinuar(texto, NOMES_CHAMADA)) { continuarDeOndeParou(); continue; }
+          // Enquanto ela fala, o microfone pega a voz dela: tudo o que não é "para" é ignorado.
+          if (humanaFalando()) continue;
           // Pedidos de volume e velocidade: "aumenta a voz", "fala mais rápido"...
           if (ehFinal) { const confirmacao = ajustarVoz(texto); if (confirmacao) { falar(confirmacao); continue; } }
-          if (COMANDO_PARAR.test(texto)) { pararRef.current(); continue; }
           const faladas = new Set(textoFaladoRef.current.split(' '));
           const palavrasDita = texto.split(' ');
           const parecidoComFala = Boolean(textoFaladoRef.current) && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.5;
-          const falandoAgora = Boolean(humanaFalando());
-          if (falandoAgora) {
-            // Você falou por cima da resposta: ela para na hora e passa a te ouvir.
-            if (palavrasDita.length >= 2 && !parecidoComFala) {
-              window.speechSynthesis?.cancel(); pararHumana(); ultimaFalaRef.current = 0; textoFaladoRef.current = ''; janelaConversaRef.current = Date.now() + 20000;
-            }
-            if (!ehFinal || parecidoComFala || palavrasDita.length < 2) continue;
-          } else {
+          {
             if (!ehFinal) continue;
             // Ignora o eco da própria voz logo depois de falar.
             if (Date.now() - ultimaFalaRef.current < 1500) continue;
-            if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ('pois nao' === texto || (palavrasDita.length >= 2 && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
+            if (Date.now() - ultimaFalaRef.current < 15000 && textoFaladoRef.current && ('pois nao' === texto || (palavrasDita.length >= 2 && parecidoComFala && palavrasDita.filter((w) => faladas.has(w)).length / palavrasDita.length >= 0.75))) continue;
           }
           if (aguardandoRef.current || Date.now() < janelaConversaRef.current) {
             // Logo depois de uma resposta (20 s) a conversa continua sem precisar chamar de novo.
@@ -197,16 +210,19 @@ export default function ChamadaPorVozFiscoIA() {
       {aviso && (
         <div role="status" onClick={() => setAviso('')} className="fixed bottom-14 right-3 z-[9999] max-w-[min(86vw,360px)] cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 shadow-xl" title="Toque para fechar">{aviso}</div>
       )}
+      <div className="fixed bottom-3 right-3 z-[9999] flex items-center gap-1.5">
+      <BotaoPararAgente compacto />
       <button
         type="button"
         onClick={() => { if (ligada) pararRef.current(); setLigada((v) => !v); }}
         aria-pressed={ligada}
-        className={`fixed bottom-3 right-3 z-[9999] flex h-9 min-w-[3.6rem] items-center justify-center gap-1 rounded-full border-2 px-2 text-xs font-bold shadow-lg transition active:scale-95 ${ligada ? 'border-emerald-400 bg-[#0a2342] text-white' : 'border-rose-300 bg-white/95 text-rose-700'}`}
+        className={`flex h-9 min-w-[3.6rem] items-center justify-center gap-1 rounded-full border-2 px-2 text-xs font-bold shadow-lg transition active:scale-95 ${ligada ? 'border-emerald-400 bg-[#0a2342] text-white' : 'border-rose-300 bg-white/95 text-rose-700'}`}
         title={ligada ? 'Escutando. Toque para DESLIGAR a voz.' : 'Voz desligada. Toque para LIGAR.'}
         aria-label="Assistente Fisco IA por voz"
       >
         {ligada ? '👂 ligada' : '🔇 desligada'}
       </button>
+      </div>
     </>
   );
 }

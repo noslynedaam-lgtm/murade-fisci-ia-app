@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { falarRespostasLigado } from '../utils/agenteParar';
 
 // Declaração de tipos para Web Speech API
 interface SpeechRecognitionEventLike {
@@ -259,7 +260,8 @@ export function useVoz({
 
   // Sintetizar voz masculina — velocidade configurada pelo usuário.
   const falarTexto = useCallback((texto: string, callbackFinal?: () => void) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    // "Falar as respostas" desligado (configuração da Agente): só o texto aparece.
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !falarRespostasLigado()) {
       if (callbackFinal) callbackFinal();
       return;
     }

@@ -6,6 +6,8 @@ export interface ConfigVozMurad {
   voiceId: string;
 }
 
+import { registrarParador } from '../../utils/agenteParar';
+
 const STORAGE_KEY = 'murade_ia_voz_config_v1';
 
 export const VOZES_PREDEFINIDAS = [
@@ -192,6 +194,13 @@ function fallbackNativo(
     }
   }, 40);
 }
+
+// A central do "para" (dito, digitado, botão PARAR ou Esc) também corta esta voz.
+registrarParador({
+  id: 'voz-ia-murad',
+  ativo: () => audioAtual !== null && !audioAtual.paused,
+  parar: () => { const tocava = audioAtual !== null || timerFalaNativa !== null; pararVoz(); return tocava ? {} : false; },
+});
 
 export function pararVoz() {
   if (audioAtual) {

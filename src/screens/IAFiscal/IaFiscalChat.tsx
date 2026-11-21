@@ -10,6 +10,7 @@ import BotaoVoltar from '../../components/BotaoVoltar';
 import { useEmpresa } from '../../context/EmpresaContext';
 import { consultarIAFiscal, FonteWeb } from '../../services/iaFiscal.service';
 import { useVoz } from '../../hooks/useVoz';
+import { EVENTO_AGENTE_PAROU, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, pararTudo, temParaRetomar } from '../../utils/agenteParar';
 import CertificadoDigitalModulo from './CertificadoDigitalModulo';
 import EmissaoNotaFiscalModulo from './EmissaoNotaFiscalModulo';
 import { CertificadoDigitalDados } from './typesCertificado';
@@ -59,6 +60,13 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
 
   const [inputTexto, setInputTexto] = useState('');
   const [pensando, setPensando] = useState(false);
+  // Conta os "para" (dito, digitado, botão PARAR ou Esc): resposta que chega depois não é falada.
+  const paradasRef = useRef(0);
+  useEffect(() => {
+    const aoParar = () => { paradasRef.current += 1; };
+    window.addEventListener(EVENTO_AGENTE_PAROU, aoParar);
+    return () => window.removeEventListener(EVENTO_AGENTE_PAROU, aoParar);
+  }, []);
 
   // Sub-abas do Módulo Oficial: Chat Fisco IA, Certificado Digital e Tela Standalone FIASCO IA
   const [abaModulo, setAbaModulo] = useState<'chat' | 'certificado' | 'rascunho' | 'telaOficial'>('chat');
@@ -142,7 +150,20 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
   ];
 
   const enviarPergunta = async (texto: string) => {
-    if (!texto.trim() || pensando) return;
+    if (!texto.trim()) return;
+    // "Para" (falado ou digitado): para tudo NA HORA, aqui no navegador, sem ir ao servidor nem à IA. Responde só "Ok, parei." (texto).
+    if (ehComandoParar(texto, ['fisco', 'fisca'])) {
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const r = pararTudo('texto');
+      setMensagens((prev) => [...prev, { id: `msg-${Date.now()}`, autor: 'usuario', texto, timestamp: hora }, { id: `ia-${Date.now()}-parei`, autor: 'ia', texto: r.frase, timestamp: hora }]);
+      setInputTexto('');
+      return;
+    }
+    if (ehComandoContinuar(texto, ['fisco', 'fisca']) && temParaRetomar()) { setInputTexto(''); continuarDeOndeParou(); return; }
+    if (pensando) return;
+    const minhaParada = paradasRef.current;
+    // Resposta que chega depois de um "para" aparece só por escrito.
+    const falarSeValido = (t: string) => { if (minhaParada === paradasRef.current) falarTexto(t); };
 
     // Para qualquer escuta ou fala enquanto processa
     pararEscuta();
@@ -230,7 +251,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             // Mensagens de WhatsApp preparadas pela Agente: só links wa.me (https://wa.me/...), o usuário clica e envia.
             whatsapp: Array.isArray(dadosAgente.whatsapp) ? dadosAgente.whatsapp.filter((w: any) => w && typeof w.link === 'string' && w.link.startsWith('https://wa.me/')).map((w: any) => ({ empresa: String(w.empresa || ''), numero: typeof w.numero === 'string' ? w.numero : null, link: w.link })) : [],
           }]);
-          if (respostaAudioAtiva) falarTexto(dadosAgente.resposta);
+          if (respostaAudioAtiva) falarSeValido(dadosAgente.resposta);
           return;
         }
       } catch { /* cai na consulta de sempre */ }
@@ -250,7 +271,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
 
       // Se a resposta por áudio estiver habilitada, Dr. Beni fala com sua voz masculina (1.15x)
       if (respostaAudioAtiva) {
-        falarTexto(res.resposta);
+        falarSeValido(res.resposta);
       }
     } catch (err: any) {
       const respostaErro = 'Não consegui acessar a assistente agora e não realizei nenhuma consulta oficial. Tente novamente em alguns minutos.';
@@ -263,7 +284,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
       };
       setMensagens((prev) => [...prev, novaMsgIAErro]);
       if (respostaAudioAtiva) {
-        falarTexto(respostaErro);
+        falarSeValido(respostaErro);
       }
     } finally {
       setPensando(false);

@@ -1,3 +1,4 @@
+import { OpcaoFalarRespostas } from '../../components/OpcaoFalarRespostas';
 import { useState, FormEvent } from 'react';
 import { 
   Settings, 
@@ -938,6 +939,11 @@ export function ConfiguracaoIntegracaoScreen({
             <p className="text-xs text-slate-500 leading-relaxed">
               Esta tela reproduz amostras de texto. A voz premium requer ELEVENLABS_API_KEY no servidor e não está automaticamente integrada aos outros módulos.
             </p>
+
+            {/* Agente: falar ou só escrever (guardado por usuário, vale na hora) */}
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm text-slate-800">
+              <OpcaoFalarRespostas />
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">

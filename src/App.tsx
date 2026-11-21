@@ -31,6 +31,8 @@ import { ModuloFiscalScreen } from './screens/Fiscal/ModuloFiscalScreen';
 import { ModulosMuradeScreen } from './screens/ModulosMuradeScreen';
 import { IaMuradVozScreen } from './screens/IaVoz/IaMuradVozScreen';
 import ChamadaPorVozFiscoIA from './components/ChamadaPorVozFiscoIA';
+import { BotaoPararAgente } from './components/BotaoPararAgente';
+import { definirUsuarioDaVoz } from './utils/agenteParar';
 import { ModalCalculadoraFiscal } from './components/ModalCalculadoraFiscal';
 import { PainelAnimadoLateral } from './components/PainelAnimadoLateral';
 import { EVENTO_SESSAO_EXPIRADA, MENSAGEM_SESSAO_EXPIRADA, INTERVALO_RECHECAGEM_MS, decidirAcaoSessao, deveRechecarSessao } from './services/auth/sessaoExpirada';
@@ -56,6 +58,8 @@ export default function App() {
 
   // Estados de Autenticação & Sessão
   const [usuarioAtual, setUsuarioAtual] = useState<UsuarioAuth | null>(null);
+  // "Falar as respostas" da Agente fica guardado por usuário neste aparelho.
+  useEffect(() => { definirUsuarioDaVoz(usuarioAtual ? ((usuarioAtual as { email?: string; id?: string }).email || (usuarioAtual as { id?: string }).id || '') : ''); }, [usuarioAtual]);
   const [mostrarPortalSistemas, setMostrarPortalSistemas] = useState(false);
   const [tokenConvite, setTokenConvite] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -527,6 +531,8 @@ export default function App() {
     <NavigationProvider abaAtual={abaAtiva} onMudarAba={handleNavegacao}>
       <MonitorPendenciasFiscal />
       <ChamadaPorVozFiscoIA />
+      {/* Botão PARAR da Agente: só aparece enquanto ela fala ou age e quando não há outro PARAR à vista (Esc também para). */}
+      <BotaoPararAgente variante="flutuante" />
       <div id="fiscoia-app" className="min-h-screen bg-slate-50 text-slate-900 flex font-sans antialiased">
         {/* 📱💻 Menu Lateral que se esconde sozinho */}
         <MenuLateral

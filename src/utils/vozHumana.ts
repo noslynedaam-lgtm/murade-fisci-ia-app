@@ -1,5 +1,12 @@
 // Voz humana (Gemini "Kore") com reserva na voz do navegador. Uma fala por vez; dá para interromper.
+import { avisarMudancaAgente, falarRespostasLigado, registrarParador } from './agenteParar';
 let audioAtual: HTMLAudioElement | null = null;
+// Pedido de voz ao servidor em andamento: o "para" aborta, para não tocar nada depois.
+let pedidoVoz: AbortController | null = null;
+// Fala que esperava o primeiro toque na tela para sair (o navegador bloqueia a voz antes disso).
+let falaPendente: string | null = null;
+// Solta a espera do áudio atual (pause não dispara "ended": sem isto a fala cortada ficava presa para sempre).
+let soltarAudio: (() => void) | null = null;
 let sequencia = 0;
 let falandoFlag = false;
 
@@ -54,11 +61,26 @@ export function ajustarVoz(texto: string): string | null {
 export const humanaFalando = (): boolean => falandoFlag || Boolean(typeof window !== 'undefined' && window.speechSynthesis?.speaking);
 
 export function pararHumana(): void {
+  const estava = falandoFlag || audioAtual !== null || pedidoVoz !== null || falaPendente !== null;
   sequencia += 1;
   falandoFlag = false;
-  if (audioAtual) { try { audioAtual.pause(); } catch { /* ignora */ } audioAtual = null; }
+  // Áudio tocando: pausa e descarta (não continua de onde estava).
+  if (audioAtual) { try { audioAtual.pause(); audioAtual.onended = null; audioAtual.removeAttribute?.('src'); audioAtual.load?.(); } catch { /* ignora */ } audioAtual = null; }
+  if (soltarAudio) { const s = soltarAudio; soltarAudio = null; s(); }
+  // Pedido de voz em andamento e fila: aborta e esvazia.
+  if (pedidoVoz) { try { pedidoVoz.abort(); } catch { /* ignora */ } pedidoVoz = null; }
+  falaPendente = null;
   try { window.speechSynthesis?.cancel(); } catch { /* ignora */ }
+  try { document.getElementById('murade-dica-voz')?.remove(); } catch { /* ignora */ }
+  if (estava) avisarMudancaAgente();
 }
+
+// A central do "para" corta a voz junto com o resto.
+registrarParador({
+  id: 'voz',
+  ativo: () => humanaFalando(),
+  parar: () => { const falava = humanaFalando() || falaPendente !== null; pararHumana(); return falava ? {} : false; },
+});
 
 function dividirEmTrechos(texto: string): string[] {
   // O primeiro trecho é curto para a voz começar logo; os seguintes são gerados enquanto ela fala.
@@ -177,7 +199,7 @@ async function guardarNoCache(h: string, src: string): Promise<void> {
   } catch { /* ignora */ }
 }
 
-async function buscarAudio(trecho: string): Promise<string | null> {
+async function buscarAudio(trecho: string, sinal?: AbortSignal): Promise<string | null> {
   let codigo = '';
   try {
     codigo = await codigoDaFrase(trecho);
@@ -185,7 +207,8 @@ async function buscarAudio(trecho: string): Promise<string | null> {
     if (guardado) return guardado;
   } catch { /* segue para o servidor */ }
   try {
-    const resp = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ text: trecho }) });
+    if (sinal?.aborted) return null;
+    const resp = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ text: trecho }), signal: sinal });
     if (!resp.ok) return null;
     const dados = await resp.json();
     if (!dados?.audio) return null;
@@ -234,7 +257,6 @@ function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
 }
 
 // ---- Voz do navegador: por frases curtas, com proteção contra falha silenciosa e bloqueio do navegador ----
-let falaPendente: string | null = null;
 const esperar = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
 function agruparFrases(texto: string): string[] {
@@ -320,8 +342,12 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
   pararHumana();
   const minha = sequencia;
   const limpo = texto.trim();
-  if (!limpo) { aoTerminar?.(); return; }
+  // "Falar as respostas" desligado (configuração da Agente): só o texto aparece.
+  if (!limpo || !falarRespostasLigado()) { aoTerminar?.(); return; }
   falandoFlag = true;
+  avisarMudancaAgente();
+  const controle = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  pedidoVoz = controle;
   try {
     // Voz premium (Gemini) só em respostas curtas, para o custo ficar baixo. O resto usa a voz do navegador.
     const usarPremium = vozPremiumLigada() && limpo.length <= 260;
@@ -330,13 +356,15 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
       return;
     }
     const trechos = dividirEmTrechos(limpo);
-    let proximo = buscarAudio(trechos[0]);
+    let proximo = buscarAudio(trechos[0], controle?.signal);
     for (let i = 0; i < trechos.length; i += 1) {
       const src = await proximo;
       if (minha !== sequencia) return;
-      if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1]);
+      if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1], controle?.signal);
       if (!src) { await falarNoNavegador(trechos.slice(i).join(' '), minha); break; }
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolver) => {
+        const resolve = () => { if (soltarAudio === resolve) soltarAudio = null; resolver(); };
+        soltarAudio = resolve;
         const audio = new Audio(src);
         audio.volume = volumeVoz;
         audio.playbackRate = velocidadeVoz;
@@ -348,7 +376,8 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
       if (minha !== sequencia) return;
     }
   } finally {
-    if (minha === sequencia) { falandoFlag = false; audioAtual = null; aoTerminar?.(); }
+    if (pedidoVoz === controle) pedidoVoz = null;
+    if (minha === sequencia) { falandoFlag = false; audioAtual = null; avisarMudancaAgente(); aoTerminar?.(); }
   }
 }
 
