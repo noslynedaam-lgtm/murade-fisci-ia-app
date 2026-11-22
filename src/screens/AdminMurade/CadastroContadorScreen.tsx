@@ -76,7 +76,7 @@ export default function CadastroContadorScreen({ onVoltar }: CadastroContadorScr
 
   const copiarAcesso = async () => {
     if (!sucesso) return;
-    const texto = `Convite de acesso — Murade Fisco IA\n\nOlá ${sucesso.nome}! Sua conta foi criada. Abra o link abaixo para criar sua senha pessoal.\n\n${sucesso.conviteUrl}\n\nLogin: ${sucesso.email}\nO link é de uso único e expira em 30 dias. Nenhum e-mail foi enviado.\nPerfil selecionado: ${sucesso.nomePlano} (não comprova assinatura ou pagamento).`;
+    const texto = `Convite de acesso — Murad Fisco IA\n\nOlá ${sucesso.nome}! Sua conta foi criada. Abra o link abaixo para criar sua senha pessoal.\n\n${sucesso.conviteUrl}\n\nLogin: ${sucesso.email}\nO link é de uso único e expira em 30 dias. Nenhum e-mail foi enviado.\nPerfil selecionado: ${sucesso.nomePlano} (não comprova assinatura ou pagamento).`;
     try {
       await navigator.clipboard.writeText(texto);
       setCopiado(true);

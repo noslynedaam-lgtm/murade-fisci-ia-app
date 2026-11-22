@@ -54,7 +54,7 @@ export class FiltroDadosReais {
 }
 
 export class RobosMurade {
-  readonly nome = 'MURADE — CONFERÊNCIA ESTRUTURAL LOCAL';
+  readonly nome = 'MURAD — CONFERÊNCIA ESTRUTURAL LOCAL';
 
   async conferirNotas(listaNotas: DocumentoLocal[]) {
     const conferidas = listaNotas.map(nota => ({

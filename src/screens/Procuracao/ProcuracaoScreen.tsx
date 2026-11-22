@@ -429,7 +429,7 @@ export default function ProcuracaoScreen({ planoAtivoId, onIrParaPlanos }: Procu
 
           <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3 pt-4">
             <UserCheck className="w-4 h-4 text-indigo-600" />
-            <span>3. Outorgado (Escritório MURADE Contabilidade)</span>
+            <span>3. Outorgado (Escritório MURAD Contabilidade)</span>
           </h2>
 
           <div className="space-y-3 text-xs">

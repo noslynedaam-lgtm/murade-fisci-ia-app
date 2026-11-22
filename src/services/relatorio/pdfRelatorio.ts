@@ -220,7 +220,7 @@ export function gerarPdfRelatorio(r: RelatorioCliente, logoJpeg: Buffer | null =
   }
   objetos[idCatalogo - 1] = Buffer.from(`<< /Type /Catalog /Pages ${idPaginas} 0 R >>`, 'latin1');
   objetos[idPaginas - 1] = Buffer.from(`<< /Type /Pages /Kids [${idsPaginas.map((i) => `${i} 0 R`).join(' ')}] /Count ${idsPaginas.length} >>`, 'latin1');
-  const idInfo = add(`<< /Title ${literal(`${r.titulo} - ${r.empresa.nome}`)} /Producer (Murade Fisco IA) >>`);
+  const idInfo = add(`<< /Title ${literal(`${r.titulo} - ${r.empresa.nome}`)} /Producer (Murad Fisco IA) >>`);
 
   const partes: Buffer[] = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
   let pos = partes[0].length;

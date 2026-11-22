@@ -24,7 +24,7 @@ export default function PlanosAssinatura() {
       <div className="text-center space-y-3 pt-2">
         <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs font-semibold">
           <ShieldCheck className="w-3.5 h-3.5 text-indigo-700" />
-          <span>Administrado por MURADE — Compliance & Gestão</span>
+          <span>Administrado por MURAD — Compliance & Gestão</span>
         </div>
 
         <h1 className="text-3xl sm:text-4xl font-extrabold text-[#1a237e] tracking-tight">
@@ -244,7 +244,7 @@ export default function PlanosAssinatura() {
               {/* Faixa Recomendado */}
               <div className="absolute -top-3.5 right-6 px-4 py-1.5 bg-[#ff9800] text-white text-xs font-bold uppercase tracking-wider rounded-full shadow-md flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>⭐ RECOMENDADO MURADE</span>
+                <span>⭐ RECOMENDADO MURAD</span>
               </div>
 
               <div className="space-y-4 pt-1">

@@ -122,13 +122,13 @@ export const MODULOS_SISTEMA: Record<string, PermissaoModulo> = {
   // 👑 RECURSOS EXCLUSIVOS MURADE (ADMINISTRADOR)
   admin: {
     id: 'admin',
-    nome: 'Painel MURADE',
+    nome: 'Painel MURAD',
     adminApenas: true,
     descricao: 'Controle mestre de clientes, contadores e gestão do sistema'
   },
   faturamento: {
     id: 'faturamento',
-    nome: 'Faturamento Murade',
+    nome: 'Faturamento Murad',
     adminApenas: true,
     descricao: 'Relatórios de faturamento e recebimento de mensalidades'
   },
@@ -140,7 +140,7 @@ export const MODULOS_SISTEMA: Record<string, PermissaoModulo> = {
   },
   precos: {
     id: 'precos',
-    nome: 'Preços & Planos Murade',
+    nome: 'Preços & Planos Murad',
     adminApenas: true,
     descricao: 'Configuração de valores de mensalidades e limites de CNPJ'
   },
@@ -177,7 +177,7 @@ export function obterMenuPermitido(tipoOuUsuario?: string | UsuarioAuth | null):
   
   if (isAdmin) {
     return [
-      'Painel MURADE',
+      'Painel MURAD',
       'Faturamento',
       'Bloqueio de Inadimplentes',
       'Preços & Planos',

@@ -118,7 +118,7 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
             {/* Perfil do Contador no PC */}
             <div className="bg-slate-800/80 p-2 rounded-xl text-[10px] text-slate-300 border border-slate-700">
               <span className="text-slate-400 block font-semibold">Operador PC:</span>
-              <strong className="text-white">Murade Assessoria</strong>
+              <strong className="text-white">Murad Assessoria</strong>
             </div>
           </div>
 
@@ -213,7 +213,7 @@ export default function SimuladorPC({ pedacinho, onAvancar }: SimuladorPCProps) 
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-black text-slate-900">DCTFWeb Previdenciária & Fiscais</h3>
-                    <p className="text-xs text-amber-800">Exemplo fictício; transmissão oficial indisponível no Murade.</p>
+                    <p className="text-xs text-amber-800">Exemplo fictício; transmissão oficial indisponível no Murad.</p>
                   </div>
                   <button
                     type="button"

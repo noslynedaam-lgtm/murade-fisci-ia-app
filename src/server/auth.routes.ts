@@ -731,7 +731,7 @@ router.post('/esqueci-senha', async (req, res) => {
       await pool.query("UPDATE fiscoia.password_reset_tokens SET consumed_at=now() WHERE user_id=$1 AND consumed_at IS NULL", [u.rows[0].id]);
       await pool.query("INSERT INTO fiscoia.password_reset_tokens (token_sha256,user_id,purpose,expires_at) VALUES ($1,$2,'PASSWORD_RESET',now()+interval '24 hours')", [hashToken(token), u.rows[0].id]);
       linkBase.hash = new URLSearchParams({ redefinir: token }).toString();
-      await enviarEmail(email, 'Murade Fisco IA: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murade Fisco IA.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkBase.toString()}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
+      await enviarEmail(email, 'Murad Fisco IA: criar nova senha', `Olá!\n\nRecebemos um pedido para criar uma nova senha no Murad Fisco IA.\nAbra o link abaixo (vale 24 horas e só pode ser usado uma vez):\n\n${linkBase.toString()}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`);
     }
   } catch (e) { console.error('Falha na recuperação de senha:', e instanceof Error ? e.message : e); }
   return res.json(resposta);

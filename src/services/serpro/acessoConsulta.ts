@@ -12,7 +12,7 @@ export function decidirAcessoConsulta(p: { ehAdmin: boolean; tenantId: string; v
   if (!p.vinculado) return { ok: false, http: 403, mensagem: 'Somente o dono ou o administrador do escritório consulta a Receita.' };
   if (!p.info) return { ok: false, http: 503, mensagem: 'Consulta à Receita temporariamente indisponível neste escritório. Nada foi consultado nem cobrado.' };
   if (p.info.donoDoSistema) return { ok: true };
-  if (!p.info.cnpj && p.fiscalTemCnpj) return { ok: false, http: 409, mensagem: 'O CNPJ do escritório ainda não foi cadastrado aqui, mas o Murade Fiscal já tem o CNPJ dele: será preenchido automaticamente pelo robô de empresas do Fiscal em até 10 minutos (ou o dono do sistema cadastra em Painel MURADE → Escritórios contratantes). Nada foi consultado nem cobrado.' };
+  if (!p.info.cnpj && p.fiscalTemCnpj) return { ok: false, http: 409, mensagem: 'O CNPJ do escritório ainda não foi cadastrado aqui, mas o Murad Fiscal já tem o CNPJ dele: será preenchido automaticamente pelo robô de empresas do Fiscal em até 10 minutos (ou o dono do sistema cadastra em Painel MURAD → Escritórios contratantes). Nada foi consultado nem cobrado.' };
   if (!p.info.cnpj) return { ok: false, http: 409, mensagem: 'O CNPJ do escritório ainda não foi cadastrado pelo fornecedor do sistema. Peça o cadastro para liberar as consultas à Receita. Nada foi consultado nem cobrado.' };
   return { ok: true, escritorioCnpj: p.info.cnpj, escritorio: { id: p.tenantId, nome: p.info.nome } };
 }

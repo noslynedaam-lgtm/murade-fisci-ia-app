@@ -119,7 +119,7 @@ function getGenAI(): GoogleGenAI | null {
 
 // Instruções da assistente: respostas fiscais atuais devem vir de busca e citar fontes.
 const SYSTEM_INSTRUCTION_FISCAL = `
-Você é o Fisco IA, assistente fiscal do Murade Fisco IA.
+Você é o Fisco IA, assistente fiscal do Murad Fisco IA.
 Responda em português claro, direto e cordial. Não invente prazos, alíquotas, resultados de consultas ou integrações.
 Para legislação, obrigações, vencimentos e regras que possam mudar, use a ferramenta de pesquisa disponível nesta solicitação e priorize fontes oficiais brasileiras (gov.br, Receita Federal, SERPRO, SEFAZ competente, eSocial, Caixa ou prefeitura competente).
 Se não encontrar fonte oficial atual e suficiente, diga que não conseguiu confirmar e indique o órgão responsável. Cite os links retornados pela pesquisa.
@@ -421,7 +421,7 @@ app.post('/api/robos/empresas-fiscal/rodar', async (req, res) => {
   const u = await obterUsuarioDaSessao(req).catch(() => null);
   if (!u) return res.status(401).json({ sucesso: false, mensagem: 'Entre no Fisco IA.' });
   if (!u.ehAdmin) return res.status(403).json({ sucesso: false, mensagem: 'Somente o dono do sistema roda este robô.' });
-  if (!process.env.MURADE_INTEGRATION_TOKEN) return res.status(503).json({ sucesso: false, mensagem: 'A integração com o Murade Fiscal não está configurada neste servidor.' });
+  if (!process.env.MURADE_INTEGRATION_TOKEN) return res.status(503).json({ sucesso: false, mensagem: 'A integração com o Murad Fiscal não está configurada neste servidor.' });
   try {
     const mensagem = await executarRobo('empresas_fiscal', executarEmpresasDoFiscal);
     return res.json({ sucesso: true, mensagem: mensagem ?? 'O robô já estava rodando; tente de novo em instantes.', resultado: ultimoResultadoEmpresasFiscal() });
@@ -442,9 +442,9 @@ app.post('/api/integracao/agente/mensagem', async (req, res) => {
   try { const r = await centralDePedidos.receber(req.body); return res.status(r.status).json(r.corpo); }
   catch { return res.status(503).json({ ok: false, erro: 'Não foi possível registrar agora.' }); }
 });
-registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Ler do Murade Fiscal as notas já guardadas e levá-las ao Fisco IA, uma empresa por vez. Não consulta a SEFAZ.', intervaloMs: 60_000 });
-registrarRobo({ id: 'empresas_fiscal', nome: 'Robô de Empresas (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Trazer ao Fisco IA toda empresa cadastrada no Murade Fiscal, no escritório certo (e-mail do dono igual). Só cria o que falta; nunca altera nem reativa o que foi excluído. Também preenche o CNPJ do escritório quando está vazio e o Fiscal o tem.', intervaloMs: 10 * 60_000 });
-registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murade que não chegaram ao destino.', intervaloMs: 60_000 });
+registrarRobo({ id: 'sincronizador', nome: 'Robô Sincronizador (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Ler do Murad Fiscal as notas já guardadas e levá-las ao Fisco IA, uma empresa por vez. Não consulta a SEFAZ.', intervaloMs: 60_000 });
+registrarRobo({ id: 'empresas_fiscal', nome: 'Robô de Empresas (Fiscal → Fisco IA)', posto: 'coletor', missao: 'Trazer ao Fisco IA toda empresa cadastrada no Murad Fiscal, no escritório certo (e-mail do dono igual). Só cria o que falta; nunca altera nem reativa o que foi excluído. Também preenche o CNPJ do escritório quando está vazio e o Fiscal o tem.', intervaloMs: 10 * 60_000 });
+registrarRobo({ id: 'mensageiro', nome: 'Robô Mensageiro', posto: 'integrador', missao: 'Reenviar pedidos entre as Agentes dos sistemas Murad que não chegaram ao destino.', intervaloMs: 60_000 });
 const timerMensageiro = setInterval(() => { executarRobo('mensageiro', () => centralDePedidos.reenviarPendentes()).catch(() => undefined); }, 60_000);
 timerMensageiro.unref();
 registrarRobo({ id: 'aviso_cobrancas', nome: 'Robô de Aviso de Cobranças (Serpro)', posto: 'conferidor', missao: 'Às 20h (Brasília), mandar por e-mail ao dono o resumo das consultas COBRADAS do dia (escritório, empresa, serviço e valor), para ele conferir antes de cobrar. Só lê o que já foi registrado; não consulta o Serpro.', intervaloMs: 10 * 60_000 });
@@ -675,7 +675,7 @@ function gerarRespostaTributariaLocal(pergunta: string, isPrimeiraInteracao = fa
     return {
       sucesso: true,
       resposta: 'Olá, quem fala é o Fisco IA. Como posso ajudar?',
-      referencia: 'Murade Fisco IA',
+      referencia: 'Murad Fisco IA',
       fontesWeb: [],
       origem: 'RESPOSTA_LOCAL'
     };
@@ -711,7 +711,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Servidor Murade Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
+    console.log(`Servidor Murad Fisco IA executando na porta ${PORT}. Integrações externas dependem de configuração.`);
     iniciarSincronizacaoAutomatica();
     if (process.env.FISCOIA_EMPRESAS_FISCAL !== '0' && process.env.MURADE_INTEGRATION_TOKEN) {
       setTimeout(() => void executarRobo('empresas_fiscal', executarEmpresasDoFiscal).then((m) => { if (m) console.log(`[empresas_fiscal] ${m}`); }).catch((e) => console.error(`[empresas_fiscal] falhou: ${String(e?.message || e).slice(0, 200)}`)), 60_000).unref();

@@ -13,7 +13,7 @@ export const FERRAMENTAS_ENTRE_SISTEMAS: Ferramenta[] = [
     tipo: 'leitura',
     declaracao: {
       name: 'perguntar_a_outro_sistema',
-      description: 'Pergunta (somente leitura) à Agente de outro sistema Murade, sem o usuário precisar abrir aquele sistema. Use consulta="robos" para saber se os robôs do outro sistema estão ativos e o que fazem; "resumo" para o estado geral. Pode não haver resposta se o outro sistema estiver dormindo ou fora do ar: diga isso com as palavras devolvidas.',
+      description: 'Pergunta (somente leitura) à Agente de outro sistema Murad, sem o usuário precisar abrir aquele sistema. Use consulta="robos" para saber se os robôs do outro sistema estão ativos e o que fazem; "resumo" para o estado geral. Pode não haver resposta se o outro sistema estiver dormindo ou fora do ar: diga isso com as palavras devolvidas.',
       parameters: { type: 'OBJECT', properties: { sistema: SISTEMA_PROP, consulta: { type: 'STRING', description: 'Nome da consulta: robos ou resumo.' }, cnpj: { type: 'STRING', description: 'CNPJ (opcional).' } }, required: ['sistema', 'consulta'] },
     },
     async executar(ctx, args) {

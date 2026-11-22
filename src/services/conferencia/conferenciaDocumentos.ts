@@ -156,19 +156,19 @@ export function conferirDocumentos(params: {
     }
     if (faltaAqui.length) {
       ocorrencias.push({ codigo: 'FALTA_NO_FISCO_IA', severidade: 'ATENCAO', chaves: limitar(faltaAqui),
-        mensagem: `${faltaAqui.length} nota(s) existem no Murade Fiscal e ainda não foram conferidas no Fisco IA.` });
+        mensagem: `${faltaAqui.length} nota(s) existem no Murad Fiscal e ainda não foram conferidas no Fisco IA.` });
     }
     if (faltaLa.length) {
       ocorrencias.push({ codigo: 'FALTA_NO_FISCAL', severidade: 'ATENCAO', chaves: limitar(faltaLa),
-        mensagem: `${faltaLa.length} nota(s) estão no Fisco IA mas não aparecem no Murade Fiscal.` });
+        mensagem: `${faltaLa.length} nota(s) estão no Fisco IA mas não aparecem no Murad Fiscal.` });
     }
     if (valores.length) {
       ocorrencias.push({ codigo: 'VALOR_DIVERGENTE', severidade: 'ERRO', chaves: limitar(valores),
-        mensagem: `${valores.length} nota(s) com valor total diferente entre o Murade Fiscal e o Fisco IA.` });
+        mensagem: `${valores.length} nota(s) com valor total diferente entre o Murad Fiscal e o Fisco IA.` });
     }
     if (status.length) {
       ocorrencias.push({ codigo: 'STATUS_DIVERGENTE', severidade: 'ERRO', chaves: limitar(status),
-        mensagem: `${status.length} nota(s) canceladas, denegadas ou inutilizadas no Murade Fiscal, mas ainda válidas no Fisco IA.` });
+        mensagem: `${status.length} nota(s) canceladas, denegadas ou inutilizadas no Murad Fiscal, mas ainda válidas no Fisco IA.` });
     }
   }
 

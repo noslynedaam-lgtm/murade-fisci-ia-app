@@ -23,7 +23,7 @@ export async function lerEmpresasDoFiscal(env: Record<string, string | undefined
   if (!token) throw new Error('MURADE_INTEGRATION_TOKEN não configurado.');
   const r = await buscar(`${urlDoSistema('fiscal', env)}/api/integracao/fiscal/empresas`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) });
   const j: any = await r.json().catch(() => ({}));
-  if (!r.ok || j?.sucesso !== true || !Array.isArray(j.empresas)) throw new Error(`O Murade Fiscal não entregou a lista de empresas (HTTP ${r.status}).`);
+  if (!r.ok || j?.sucesso !== true || !Array.isArray(j.empresas)) throw new Error(`O Murad Fiscal não entregou a lista de empresas (HTTP ${r.status}).`);
   return j.empresas.map((e: any) => ({
     cnpj: normalizarCnpj(String(e?.cnpj ?? '')), razaoSocial: String(e?.razaoSocial ?? '').trim(), uf: String(e?.uf ?? '').trim().toUpperCase(),
     cidade: String(e?.cidade ?? '').trim(), regime: String(e?.regime ?? '').trim(), status: String(e?.status ?? ''), escritorio: String(e?.escritorio ?? '').trim().toLowerCase(),
@@ -179,8 +179,8 @@ export async function sincronizarCnpjDosEscritorios(pool: Pool, empresas: Empres
   let semCnpj: TenantSemCnpj[] = [];
   try { semCnpj = (await pool.query('SELECT * FROM fiscoia.integration_offices_without_cnpj()')).rows.map((x: any) => ({ id: String(x.id), name: String(x.name), ownerEmail: String(x.owner_email ?? '') })); } catch { return; }
   for (const t of semCnpj) {
-    if (!tratados.has(t.id)) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e não tem correspondência no Fiscal (e-mail do proprietário ${t.ownerEmail || 'desconhecido'}): cadastre em Painel MURADE → Escritórios contratantes.`);
-    else if (!semFuncao && tratados.get(t.id) === undefined) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e o Fiscal também não tem o CNPJ dele: o escritório faz o cadastro do escritório no DP (Configurações > Cadastro do escritório), que chega ao Fiscal e daqui é preenchido sozinho; ou cadastre em Painel MURADE → Escritórios contratantes.`);
+    if (!tratados.has(t.id)) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e não tem correspondência no Fiscal (e-mail do proprietário ${t.ownerEmail || 'desconhecido'}): cadastre em Painel MURAD → Escritórios contratantes.`);
+    else if (!semFuncao && tratados.get(t.id) === undefined) out.avisos.push(`O escritório ${t.name} está sem CNPJ no Fisco IA e o Fiscal também não tem o CNPJ dele: o escritório faz o cadastro do escritório no DP (Configurações > Cadastro do escritório), que chega ao Fiscal e daqui é preenchido sozinho; ou cadastre em Painel MURAD → Escritórios contratantes.`);
   }
 }
 

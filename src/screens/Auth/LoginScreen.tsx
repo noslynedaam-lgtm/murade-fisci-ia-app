@@ -99,7 +99,7 @@ export default function LoginScreen({
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center justify-center gap-2">
-              <span>Murade Fisco IA</span>
+              <span>Murad Fisco IA</span>
             </h2>
             <p className="text-xs text-indigo-900 font-semibold mt-0.5">
               Compliance Fiscal com IA

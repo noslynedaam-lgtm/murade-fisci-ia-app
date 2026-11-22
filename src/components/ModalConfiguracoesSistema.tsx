@@ -161,7 +161,7 @@ export default function ModalConfiguracoesSistema({
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-black tracking-tight">Configurações do Sistema</h3>
                 <span className="bg-amber-400 text-slate-950 px-2 py-0.5 rounded text-[10px] font-black uppercase">
-                  MURADE
+                  MURAD
                 </span>
               </div>
               <p className="text-xs text-indigo-200">FISCOIA v1.0.0 • Conformidade Fiscal Inteligente</p>
@@ -617,7 +617,7 @@ export default function ModalConfiguracoesSistema({
                     Usuários e Níveis de Permissão (RBAC)
                   </h4>
                   <p className="text-xs text-slate-500">
-                    Controle o acesso do Master Murade, Contadores Responsáveis e Assistentes.
+                    Controle o acesso do Master Murad, Contadores Responsáveis e Assistentes.
                   </p>
                 </div>
 
@@ -626,7 +626,7 @@ export default function ModalConfiguracoesSistema({
                     <label className="block text-xs font-bold text-slate-700 mb-1">Nome do Operador Ativo:</label>
                     <input
                       type="text"
-                      defaultValue={usuarioAtual?.nome || 'MURADE (Acesso Master)'}
+                      defaultValue={usuarioAtual?.nome || 'MURAD (Acesso Master)'}
                       className="w-full text-xs p-2.5 border border-slate-300 rounded-lg bg-slate-50 font-bold"
                     />
                   </div>
@@ -638,7 +638,7 @@ export default function ModalConfiguracoesSistema({
                       onChange={(e) => setPerfilSelecionado(e.target.value)}
                       className="w-full text-xs p-2.5 border border-slate-300 rounded-lg bg-white font-bold"
                     >
-                      <option value="MASTER">👑 Master Admin (Diretoria Murade - Acesso Total)</option>
+                      <option value="MASTER">👑 Master Admin (Diretoria Murad - Acesso Total)</option>
                       <option value="CONTADOR">👤 Contador Responsável (Gestão de CNPJs)</option>
                       <option value="ASSISTENTE">📋 Assistente Fiscal (Somente Leitura e Emissão)</option>
                     </select>
@@ -647,7 +647,7 @@ export default function ModalConfiguracoesSistema({
 
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-950">
                   <p className="font-bold">🛡️ Controle de Visibilidade:</p>
-                  <p>O perfil <strong>Master Murade</strong> é o único habilitado a gerenciar faturamento, tabela de preços dos planos e bloqueio de clientes inadimplentes.</p>
+                  <p>O perfil <strong>Master Murad</strong> é o único habilitado a gerenciar faturamento, tabela de preços dos planos e bloqueio de clientes inadimplentes.</p>
                 </div>
 
                 <div className="pt-3 flex items-center gap-3">
@@ -749,7 +749,7 @@ export default function ModalConfiguracoesSistema({
                 <div className="border-b border-slate-100 pb-3">
                   <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <HelpCircle className="w-5 h-5 text-indigo-700" />
-                    Suporte & Central de Ajuda MURADE
+                    Suporte & Central de Ajuda MURAD
                   </h4>
                   <p className="text-xs text-slate-500">
                     Atendimento especializado para contadores e suporte com certificados e e-CAC.
@@ -758,7 +758,7 @@ export default function ModalConfiguracoesSistema({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
-                    <strong className="text-indigo-950 font-bold block">Canal Direto MURADE</strong>
+                    <strong className="text-indigo-950 font-bold block">Canal Direto MURAD</strong>
                     <p className="text-slate-600">E-mail: <strong>suporte@fiscoia.com.br</strong></p>
                     <p className="text-slate-600">WhatsApp: <strong>(11) 99888-1122</strong></p>
                     <p className="text-slate-500 text-[11px]">Horário de atendimento: Segunda a Sexta, das 8h às 18h.</p>
@@ -806,7 +806,7 @@ export default function ModalConfiguracoesSistema({
 
         {/* Rodapé do Modal */}
         <div className="bg-slate-100 px-6 py-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-          <span>Administração Master: <strong className="text-indigo-950 font-bold">MURADE</strong></span>
+          <span>Administração Master: <strong className="text-indigo-950 font-bold">MURAD</strong></span>
           <button
             type="button"
             onClick={onFechar}

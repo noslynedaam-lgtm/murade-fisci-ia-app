@@ -15,8 +15,8 @@ export async function buscarTokenProcurador(
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ cnpj: cnpjEscritorio }), signal: AbortSignal.timeout(30_000),
     });
-  } catch { throw new SemTokenProcurador('Não foi possível falar com o Murade Fiscal para autorizar a consulta em nome do escritório. Nada foi consultado nem cobrado.'); }
+  } catch { throw new SemTokenProcurador('Não foi possível falar com o Murad Fiscal para autorizar a consulta em nome do escritório. Nada foi consultado nem cobrado.'); }
   const j: any = await r.json().catch(() => ({}));
   if (r.ok && j?.sucesso === true && typeof j.token === 'string' && j.token) return j.token;
-  throw new SemTokenProcurador(String(j?.motivo || `O Murade Fiscal recusou (HTTP ${r.status}).`).slice(0, 300) + ' Nada foi consultado nem cobrado.');
+  throw new SemTokenProcurador(String(j?.motivo || `O Murad Fiscal recusou (HTTP ${r.status}).`).slice(0, 300) + ' Nada foi consultado nem cobrado.');
 }

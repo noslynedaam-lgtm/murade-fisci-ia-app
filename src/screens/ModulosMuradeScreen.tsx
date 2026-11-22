@@ -8,7 +8,7 @@ export function ModulosMuradeScreen() {
         <div className="flex items-start gap-4">
           <div className="rounded-xl bg-white/10 p-3"><Blocks className="h-7 w-7" aria-hidden="true" /></div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Ambiente Murade</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Ambiente Murad</p>
             <h1 className="mt-1 text-2xl font-bold">Módulos do escritório</h1>
             <p className="mt-2 max-w-3xl text-sm text-blue-100">
               Abra cada sistema de forma independente. A central continua disponível mesmo que outro módulo esteja fora do ar; cada endereço será aberto em uma nova aba.
@@ -17,7 +17,7 @@ export function ModulosMuradeScreen() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3" aria-label="Módulos Murade">
+      <section className="grid gap-4 md:grid-cols-3" aria-label="Módulos Murad">
         {MODULOS_MURADE.map((modulo) => (
             <article key={modulo.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300">
               <h2 className="font-bold text-slate-900">{modulo.nome}</h2>

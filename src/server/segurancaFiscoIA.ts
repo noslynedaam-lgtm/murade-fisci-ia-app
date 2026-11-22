@@ -4,7 +4,7 @@ import { lerChaveMestra, tem2faAtivo, type Consultar } from './segurancaLogin';
 
 /** Tabelas: fiscoia.seg_login_falhas, seg_eventos_seguranca, seg_2fa, seg_dispositivos_confiaveis (migração 018). */
 export const PREFIXO_SEGURANCA_FISCOIA = 'fiscoia.seg';
-export const EMISSOR_2FA = 'Murade Fisco IA';
+export const EMISSOR_2FA = 'Murad Fisco IA';
 
 export const consultarSeguranca: Consultar = async (sql, params) => {
   const pool = obterPoolBanco();

@@ -120,7 +120,7 @@ export function IaMuradVozScreen({ usuario, onVoltar }: IaMuradVozScreenProps) {
               </span>
               <div>
                 <div className="font-extrabold text-base sm:text-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                  🎤 IA MURADE
+                  🎤 IA MURAD
                 </div>
                 <div className="text-[11px] text-slate-500 font-medium">
                   Voz Natural Brasileira — Sem Robótica
@@ -165,7 +165,7 @@ export function IaMuradVozScreen({ usuario, onVoltar }: IaMuradVozScreenProps) {
             🎙️
           </div>
           <h1 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
-            IA Murade — Demonstração de voz
+            IA Murad — Demonstração de voz
           </h1>
           <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
             Teste a síntese de fala do navegador. A voz premium só funciona quando o provedor está configurado no servidor.

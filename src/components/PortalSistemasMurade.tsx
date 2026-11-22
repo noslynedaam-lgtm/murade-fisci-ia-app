@@ -10,7 +10,7 @@ type PortalSistemasMuradeProps = {
 
 export default function PortalSistemasMurade({ onAbrirFiscoIa, onSair }: PortalSistemasMuradeProps) {
   const [sistemas, setSistemas] = useState<Sistema[]>([
-    { id: 'murade-fisco-ia', nome: 'Murade Fisco IA', tipo: 'interno', ssoAtivo: true },
+    { id: 'murade-fisco-ia', nome: 'Murad Fisco IA', tipo: 'interno', ssoAtivo: true },
   ]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export default function PortalSistemasMurade({ onAbrirFiscoIa, onSair }: PortalS
         if (!ativo) return;
         const autorizados = Array.isArray(body.sistemas) ? body.sistemas : [];
         const fiscoIa = autorizados.find((sistema) => sistema.id === 'murade-fisco-ia')
-          || { id: 'murade-fisco-ia', nome: 'Murade Fisco IA', tipo: 'interno' as const, ssoAtivo: true };
+          || { id: 'murade-fisco-ia', nome: 'Murad Fisco IA', tipo: 'interno' as const, ssoAtivo: true };
         setSistemas([fiscoIa, ...autorizados.filter((sistema) => sistema.id !== fiscoIa.id)]);
       })
       .catch((error: unknown) => {
@@ -42,7 +42,7 @@ export default function PortalSistemasMurade({ onAbrirFiscoIa, onSair }: PortalS
       <div className="mx-auto max-w-5xl">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700">Portal Murade</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-700">Portal Murad</p>
             <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-900">Meus sistemas</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">Entre no Fisco IA ou confira os outros módulos liberados para sua conta.</p>
           </div>

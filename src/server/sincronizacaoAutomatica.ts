@@ -137,7 +137,7 @@ export async function executarSincronizacaoAutomatica(): Promise<void> {
         autenticacao: { workerUserId: empresa.userId },
       });
     } catch {
-      await registrarResultado(empresa, { ok: false, mensagem: 'Falha de comunicação com o Murade Fiscal; nova tentativa na próxima hora.', cursor: '', cursorDia: '' }, MINUTOS_ENTRE_SINCRONIZACOES);
+      await registrarResultado(empresa, { ok: false, mensagem: 'Falha de comunicação com o Murad Fiscal; nova tentativa na próxima hora.', cursor: '', cursorDia: '' }, MINUTOS_ENTRE_SINCRONIZACOES);
       return;
     }
     if (resultado.ok === false) {

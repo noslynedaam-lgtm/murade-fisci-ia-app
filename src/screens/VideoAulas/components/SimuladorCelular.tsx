@@ -92,7 +92,7 @@ export default function SimuladorCelular({ pedacinho, onAvancar }: SimuladorCelu
               <div className="space-y-2">
                 <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white p-3 rounded-xl shadow-xs space-y-1">
                   <span className="text-[10px] text-indigo-200 uppercase font-bold">Resumo Fiscal 2026</span>
-                  <div className="text-sm font-black">Murade Assessoria</div>
+                  <div className="text-sm font-black">Murad Assessoria</div>
                   <div className="text-[10px] text-amber-200 font-semibold">Exemplo fictício · sem consulta externa</div>
                 </div>
 

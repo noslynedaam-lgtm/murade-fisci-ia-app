@@ -297,7 +297,7 @@ export default function App() {
 
     const abasExclusivasMurade = ['admin', 'admin_faturamento', 'admin_bloqueio', 'admin_precos', 'admin_senhas', 'admin_seguranca', 'planos'];
     if (abasExclusivasMurade.includes(destino) && !estaAdminAtivo) {
-      setAvisoRestricaoAdmin('⚠️ Acesso restrito! O Painel Murade e módulos administrativos exigem validação com senha pelo botão "Acesso Admin".');
+      setAvisoRestricaoAdmin('⚠️ Acesso restrito! O Painel Murad e módulos administrativos exigem validação com senha pelo botão "Acesso Admin".');
       setAbaAtiva('dashboard');
       setTimeout(() => setAvisoRestricaoAdmin(null), 5000);
       return;
@@ -397,7 +397,7 @@ export default function App() {
   if (modoAuth === 'app' && usuarioAtual && precisaAtivar2fa) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <SegurancaConta sistema="Murade Fisco IA" obrigatorio aoMudar={() => setPrecisaAtivar2fa(false)} aoSair={() => { void handleLogout(); }} />
+        <SegurancaConta sistema="Murad Fisco IA" obrigatorio aoMudar={() => setPrecisaAtivar2fa(false)} aoSair={() => { void handleLogout(); }} />
       </div>
     );
   }
@@ -420,7 +420,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col justify-between font-sans">
         <AceitarConviteScreen token={tokenConvite} onConcluido={handleConviteConcluido} onVoltarLogin={cancelarConvite} />
-        <footer className="py-4 text-center text-xs text-slate-400">FISCOIA © 2026 • Administrado por MURADE</footer>
+        <footer className="py-4 text-center text-xs text-slate-400">FISCOIA © 2026 • Administrado por MURAD</footer>
       </div>
     );
   }
@@ -437,7 +437,7 @@ export default function App() {
           />
         </main>
         <footer className="py-4 text-center text-xs text-slate-400">
-          FISCOIA © 2026 • Administrado por MURADE
+          FISCOIA © 2026 • Administrado por MURAD
         </footer>
       </div>
     );
@@ -453,7 +453,7 @@ export default function App() {
           />
         </main>
         <footer className="py-4 text-center text-xs text-slate-400">
-          FISCOIA © 2026 • Administrado por MURADE
+          FISCOIA © 2026 • Administrado por MURAD
         </footer>
       </div>
     );
@@ -470,7 +470,7 @@ export default function App() {
           />
         </main>
         <footer className="py-4 text-center text-xs text-slate-400">
-          FISCOIA © 2026 • Administrado por MURADE
+          FISCOIA © 2026 • Administrado por MURAD
         </footer>
       </div>
     );
@@ -509,7 +509,7 @@ export default function App() {
         </main>
 
         <footer className="py-4 text-center text-xs text-slate-400">
-          FISCOIA © 2026 • Administrado por MURADE
+          FISCOIA © 2026 • Administrado por MURAD
         </footer>
 
         {/* Registros locais de mensagens; não foram enviadas */}
@@ -558,7 +558,7 @@ export default function App() {
           {/* Navbar Superior com Toggle do Menu Lateral e Janelinha de Senha Admin */}
           {mostrarSeguranca && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-              <SegurancaConta sistema="Murade Fisco IA" aoMudar={() => undefined} aoFechar={() => setMostrarSeguranca(false)} />
+              <SegurancaConta sistema="Murad Fisco IA" aoMudar={() => undefined} aoFechar={() => setMostrarSeguranca(false)} />
             </div>
           )}
           <Navbar
@@ -782,7 +782,7 @@ export default function App() {
                   </div>
                   <h3 className="text-lg font-bold text-slate-800">Acesso Restrito ao Administrador</h3>
                   <p className="text-sm text-slate-500">
-                    Os módulos MURADE ainda não estão conectados por APIs. Cada módulo funciona de forma independente; esta tela não troca dados em segundo plano.
+                    Os módulos MURAD ainda não estão conectados por APIs. Cada módulo funciona de forma independente; esta tela não troca dados em segundo plano.
                   </p>
                   <button 
                     onClick={() => handleNavegacao('dashboard')}
@@ -868,7 +868,7 @@ export default function App() {
               </div>
 
               <div>
-                <span>Administração Master: <strong className="text-indigo-900">MURADE</strong> • Suporte a até 500 CNPJs</span>
+                <span>Administração Master: <strong className="text-indigo-900">MURAD</strong> • Suporte a até 500 CNPJs</span>
               </div>
 
               <div className="text-[11px] text-slate-400">

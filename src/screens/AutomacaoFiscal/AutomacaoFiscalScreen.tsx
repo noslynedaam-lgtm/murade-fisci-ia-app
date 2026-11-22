@@ -330,7 +330,7 @@ export function AutomacaoFiscalScreen({
       if (resultado.estado === 'disponivel') {
         if (anterior.falhasConsecutivas >= 2 && anterior.indisponibilidadeNotificada && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           try {
-            new Notification('Murade: serviço voltou a responder', {
+            new Notification('Murad: serviço voltou a responder', {
               body: `${resultado.nome}: /api/health respondeu status ok novamente.`,
               tag: `murade-health-${resultado.id}`
             });
@@ -353,7 +353,7 @@ export function AutomacaoFiscalScreen({
       });
       if (notificar && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         try {
-          new Notification('Murade: serviço sem confirmação', {
+          new Notification('Murad: serviço sem confirmação', {
             body: `${resultado.nome}: ${falhasConsecutivas} verificações seguidas sem resposta confirmada. Rede, CORS ou timeout não comprovam indisponibilidade.`,
             tag: `murade-health-${resultado.id}`
           });
@@ -633,7 +633,7 @@ export function AutomacaoFiscalScreen({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-black text-[#0F2B5B] flex items-center gap-2">
-                <span>🤖⚡ AUTOMAÇÃO FISCAL — MURADE FISCAL</span>
+                <span>🤖⚡ AUTOMAÇÃO FISCAL — MURAD FISCAL</span>
               </h1>
               <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-300">
                 Conexões pendentes
@@ -798,7 +798,7 @@ export function AutomacaoFiscalScreen({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Monitor de resposta técnica dos módulos</h3>
-                <p className="text-xs text-slate-600 mt-1">Consulta /api/health nos três serviços Murade a cada 10 minutos enquanto esta página estiver aberta. Isso não verifica portais governamentais nem sincroniza dados.</p>
+                <p className="text-xs text-slate-600 mt-1">Consulta /api/health nos três serviços Murad a cada 10 minutos enquanto esta página estiver aberta. Isso não verifica portais governamentais nem sincroniza dados.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setMonitorarServicos(ativo => !ativo)} className="px-3 py-2 rounded-lg border text-xs font-bold">
@@ -846,7 +846,7 @@ export function AutomacaoFiscalScreen({
           <div className="bg-white rounded-2xl border border-amber-200 bg-amber-50/40 p-5 space-y-2">
             <h3 className="text-sm font-bold text-amber-950">Robôs fiscais — operações não executadas</h3>
             <p className="text-xs text-amber-900">Busca de notas, transmissão de NF-e, conciliação bancária, apuração oficial e emissão de guias não estão conectadas. Esta tela não executa nem agenda essas tarefas.</p>
-            <p className="text-[11px] text-slate-700">Para iniciar essas operações, faltam APIs autenticadas dos órgãos e dos serviços Murade, certificado habilitado no servidor e integração bancária quando necessária.</p>
+            <p className="text-[11px] text-slate-700">Para iniciar essas operações, faltam APIs autenticadas dos órgãos e dos serviços Murad, certificado habilitado no servidor e integração bancária quando necessária.</p>
           </div>
           {/* ⚠️ ALERTAS — O QUE O CONTADOR PRECISA CONFERIR */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">

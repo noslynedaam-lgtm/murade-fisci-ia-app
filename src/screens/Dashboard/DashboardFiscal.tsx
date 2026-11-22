@@ -38,7 +38,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
               <span>Painel fiscal local • integrações externas não conectadas</span>
             </div>
             <h1 className="text-lg sm:text-2xl font-black tracking-tight flex items-center gap-2 flex-wrap">
-              <span className="text-white tracking-tight">Murade Fisco IA</span>
+              <span className="text-white tracking-tight">Murad Fisco IA</span>
               <span className="text-xs text-indigo-300 font-semibold hidden sm:inline">
                 • Ferramentas de apoio fiscal com IA
               </span>
@@ -251,7 +251,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
         >
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-500" />
           <div className="flex justify-between items-start">
-            <span className="text-xs font-semibold text-slate-500">IA Murade (Voz & Fiscal)</span>
+            <span className="text-xs font-semibold text-slate-500">IA Murad (Voz & Fiscal)</span>
             <span className="text-xl group-hover:scale-110 transition-transform">🎤</span>
           </div>
           <div className="text-xl sm:text-2xl font-black text-purple-900 mt-1">
@@ -320,7 +320,7 @@ export default function DashboardFiscal({ planoAtivoId, onNavegar }: DashboardFi
                   <SimboloContabil tamanho="sm" comBrilho={false} />
                 </span>
                 <span className="text-xs font-black text-slate-900 tracking-tight">
-                  Murade Fisco IA
+                  Murad Fisco IA
                 </span>
               </div>
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full border border-indigo-200">

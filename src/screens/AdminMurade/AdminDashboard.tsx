@@ -204,7 +204,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-extrabold tracking-wider uppercase border border-amber-400/30">
             <Crown className="w-3.5 h-3.5 text-amber-400" />
-            <span>Master Admin • MURADE</span>
+            <span>Master Admin • MURAD</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Painel de Gestão e Controle FISCOIA
@@ -737,7 +737,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                         1. Senha do Administrador Master
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Usada no botão &quot;Acesso Admin&quot; para liberar o Painel Murade e módulos restritos.
+                        Usada no botão &quot;Acesso Admin&quot; para liberar o Painel Murad e módulos restritos.
                       </p>
                     </div>
                   </div>
@@ -833,7 +833,7 @@ export default function AdminDashboard({ abaInicial = 'visao_geral', filtroInici
                         2. Senha de Entrada / Login no FISCOIA
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Altere a senha de login da Diretoria Murade ou de operadores do sistema.
+                        Altere a senha de login da Diretoria Murad ou de operadores do sistema.
                       </p>
                     </div>
                   </div>

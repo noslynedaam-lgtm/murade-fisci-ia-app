@@ -157,7 +157,7 @@ export default function Navbar({
     { id: 'minhaConta', rotulo: 'Minha Conta', icone: User },
     ...(estaAdminAtivo ? [
       { id: 'planos', rotulo: 'Planos', icone: CreditCard },
-      { id: 'admin', rotulo: '👑 Painel MURADE', icone: Crown, destaque: true }
+      { id: 'admin', rotulo: '👑 Painel MURAD', icone: Crown, destaque: true }
     ] : [])
   ];
 
@@ -188,11 +188,11 @@ export default function Navbar({
       <div className="bg-slate-900 text-slate-300 text-[11px] py-1.5 px-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-800">
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-          <span className="font-black text-white tracking-wide">Murade Fisco IA</span>
+          <span className="font-black text-white tracking-wide">Murad Fisco IA</span>
           <span className="text-slate-500">•</span>
           <span className="hidden sm:inline">Ferramentas de apoio fiscal com IA</span>
           <span className="text-slate-500 hidden sm:inline">•</span>
-          <strong className="text-[#F2D26E] font-bold">Ambiente de gestão MURADE</strong>
+          <strong className="text-[#F2D26E] font-bold">Ambiente de gestão MURAD</strong>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-slate-400 text-[11px]">
@@ -264,7 +264,7 @@ export default function Navbar({
 
               <div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Murade Fisco IA</span>
+                  <span className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Murad Fisco IA</span>
                 </div>
                 <p className="text-[10.5px] text-slate-500 -mt-0.5 font-medium hidden sm:block">
                   Ferramentas de apoio fiscal com IA
@@ -439,7 +439,7 @@ export default function Navbar({
               {estaAdminAtivo && dropdownAberto && (
                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 p-2 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95 duration-100">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 block">
-                    Alternar Nível de Permissão (Murade):
+                    Alternar Nível de Permissão (Murad):
                   </span>
                   {(['basico', 'profissional', 'empresarial'] as const).map((pId) => {
                     const pInfo = PLANOS[pId.toUpperCase()];
@@ -475,7 +475,7 @@ export default function Navbar({
                 id="btn-janelinha-admin-senha"
                 onClick={() => setModalAdminAberto(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 text-slate-700 hover:text-indigo-900 text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                title="Acesso exclusivo da Diretoria Murade com senha"
+                title="Acesso exclusivo da Diretoria Murad com senha"
               >
                 <Lock className="w-3.5 h-3.5 text-slate-500" />
                 <span className="hidden sm:inline">Acesso Admin</span>

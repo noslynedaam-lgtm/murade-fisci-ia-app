@@ -38,9 +38,9 @@ async function listarResumoFiscal(cnpj: string, desde: string, ate: string): Pro
   { ok: true; documentos: DocumentoFiscalResumo[]; parcial: boolean } | { ok: false; motivo: string }
 > {
   const token = process.env.MURADE_INTEGRATION_TOKEN?.trim();
-  if (!token) return { ok: false, motivo: 'A ligação com o Murade Fiscal ainda não foi configurada neste servidor (falta a credencial de integração).' };
+  if (!token) return { ok: false, motivo: 'A ligação com o Murad Fiscal ainda não foi configurada neste servidor (falta a credencial de integração).' };
   const base = urlFiscal();
-  if (!base) return { ok: false, motivo: 'O endereço do Murade Fiscal não está configurado de forma segura.' };
+  if (!base) return { ok: false, motivo: 'O endereço do Murad Fiscal não está configurado de forma segura.' };
   const documentos: DocumentoFiscalResumo[] = [];
   let cursor = '';
   for (let pagina = 0; pagina < MAX_PAGINAS; pagina += 1) {
@@ -55,17 +55,17 @@ async function listarResumoFiscal(cnpj: string, desde: string, ate: string): Pro
     try {
       resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
     } catch {
-      return { ok: false, motivo: 'O Murade Fiscal não respondeu a tempo.' };
+      return { ok: false, motivo: 'O Murad Fiscal não respondeu a tempo.' };
     }
-    if (resposta.status === 401) return { ok: false, motivo: 'A credencial entre o Fisco IA e o Murade Fiscal não foi aceita.' };
-    if (!resposta.ok) return { ok: false, motivo: `O Murade Fiscal respondeu com erro (HTTP ${resposta.status}).` };
+    if (resposta.status === 401) return { ok: false, motivo: 'A credencial entre o Fisco IA e o Murad Fiscal não foi aceita.' };
+    if (!resposta.ok) return { ok: false, motivo: `O Murad Fiscal respondeu com erro (HTTP ${resposta.status}).` };
     const corpo = await resposta.json().catch(() => null) as {
       sucesso?: boolean; cnpj?: string; resumo?: boolean; documentos?: Array<Record<string, unknown>>; proximoCursor?: string | null;
     } | null;
     if (!corpo || corpo.sucesso !== true || normalizarCnpj(String(corpo.cnpj || '')) !== cnpj || !Array.isArray(corpo.documentos)) {
-      return { ok: false, motivo: 'Resposta do Murade Fiscal inválida ou de outro CNPJ.' };
+      return { ok: false, motivo: 'Resposta do Murad Fiscal inválida ou de outro CNPJ.' };
     }
-    if (corpo.resumo !== true) return { ok: false, motivo: 'O Murade Fiscal ainda não oferece a consulta resumida; atualize o serviço Fiscal.' };
+    if (corpo.resumo !== true) return { ok: false, motivo: 'O Murad Fiscal ainda não oferece a consulta resumida; atualize o serviço Fiscal.' };
     for (const item of corpo.documentos) {
       const chave = String(item.chaveAcesso || '').trim();
       if (!chave) continue;
@@ -141,7 +141,7 @@ router.get('/companies/:companyId/conferencia', async (req, res) => {
       ...resultado,
       fiscal: fiscal.ok === true
         ? { disponivel: true, parcial: fiscal.parcial, documentos: fiscal.documentos.length,
-            aviso: fiscal.parcial ? 'Período grande: a comparação com o Murade Fiscal não foi feita. Escolha um intervalo menor.' : null }
+            aviso: fiscal.parcial ? 'Período grande: a comparação com o Murad Fiscal não foi feita. Escolha um intervalo menor.' : null }
         : { disponivel: false, parcial: false, documentos: 0, aviso: (fiscal as { motivo: string }).motivo },
     });
   } catch {

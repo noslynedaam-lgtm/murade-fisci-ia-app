@@ -41,7 +41,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
   {
     tipo: 'leitura',
-    declaracao: { name: 'conferir_periodo', description: 'Roda a conferência (radar) de um período: compara as notas guardadas no Fisco IA com as do Murade Fiscal e aponta divergências. Só leitura.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, desde: { type: 'STRING', description: 'Data inicial AAAA-MM-DD.' }, ate: { type: 'STRING', description: 'Data final AAAA-MM-DD.' } }, required: ['tenantId', 'companyId', 'desde', 'ate'] } },
+    declaracao: { name: 'conferir_periodo', description: 'Roda a conferência (radar) de um período: compara as notas guardadas no Fisco IA com as do Murad Fiscal e aponta divergências. Só leitura.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, desde: { type: 'STRING', description: 'Data inicial AAAA-MM-DD.' }, ate: { type: 'STRING', description: 'Data final AAAA-MM-DD.' } }, required: ['tenantId', 'companyId', 'desde', 'ate'] } },
     async executar(ctx, args) {
       const tenantId = idDe(args.tenantId); const companyId = idDe(args.companyId);
       if (!tenantId || !companyId) return { erro: 'Informe escritório e empresa.' };
@@ -532,7 +532,7 @@ const FERRAMENTAS: Ferramenta[] = [
   },
 ];
 
-const INSTRUCAO_BASE = `Você é a Agente IA do Murade Fisco IA (radar de conferência), em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
+const INSTRUCAO_BASE = `Você é a Agente IA do Murad Fisco IA (radar de conferência), em português do Brasil, com tom calmo, direto e prático. Respostas curtas.
 
 COMO RESPONDER (suas respostas são lidas em voz alta)
 - Escreva em texto simples: sem asteriscos, negrito, tabelas, marcadores, # ou emojis.
@@ -561,7 +561,7 @@ COMO ENTENDER QUEM FALA
 
 MAPA DO SISTEMA (onde fica cada coisa no Fisco IA)
 (Em Cadastro de empresas fica o botão "Apagar empresa", uma por vez, com segunda confirmação.)
-Painel; Agenda; CND; DT-e Goiás (guia e checklist do Domicílio Tributário Eletrônico); DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO (com a Carteira fiscal, o botão "Consultar a carteira", o botão "Gerar relatório" de cada empresa e o quadro "Tarefas da equipe"); Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murade; Vídeo aulas; Minha conta; Planos; Configuração e integração.
+Painel; Agenda; CND; DT-e Goiás (guia e checklist do Domicílio Tributário Eletrônico); DCTFWeb; Consulta de guias; Receita Federal; Guias INSS; Órgãos públicos; Procuração; SERPRO (com a Carteira fiscal, o botão "Consultar a carteira", o botão "Gerar relatório" de cada empresa e o quadro "Tarefas da equipe"); Cadastro de empresas; Automação fiscal; Módulo Fiscal; Módulos Murad; Vídeo aulas; Minha conta; Planos; Configuração e integração.
 Quando perguntarem "onde eu faço X", diga o nome da tela. Não invente telas que não estão nesta lista.
 
 COMO TRABALHAR
@@ -579,7 +579,7 @@ APAGAR EMPRESA (por voz ou texto)
 
 LIMITES (diga com clareza quando o pedido bater neles)
 - Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal, pedir uma consulta nova ao Serpro, criar tarefa para a equipe e marcar o checklist do DT-e de Goiás, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
-- Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murade Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
+- Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murad Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 
 export const kitFiscoIA: KitAgente = { ferramentas: [...FERRAMENTAS, ...FERRAMENTAS_ENTRE_SISTEMAS], instrucao: INSTRUCAO_BASE + INSTRUCAO_ENTRE_SISTEMAS + '\n- Cadastro do escritório: é feito uma vez no DP (dados, certificado A1 e-CNPJ e procurações das empresas) e vale para todos os sistemas; use situacao_cadastro_escritorio e entregue o link do DP. Nunca peça certificado ou senha pelo chat.' };

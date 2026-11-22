@@ -765,7 +765,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                       )}
                     </h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      Acesse o portal da Loja SERPRO (<strong>loja.serpro.gov.br</strong>), cadastre o CNPJ da Murade / Assessoria Fiscal e aceite o Termo Geral de Prestação de Serviços Tecnológicos da União.
+                      Acesse o portal da Loja SERPRO (<strong>loja.serpro.gov.br</strong>), cadastre o CNPJ da Murad / Assessoria Fiscal e aceite o Termo Geral de Prestação de Serviços Tecnológicos da União.
                     </p>
                   </div>
                 </div>
@@ -872,7 +872,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                       )}
                     </h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      Os requisitos de certificado variam por serviço e contrato. O Murade ainda não recebe nem valida o arquivo; confirme as exigências no portal oficial do produto contratado.
+                      Os requisitos de certificado variam por serviço e contrato. O Murad ainda não recebe nem valida o arquivo; confirme as exigências no portal oficial do produto contratado.
                     </p>
                   </div>
                 </div>
@@ -1024,7 +1024,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                       )}
                     </h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      A escolha de produção nesta tela altera somente uma preferência local. A liberação depende do contrato e da ativação oficial do SERPRO, que o Murade não verifica.
+                      A escolha de produção nesta tela altera somente uma preferência local. A liberação depende do contrato e da ativação oficial do SERPRO, que o Murad não verifica.
                     </p>
                   </div>
                 </div>
@@ -1067,7 +1067,7 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
               </p>
             </div>
             <div role="note" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
-              Nenhum plano foi contratado ou ativado pelo Murade. A preferência abaixo, se selecionada, é apenas local e não muda preços, limites, credenciais nem contrato.
+              Nenhum plano foi contratado ou ativado pelo Murad. A preferência abaixo, se selecionada, é apenas local e não muda preços, limites, credenciais nem contrato.
             </div>
           </div>
 
@@ -1088,14 +1088,14 @@ export default function SerproHomologacaoScreen({ onVoltar, onNavegar }: SerproH
                 <tbody className="divide-y divide-slate-100">
                   <tr>
                     <td className="p-3 text-slate-700">Preço, franquia, forma de pagamento e contratação do produto SERPRO</td>
-                    <td className="p-3 text-slate-600">Não consultados nem contratados pelo Murade. Verifique no portal oficial.</td>
+                    <td className="p-3 text-slate-600">Não consultados nem contratados pelo Murad. Verifique no portal oficial.</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-              <span>O Murade não processa contratação, pagamento nem consulta de tarifa oficial.</span>
+              <span>O Murad não processa contratação, pagamento nem consulta de tarifa oficial.</span>
               <a 
                 href="https://loja.serpro.gov.br" 
                 target="_blank" 

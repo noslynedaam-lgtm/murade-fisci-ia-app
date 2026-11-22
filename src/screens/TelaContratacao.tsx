@@ -34,7 +34,7 @@ export default function TelaContratacao({
         <div className="flex items-center gap-3">
           <span className="rounded-xl bg-indigo-50 p-3 text-indigo-700"><ShieldCheck className="h-6 w-6" /></span>
           <div>
-            <h1 className="text-xl font-extrabold text-slate-900">Planos Murade</h1>
+            <h1 className="text-xl font-extrabold text-slate-900">Planos Murad</h1>
             <p className="text-sm text-slate-600">{planoNome} · valor de referência: {planoValor}</p>
           </div>
         </div>

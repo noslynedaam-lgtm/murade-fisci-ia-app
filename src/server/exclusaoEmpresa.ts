@@ -28,7 +28,7 @@ export interface ResultadoCascata { situacao: 'ok' | 'falhou' | 'nao_configurada
 export async function avisarHubDoFiscal(cnpj: string, por: string, env: Record<string, string | undefined> = process.env, buscar: typeof fetch = fetch, prazoMs = 8000): Promise<ResultadoCascata> {
   const limpo = normalizarCnpj(cnpj);
   const token = env.MURADE_INTEGRATION_TOKEN?.trim();
-  if (!token) return { situacao: 'nao_configurada', mensagem: 'A ligação com o Murade Fiscal não está configurada (token de integração). Apague a empresa também no Fiscal.' };
+  if (!token) return { situacao: 'nao_configurada', mensagem: 'A ligação com o Murad Fiscal não está configurada (token de integração). Apague a empresa também no Fiscal.' };
   if (!validarCnpj(limpo)) return { situacao: 'falhou', mensagem: 'CNPJ inválido; nada foi enviado ao Fiscal.' };
   try {
     const r = await buscar(`${urlDoSistema('fiscal', env)}/api/integracao/empresa/${limpo}`, {
@@ -39,9 +39,9 @@ export async function avisarHubDoFiscal(cnpj: string, por: string, env: Record<s
     });
     const j: any = await r.json().catch(() => ({}));
     if (r.ok && j?.sucesso !== false) return { situacao: 'ok', mensagem: typeof j?.mensagem === 'string' && j.mensagem ? j.mensagem.slice(0, 300) : 'Cadastro apagado no Fiscal, DP e Contábil.' };
-    return { situacao: 'falhou', mensagem: `O Murade Fiscal não confirmou a exclusão (HTTP ${r.status}). Apague também no Fiscal para completar.` };
+    return { situacao: 'falhou', mensagem: `O Murad Fiscal não confirmou a exclusão (HTTP ${r.status}). Apague também no Fiscal para completar.` };
   } catch {
-    return { situacao: 'falhou', mensagem: 'Não foi possível falar com o Murade Fiscal agora (fora do ar ou demorou demais). Apague também no Fiscal para completar.' };
+    return { situacao: 'falhou', mensagem: 'Não foi possível falar com o Murad Fiscal agora (fora do ar ou demorou demais). Apague também no Fiscal para completar.' };
   }
 }
 

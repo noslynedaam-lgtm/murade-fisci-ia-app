@@ -268,7 +268,7 @@ export function MonitorPendenciasFiscal() {
       if (resultado.estado === 'disponivel') {
         if (anterior.falhasConsecutivas >= 2 && anterior.indisponibilidadeNotificada && 'Notification' in window && Notification.permission === 'granted') {
           try {
-            new Notification('Murade — serviço voltou a responder', {
+            new Notification('Murad — serviço voltou a responder', {
               body: `${resultado.nome}: ${resultado.detalhe}`,
               tag: `murade-health-${resultado.id}`
             });
@@ -291,7 +291,7 @@ export function MonitorPendenciasFiscal() {
       estadosComHistorico.push({ ...resultado, verificadoEm, ultimoSucessoEm: historico.ultimoSucessoEm });
       if (notificar && 'Notification' in window && Notification.permission === 'granted') {
         try {
-          new Notification('Murade — serviço sem confirmação', {
+          new Notification('Murad — serviço sem confirmação', {
             body: `${resultado.nome}: ${falhasConsecutivas} verificações seguidas sem resposta confirmada. Pode ser rede, CORS ou endpoint; isso não prova que o serviço esteja fora do ar.`,
             tag: `murade-health-${resultado.id}`
           });
@@ -378,7 +378,7 @@ export function MonitorPendenciasFiscal() {
         const texto = `Encontrei ${atual.length} item(ns) local(is) para revisar em ${empresasComId.length} empresa(s). ${resumoPendencias(atual, empresas)}. A conferência usa apenas dados locais e não confirma obrigações ou transmissões nos portais.`;
         setAviso(texto);
         if (anterior === null && 'Notification' in window && Notification.permission === 'granted') {
-          new Notification('Murade Fiscal — itens para revisar', {
+          new Notification('Murad Fiscal — itens para revisar', {
             body: `${texto} A conferência usa apenas os dados locais e não acessou portais oficiais.`,
             tag: 'murade-fiscal-pendencias-iniciais'
           });
@@ -404,7 +404,7 @@ export function MonitorPendenciasFiscal() {
       const texto = `${novas.length} nova(s) pendência(s) detectada(s) nos dados locais: ${resumoPendencias(novas, empresas)}. A conferência não acessou portais oficiais.`;
       setAviso(texto);
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Murade Fiscal — pendência para revisar', {
+        new Notification('Murad Fiscal — pendência para revisar', {
           body: `${texto} A consulta não acessou portais oficiais.`,
           tag: 'murade-fiscal-pendencias-carteira'
         });
@@ -413,7 +413,7 @@ export function MonitorPendenciasFiscal() {
       const texto = `${removidas.length} pendência(s) deixou(aram) de aparecer localmente. Confira antes de considerar resolvida.`;
       setAviso(texto);
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('Murade Fiscal — dados locais atualizados', {
+        new Notification('Murad Fiscal — dados locais atualizados', {
           body: texto,
           tag: 'murade-fiscal-pendencias-atualizadas'
         });
@@ -427,7 +427,7 @@ export function MonitorPendenciasFiscal() {
         const texto = `${documentosNovos.length} novo(s) documento(s) local(is) detectado(s). Isso não confirma download nem consulta à SEFAZ.`;
         if (!novas.length && !removidas.length) setAviso(texto);
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Murade Fiscal — novos registros locais', {
+          new Notification('Murad Fiscal — novos registros locais', {
             body: texto,
             tag: 'murade-fiscal-documentos-locais-novos'
           });
@@ -450,21 +450,21 @@ export function MonitorPendenciasFiscal() {
     }
     setAtivo(proximo);
     setAviso(proximo
-      ? 'Monitor local ativado. Ele confere dados salvos neste navegador enquanto o Murade estiver aberto.'
+      ? 'Monitor local ativado. Ele confere dados salvos neste navegador enquanto o Murad estiver aberto.'
       : 'Monitor local pausado. Nenhuma conferência automática será feita até reativá-lo.');
   };
 
   const ativarNotificacoes = async () => {
     if (!('Notification' in window)) {
       setPermissaoNotificacao('unsupported');
-      setAviso('Este navegador não oferece notificações. Os avisos continuam visíveis dentro do Murade.');
+      setAviso('Este navegador não oferece notificações. Os avisos continuam visíveis dentro do Murad.');
       return;
     }
     try {
       const permissao = await Notification.requestPermission();
       setPermissaoNotificacao(permissao);
       if (permissao !== 'granted') {
-        setAviso('O navegador não autorizou notificações. Os avisos continuam visíveis dentro do Murade.');
+        setAviso('O navegador não autorizou notificações. Os avisos continuam visíveis dentro do Murad.');
         return;
       }
 
@@ -472,14 +472,14 @@ export function MonitorPendenciasFiscal() {
       if (estado.assinaturas.length) {
         const texto = `Há ${estado.assinaturas.length} item(ns) local(is) para revisar: ${resumoPendencias(estado.assinaturas, empresas)}. Esta conferência não consultou portais oficiais.`;
         try {
-          new Notification('Murade Fiscal — itens locais para revisar', {
+          new Notification('Murad Fiscal — itens locais para revisar', {
             body: texto,
             tag: 'murade-fiscal-pendencias-carteira'
           });
         } catch { /* O resumo continua visível no painel do monitor. */ }
       }
     } catch {
-      setAviso('Não foi possível solicitar notificações neste navegador. Os avisos continuam visíveis dentro do Murade.');
+      setAviso('Não foi possível solicitar notificações neste navegador. Os avisos continuam visíveis dentro do Murad.');
     }
   };
 
@@ -543,7 +543,7 @@ export function MonitorPendenciasFiscal() {
           <p className="mt-1 text-[10px] text-amber-800">Última conferência: {ultimaConferencia ? ultimaConferencia.toLocaleTimeString('pt-BR') : 'ainda não realizada'} · Atualiza a cada 5 min com o sistema aberto.</p>
           <p className="mt-1 rounded border border-amber-300 bg-white/70 p-2 text-[10px] font-medium text-amber-950">Busca de notas em portais: não conectada. O robô só revisa XMLs e notas já salvos neste navegador; ele não consegue identificar documentos que ainda não foram importados nem consultar SEFAZ, Receita ou outros sites.</p>
           <p className="mt-1 text-[10px] text-amber-900">
-            Módulos Murade: {saudeModulos.length ? saudeModulos.map(servico => `${servico.nome.replace('Murade ', '')} ${servico.estado === 'disponivel' ? 'respondendo' : `sem confirmação${servico.ultimoSucessoEm ? ` (última resposta ${servico.ultimoSucessoEm.toLocaleTimeString('pt-BR')})` : ' (sem resposta confirmada nesta sessão)'}`}`).join(' · ') : 'checando'}.
+            Módulos Murad: {saudeModulos.length ? saudeModulos.map(servico => `${servico.nome.replace(/^Murade? /, '')} ${servico.estado === 'disponivel' ? 'respondendo' : `sem confirmação${servico.ultimoSucessoEm ? ` (última resposta ${servico.ultimoSucessoEm.toLocaleTimeString('pt-BR')})` : ' (sem resposta confirmada nesta sessão)'}`}`).join(' · ') : 'checando'}.
             {' '}Health check a cada 10 min; não confere portais oficiais nem sincronização fiscal.
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">

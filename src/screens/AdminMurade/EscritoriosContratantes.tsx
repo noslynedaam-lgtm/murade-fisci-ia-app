@@ -59,7 +59,7 @@ export default function EscritoriosContratantes() {
     catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível definir o limite.'); }
   };
   const definirCnpj = async (x: Escritorio) => {
-    const resp = await perguntarNaTela(`CNPJ do escritório ${x.nome}. As empresas dele devem autorizar ESTE CNPJ no e-CAC (é ele que consulta a Receita). Se este escritório tiver outro CNPJ que não o seu, ele também precisa cadastrar o certificado e-CNPJ A1 dele no Murade Fiscal. Deixe vazio para NÃO liberar as consultas à Receita deste escritório.`, x.cnpj ?? '');
+    const resp = await perguntarNaTela(`CNPJ do escritório ${x.nome}. As empresas dele devem autorizar ESTE CNPJ no e-CAC (é ele que consulta a Receita). Se este escritório tiver outro CNPJ que não o seu, ele também precisa cadastrar o certificado e-CNPJ A1 dele no Murad Fiscal. Deixe vazio para NÃO liberar as consultas à Receita deste escritório.`, x.cnpj ?? '');
     if (resp === null) return;
     try { await chamar(`/api/auth/escritorios/${encodeURIComponent(x.id)}/cnpj`, { cnpj: resp.trim() === '' ? null : resp.trim() }); await carregar(); }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Não foi possível salvar o CNPJ.'); }

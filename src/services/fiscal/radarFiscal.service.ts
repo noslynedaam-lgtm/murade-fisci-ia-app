@@ -340,7 +340,7 @@ export function exportarRelatorioRadarCsv(notas: NotaRadar[], ocorrencias: Map<s
     const seguro = /^[\u0000-\u0020]*[=+@-]/.test(valor) ? `'${valor}` : valor;
     return `"${seguro.replace(/"/g, '""')}"`;
   };
-  const linhas = [['Chave','Modelo','Número','Série','Emissão','Direção','Parceiro','Tipo de documento','Documento do parceiro','CFOP','Valor total','Arquivo','Origem autenticada pelo Murade?','Consulta SEFAZ realizada?','Protocolo no XML','Conferência local','Ocorrências locais'], ...notas.map(n => {
+  const linhas = [['Chave','Modelo','Número','Série','Emissão','Direção','Parceiro','Tipo de documento','Documento do parceiro','CFOP','Valor total','Arquivo','Origem autenticada pelo Murad?','Consulta SEFAZ realizada?','Protocolo no XML','Conferência local','Ocorrências locais'], ...notas.map(n => {
     const issues = ocorrencias.get(n.chave || `${n.origemArquivo}-${n.numero}`) ?? [];
     const protocoloNoArquivo = n.situacaoProtocolo === 'PROTOCOLO_DECLARADO_NO_XML' || n.situacaoProtocolo === 'AUTORIZADA_NO_XML'
       ? `Declarado no XML (cStat ${n.codigoProtocolo || 'ausente'}); não autenticado`

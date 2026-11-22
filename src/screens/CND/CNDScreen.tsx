@@ -468,7 +468,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
               </h3>
             </div>
             <p className="text-xs text-blue-700 mt-0.5">
-              Os botões abaixo abrem os sites dos órgãos. A emissão acontece no portal oficial, fora do Murade:
+              Os botões abaixo abrem os sites dos órgãos. A emissão acontece no portal oficial, fora do Murad:
             </p>
           </div>
 
@@ -1041,7 +1041,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                   </div>
 
                   <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
-                    <strong>Este relatório não é uma certidão.</strong> O Murade não consultou o órgão, não recebeu o documento e não validou autenticidade, regularidade ou validade. Confira os dados no portal emissor.
+                    <strong>Este relatório não é uma certidão.</strong> O Murad não consultou o órgão, não recebeu o documento e não validou autenticidade, regularidade ou validade. Confira os dados no portal emissor.
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -1050,7 +1050,7 @@ export default function CNDScreen({ onVoltar, onNavegar }: CNDScreenProps) {
                     <div><span className="block text-[10px] font-bold uppercase text-slate-500">Número / protocolo informado</span><span className="font-mono font-semibold">{certidaoVisualizacao.numero || 'Não informado'}</span></div>
                     <div><span className="block text-[10px] font-bold uppercase text-slate-500">Data de emissão informada</span><span>{formatarDataBR(certidaoVisualizacao.emissao)}</span></div>
                     <div><span className="block text-[10px] font-bold uppercase text-slate-500">Data de validade informada</span><span>{formatarDataBR(certidaoVisualizacao.validade)}</span></div>
-                    {certidaoVisualizacao.dataCadastro && <div><span className="block text-[10px] font-bold uppercase text-slate-500">Registro criado no Murade</span><span>{new Date(certidaoVisualizacao.dataCadastro).toLocaleString('pt-BR')}</span></div>}
+                    {certidaoVisualizacao.dataCadastro && <div><span className="block text-[10px] font-bold uppercase text-slate-500">Registro criado no Murad</span><span>{new Date(certidaoVisualizacao.dataCadastro).toLocaleString('pt-BR')}</span></div>}
                   </div>
 
                   {certidaoVisualizacao.obs && <div className="border-t border-slate-200 pt-3 text-xs"><strong>Observação local:</strong> {certidaoVisualizacao.obs}</div>}

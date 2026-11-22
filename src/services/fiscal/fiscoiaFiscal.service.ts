@@ -248,7 +248,7 @@ export interface ResumoTributosInformados {
 }
 
 export const FISCOIA_FISCAL = {
-  NOME: "MURADE FISCAL — ROTINAS LOCAIS",
+  NOME: "MURAD FISCAL — ROTINAS LOCAIS",
   VERSAO: "3.2.1 — CORRIGIDO",
   ATIVO: true,
 

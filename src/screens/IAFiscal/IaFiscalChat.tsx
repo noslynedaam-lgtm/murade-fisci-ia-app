@@ -53,7 +53,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
       autor: 'ia',
       texto: 'Olá, quem fala é o Fisco IA. O que você deseja?\n\nPosso ajudar com dúvidas fiscais e trabalhistas. Quando a pergunta depender de uma regra atual, vou pesquisar e mostrar as fontes encontradas. Não tenho acesso automático a dados de SERPRO, SEFAZ, Receita ou e-CAC sem uma integração configurada.\n\n🎙️ Clique no microfone para falar comigo ou digite sua dúvida.',
       timestamp: 'Agora',
-      referencia: 'Murade Fisco IA',
+      referencia: 'Murad Fisco IA',
       origem: 'ASSISTENTE'
     }
   ]);

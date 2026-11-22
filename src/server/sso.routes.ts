@@ -213,7 +213,7 @@ router.get('/apps', async (req, res) => {
       .filter((client): client is { id: string; nome: string } => Boolean(client));
     return res.json({
       sistemas: [
-        { id: 'murade-fisco-ia', nome: 'Murade Fisco IA', tipo: 'interno', ssoAtivo: true },
+        { id: 'murade-fisco-ia', nome: 'Murad Fisco IA', tipo: 'interno', ssoAtivo: true },
         ...authorized.map((client) => ({ ...client, tipo: 'externo', ssoAtivo: false })),
       ],
     });

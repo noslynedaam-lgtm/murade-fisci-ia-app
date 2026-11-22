@@ -67,7 +67,7 @@ export default function TrocarSenhaPrimeiroAcessoScreen({
             Primeiro Acesso — Bem-vindo!
           </h2>
           <p className="text-xs text-slate-600">
-            Por política de segurança do escritório MURADE, você deve cadastrar sua senha exclusiva e definitiva antes de entrar.
+            Por política de segurança do escritório MURAD, você deve cadastrar sua senha exclusiva e definitiva antes de entrar.
           </p>
           <div className="p-2 bg-indigo-50 rounded-xl border border-indigo-100 text-[11px] font-mono text-indigo-900 font-bold">
             Conta: {email}

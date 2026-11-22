@@ -79,8 +79,8 @@ export async function sincronizarDocumentosFiscal(p: ParametrosSincronizacaoFisc
   const { tenantId, companyId, cnpj, desde, ate } = p;
   const fiscalUrl = obterUrlFiscal();
   const integrationToken = process.env.MURADE_INTEGRATION_TOKEN;
-  if (!integrationToken?.trim()) return { ok: false, status: 503, corpo: { mensagem: 'Integração com o Murade Fiscal ainda não foi configurada no servidor.' } };
-  if (!fiscalUrl) return { ok: false, status: 503, corpo: { mensagem: 'A URL segura do Murade Fiscal não está configurada corretamente.' } };
+  if (!integrationToken?.trim()) return { ok: false, status: 503, corpo: { mensagem: 'Integração com o Murad Fiscal ainda não foi configurada no servidor.' } };
+  if (!fiscalUrl) return { ok: false, status: 503, corpo: { mensagem: 'A URL segura do Murad Fiscal não está configurada corretamente.' } };
   let cursor = p.cursor;
   let consultados = 0;
   let importados = 0;
@@ -107,8 +107,8 @@ export async function sincronizarDocumentosFiscal(p: ParametrosSincronizacaoFisc
         status: sourceResponse.status === 401 || sourceResponse.status === 503 ? 503 : 502,
         corpo: {
           mensagem: sourceResponse.status === 401
-            ? 'A credencial entre Fisco IA e Murade Fiscal não foi aceita; nenhum dado desta página foi gravado.'
-            : 'Murade Fiscal não concluiu a consulta; documentos já sincronizados foram preservados.',
+            ? 'A credencial entre Fisco IA e Murad Fiscal não foi aceita; nenhum dado desta página foi gravado.'
+            : 'Murad Fiscal não concluiu a consulta; documentos já sincronizados foram preservados.',
           paginasProcessadas: paginas,
           importados,
           repetidos,
@@ -120,12 +120,12 @@ export async function sincronizarDocumentosFiscal(p: ParametrosSincronizacaoFisc
       proximoCursor?: string | null; truncado?: boolean; avisos?: string[];
     };
     if (payload.sucesso !== true || normalizarCnpj(String(payload.cnpj || '')) !== cnpj || !Array.isArray(payload.documentos)) {
-      return { ok: false, status: 502, corpo: { mensagem: 'Resposta do Murade Fiscal inválida ou de outro CNPJ; esta página não foi importada.', paginasProcessadas: paginas, importados, repetidos } };
+      return { ok: false, status: 502, corpo: { mensagem: 'Resposta do Murad Fiscal inválida ou de outro CNPJ; esta página não foi importada.', paginasProcessadas: paginas, importados, repetidos } };
     }
     if (Array.isArray(payload.avisos)) avisos.push(...payload.avisos.filter((item): item is string => typeof item === 'string').slice(0, 10));
     const documentos = payload.documentos;
     if (documentos.length > p.documentosPorPagina) {
-      return { ok: false, status: 502, corpo: { mensagem: 'Murade Fiscal devolveu mais documentos que o limite solicitado; a página foi recusada.', paginasProcessadas: paginas, importados, repetidos } };
+      return { ok: false, status: 502, corpo: { mensagem: 'Murad Fiscal devolveu mais documentos que o limite solicitado; a página foi recusada.', paginasProcessadas: paginas, importados, repetidos } };
     }
     consultados += documentos.length;
     for (const documento of documentos) {
@@ -192,7 +192,7 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
   const companyId = req.params.companyId;
   if (!UUID.test(tenantId) || !UUID.test(companyId)) return res.status(400).json({ mensagem: 'Escritório ou empresa inválidos.' });
   if (req.body?.confirmarSincronizacao !== true) {
-    return res.status(400).json({ mensagem: 'Confirmação explícita necessária para consultar os documentos do Murade Fiscal.' });
+    return res.status(400).json({ mensagem: 'Confirmação explícita necessária para consultar os documentos do Murad Fiscal.' });
   }
   const desde = req.body?.desde;
   const ate = req.body?.ate;
@@ -203,10 +203,10 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
     return res.status(400).json({ mensagem: 'Cursor de continuação inválido; reinicie a sincronização pelo início do período.' });
   }
   if (!process.env.MURADE_INTEGRATION_TOKEN?.trim()) {
-    return res.status(503).json({ mensagem: 'Integração com o Murade Fiscal ainda não foi configurada no servidor.' });
+    return res.status(503).json({ mensagem: 'Integração com o Murad Fiscal ainda não foi configurada no servidor.' });
   }
   const fiscalUrl = obterUrlFiscal();
-  if (!fiscalUrl) return res.status(503).json({ mensagem: 'A URL segura do Murade Fiscal não está configurada corretamente.' });
+  if (!fiscalUrl) return res.status(503).json({ mensagem: 'A URL segura do Murad Fiscal não está configurada corretamente.' });
 
   try {
     const user = await obterUsuarioDaSessao(req);
@@ -234,7 +234,7 @@ router.post('/companies/:companyId/fiscal-source-sync', async (req, res) => {
     if (resultado.ok === false) return res.status(resultado.status).json(resultado.corpo);
     return res.json(resultado.corpo);
   } catch {
-    return res.status(502).json({ mensagem: 'Não foi possível concluir a sincronização com o Murade Fiscal. Os documentos já gravados foram preservados.' });
+    return res.status(502).json({ mensagem: 'Não foi possível concluir a sincronização com o Murad Fiscal. Os documentos já gravados foram preservados.' });
   }
 });
 

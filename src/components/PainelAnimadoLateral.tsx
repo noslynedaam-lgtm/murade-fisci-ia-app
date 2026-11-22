@@ -71,7 +71,7 @@ export function PainelAnimadoLateral({
       id: 'init-1',
       tipo: 'info',
       hora: new Date().toLocaleTimeString('pt-BR'),
-      msg: 'Painel local Murade aberto',
+      msg: 'Painel local Murad aberto',
       detalhe: 'Nenhuma tarefa oficial foi iniciada por este painel.',
       cor: '#2563eb',
       icone: '🤖'
@@ -200,7 +200,7 @@ export function PainelAnimadoLateral({
             setFechado(false);
             setMinimizado(false);
           }}
-          title="Abrir Central Murade (Robô, Certificado & Monitor)"
+          title="Abrir Central Murad (Robô, Certificado & Monitor)"
           className="fixed bottom-4 right-4 z-50 bg-white/95 hover:bg-white text-slate-800 hover:text-blue-700 px-3.5 py-2 rounded-2xl shadow-xl hover:shadow-2xl border-2 border-blue-500/80 flex items-center gap-2 cursor-pointer transition-all hover:scale-105 group backdrop-blur-xs text-xs font-bold"
         >
           <div className="relative">
@@ -208,7 +208,7 @@ export function PainelAnimadoLateral({
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-white animate-pulse" />
           </div>
           <div className="text-left hidden sm:block">
-            <div className="text-[10px] text-blue-600 font-extrabold uppercase tracking-wide">Murade Central</div>
+            <div className="text-[10px] text-blue-600 font-extrabold uppercase tracking-wide">Murad Central</div>
             <div className="text-xs font-bold text-slate-800 flex items-center gap-1">
               <span>Abrir Robô & Certificado</span>
               <ChevronUp className="w-3.5 h-3.5 text-blue-500 group-hover:-translate-y-0.5 transition-transform" />
@@ -225,7 +225,7 @@ export function PainelAnimadoLateral({
             type="button"
             onClick={() => setMinimizado(false)}
             className="flex items-center gap-2.5 text-left cursor-pointer hover:opacity-90"
-            title="Expandir Central Murade"
+            title="Expandir Central Murad"
           >
             <div className="relative">
               <span className="text-xl inline-block">🤖</span>
@@ -233,7 +233,7 @@ export function PainelAnimadoLateral({
             </div>
             <div>
               <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-blue-200">
-                <span>Murade Central</span>
+                <span>Murad Central</span>
                 <span className="bg-emerald-500 text-slate-900 text-[8px] font-black px-1 py-0.2 rounded-full">2026</span>
               </div>
               <div className="text-xs font-bold flex items-center gap-2">
@@ -296,7 +296,7 @@ export function PainelAnimadoLateral({
               {/* Informações compactas */}
               <div className="min-w-0 pr-1">
                 <div className="flex items-center gap-1 leading-tight">
-                  <span className="text-[10px] font-black tracking-wide text-white">Robô Murade</span>
+                  <span className="text-[10px] font-black tracking-wide text-white">Robô Murad</span>
                     <span className="text-[7px] font-bold bg-amber-300 text-slate-950 px-1 py-0.2 rounded-full uppercase">
                     Local
                   </span>
@@ -348,7 +348,7 @@ export function PainelAnimadoLateral({
                   <span className="text-base">🤖</span>
                   <div>
                     <div className="text-xs font-black tracking-wide flex items-center gap-1.5 leading-tight">
-                      <span>CENTRAL MURADE</span>
+                      <span>CENTRAL MURAD</span>
                       <span className="relative flex h-2 w-2">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />

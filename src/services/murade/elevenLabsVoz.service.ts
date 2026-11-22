@@ -12,7 +12,7 @@ const STORAGE_KEY = 'murade_ia_voz_config_v1';
 
 export const VOZES_PREDEFINIDAS = [
   { id: '21m00Tcm4TlvDq8ikWAM', nome: 'Voz Brasileira Natural (Feminina Suave)', tipo: 'ElevenLabs' },
-  { id: 'AZnzlk1XvdvUeBnXmlld', nome: 'Voz Executiva Murade (Masculina Clara)', tipo: 'ElevenLabs' },
+  { id: 'AZnzlk1XvdvUeBnXmlld', nome: 'Voz Executiva Murad (Masculina Clara)', tipo: 'ElevenLabs' },
   { id: 'EXAVITQu4vr4xnSDxMaL', nome: 'Voz Contadora Amigável (Feminina)', tipo: 'ElevenLabs' },
   { id: 'native_pt_br', nome: 'Voz Sintetizada Nativa do Navegador (PT-BR)', tipo: 'Navegador' }
 ];

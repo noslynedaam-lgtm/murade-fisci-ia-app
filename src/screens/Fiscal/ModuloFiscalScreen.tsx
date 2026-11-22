@@ -392,17 +392,17 @@ export function ModuloFiscalScreen({
   const sincronizarDocumentosMuradeFiscal = async () => {
     const empresa = empresaAtiva;
     if (!empresa?.idCentral || !empresa.tenantIdCentral) {
-      setMensagemRadar('Vincule esta empresa a um cadastro central antes de sincronizar com o Murade Fiscal.');
+      setMensagemRadar('Vincule esta empresa a um cadastro central antes de sincronizar com o Murad Fiscal.');
       return;
     }
     if (!periodoSyncDesde || !periodoSyncAte || periodoSyncDesde > periodoSyncAte) {
       setMensagemRadar('Informe um período válido para a sincronização.');
       return;
     }
-    if (!window.confirm(`Consultar no Murade Fiscal os documentos armazenados para o CNPJ ${empresa.cnpj}, de ${periodoSyncDesde} a ${periodoSyncAte}? Os XMLs válidos serão gravados como pendentes de revisão no Fisco IA. Nenhum lançamento ou envio oficial será feito.`)) return;
+    if (!window.confirm(`Consultar no Murad Fiscal os documentos armazenados para o CNPJ ${empresa.cnpj}, de ${periodoSyncDesde} a ${periodoSyncAte}? Os XMLs válidos serão gravados como pendentes de revisão no Fisco IA. Nenhum lançamento ou envio oficial será feito.`)) return;
 
     setSincronizandoFiscalCentral(true);
-    setMensagemRadar('Consultando o Murade Fiscal e validando documentos completos…');
+    setMensagemRadar('Consultando o Murad Fiscal e validando documentos completos…');
     try {
       const resposta = await fetch(`/api/companies/${encodeURIComponent(empresa.idCentral)}/fiscal-source-sync`, {
         method: 'POST',
@@ -419,7 +419,7 @@ export function ModuloFiscalScreen({
       setMensagemRadar(`${resultado.mensagem} Consultados: ${resultado.consultados}; novos: ${resultado.importados}; já existentes: ${resultado.repetidos}; sem XML completo: ${resultado.semXmlCompleto}; recusados: ${resultado.rejeitados}${resultado.podeHaverMais ? '. Há mais documentos no período; repita a sincronização para continuar.' : '.'}${Array.isArray(resultado.avisos) && resultado.avisos.length ? ` Avisos: ${resultado.avisos.join(' ')}` : ''}`);
       notificarAtualizacaoDadosFiscais();
     } catch (error) {
-      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível sincronizar com o Murade Fiscal.');
+      setMensagemRadar(error instanceof Error ? error.message : 'Não foi possível sincronizar com o Murad Fiscal.');
     } finally {
       setSincronizandoFiscalCentral(false);
     }
@@ -924,7 +924,7 @@ export function ModuloFiscalScreen({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-black text-[#0F2B5B] flex items-center gap-2">
-                <span>🇧🇷 MURADE FISCAL — ROTINAS LOCAIS</span>
+                <span>🇧🇷 MURAD FISCAL — ROTINAS LOCAIS</span>
               </h1>
               <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-300">
                 v3.2.1
@@ -958,7 +958,7 @@ export function ModuloFiscalScreen({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-black text-white tracking-wide">
-                MURADE FISCAL — CONFERÊNCIA DE XML
+                MURAD FISCAL — CONFERÊNCIA DE XML
               </span>
               <span className="text-[10px] bg-amber-500/20 text-amber-200 px-2 py-0.5 rounded-full font-mono font-bold border border-amber-400/30">
                 Consulta oficial: não conectada
@@ -1085,7 +1085,7 @@ export function ModuloFiscalScreen({
                 <label className="sr-only" htmlFor="fiscoia-sync-ate">Data final da sincronização</label>
                 <input id="fiscoia-sync-ate" aria-label="Data final da sincronização" type="date" value={periodoSyncAte} onChange={e => { setPeriodoSyncAte(e.target.value); setCursorSyncFiscal(null); }} className="max-w-32 rounded border border-indigo-200 bg-white px-1.5 py-1 text-[10px]" />
                 <button type="button" onClick={() => void sincronizarDocumentosMuradeFiscal()} disabled={!empresaAtiva?.idCentral || !empresaAtiva?.tenantIdCentral || sincronizandoFiscalCentral} className="px-2 py-1.5 rounded-md bg-indigo-700 text-white text-[10px] font-bold disabled:opacity-50">
-                  <RefreshCw className={`w-3 h-3 inline mr-1 ${sincronizandoFiscalCentral ? 'animate-spin' : ''}`} />{sincronizandoFiscalCentral ? 'Sincronizando…' : cursorSyncFiscal ? 'Continuar sincronização' : 'Trazer do Murade Fiscal'}
+                  <RefreshCw className={`w-3 h-3 inline mr-1 ${sincronizandoFiscalCentral ? 'animate-spin' : ''}`} />{sincronizandoFiscalCentral ? 'Sincronizando…' : cursorSyncFiscal ? 'Continuar sincronização' : 'Trazer do Murad Fiscal'}
                 </button>
               </div>
               <button type="button" onClick={executarConferenciaRadar} className="px-3 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">Conferir agora</button>
@@ -1108,7 +1108,7 @@ export function ModuloFiscalScreen({
             <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white"><table className="w-full text-left text-xs"><thead className="bg-amber-100 text-amber-950"><tr><th className="p-2">Arquivo</th><th className="p-2">Tamanho</th><th className="p-2">Motivo</th><th className="p-2 text-right">Ações</th></tr></thead><tbody className="divide-y divide-amber-100">{arquivosPendentesVisiveis.map(arquivo => <tr key={arquivo.id} className="align-top"><td className="p-2"><strong>{arquivo.nomeArquivo}</strong><div className="text-[10px] text-slate-500">{arquivo.tipoMime} · recebido {new Date(arquivo.importadoEm).toLocaleString('pt-BR')}</div></td><td className="p-2 whitespace-nowrap">{(arquivo.tamanho / 1024).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} KB</td><td className="p-2 min-w-64">{arquivo.motivo}</td><td className="p-2 text-right whitespace-nowrap"><button type="button" onClick={() => void baixarArquivoPendente(arquivo)} className="rounded border px-2 py-1 font-semibold text-blue-800">Baixar original</button> <button type="button" onClick={() => void excluirArquivoPendente(arquivo)} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-800">Excluir</button></td></tr>)}</tbody></table></div>
           </section>}
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 border rounded-lg p-3">
-            <div><strong className="text-slate-800">Monitor automático da carteira</strong><span className="text-slate-500"> · a verificação automática e as notificações são centralizadas no aviso fixo inferior; rodam a cada 5 minutos enquanto o Murade estiver aberto e analisam somente dados locais</span><div className="text-slate-500 mt-0.5">Última conferência manual desta empresa: {ultimaConferenciaRadar ?? 'ainda não executada com sucesso'}</div></div>
+            <div><strong className="text-slate-800">Monitor automático da carteira</strong><span className="text-slate-500"> · a verificação automática e as notificações são centralizadas no aviso fixo inferior; rodam a cada 5 minutos enquanto o Murad estiver aberto e analisam somente dados locais</span><div className="text-slate-500 mt-0.5">Última conferência manual desta empresa: {ultimaConferenciaRadar ?? 'ainda não executada com sucesso'}</div></div>
             <span className="px-3 py-1.5 rounded-lg border bg-white font-bold text-slate-600">Consulta oficial sob demanda</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1502,7 +1502,7 @@ export function ModuloFiscalScreen({
           </div>
 
           <div role="note" className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-950">
-            Percentuais de ICMS, PIS/COFINS, Simples e IBS/CBS não são inferidos pelo Murade. Use a janela de cálculo e informe as alíquotas confirmadas para a operação. Resultado é apenas multiplicação aritmética; não constitui apuração fiscal nem valor a recolher.
+            Percentuais de ICMS, PIS/COFINS, Simples e IBS/CBS não são inferidos pelo Murad. Use a janela de cálculo e informe as alíquotas confirmadas para a operação. Resultado é apenas multiplicação aritmética; não constitui apuração fiscal nem valor a recolher.
           </div>
         </div>
       )}

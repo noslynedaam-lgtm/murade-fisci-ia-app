@@ -77,7 +77,7 @@ export default function ModalAcessoAdmin({
         onFechar();
       }, 500);
     } else {
-      setErro('Senha incorreta! Este painel é restrito exclusivamente ao Administrador Murade.');
+      setErro('Senha incorreta! Este painel é restrito exclusivamente ao Administrador Murad.');
     }
   };
 
@@ -132,11 +132,11 @@ export default function ModalAcessoAdmin({
                   Acesso Restrito do Administrador
                 </h3>
                 <span className="text-[9px] font-black bg-amber-400 text-slate-950 px-2 py-0.5 rounded uppercase">
-                  MURADE
+                  MURAD
                 </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                {adminDesbloqueado ? 'Sessão Master ativa' : 'Painel confidencial da Diretoria Murade'}
+                {adminDesbloqueado ? 'Sessão Master ativa' : 'Painel confidencial da Diretoria Murad'}
               </p>
             </div>
           </div>
@@ -174,7 +174,7 @@ export default function ModalAcessoAdmin({
                 <div className="text-xs text-emerald-900 space-y-1">
                   <p className="font-bold text-[13px]">O Modo Administrador está Ativo</p>
                   <p className="text-slate-600 leading-relaxed">
-                    Você tem acesso total aos módulos confidenciais (Painel Murade, Faturamento, Bloqueio de Inadimplentes e Preços). O cliente não vê esta área quando ela está bloqueada.
+                    Você tem acesso total aos módulos confidenciais (Painel Murad, Faturamento, Bloqueio de Inadimplentes e Preços). O cliente não vê esta área quando ela está bloqueada.
                   </p>
                 </div>
               </div>
@@ -188,7 +188,7 @@ export default function ModalAcessoAdmin({
                   }}
                   className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
-                  <span>Abrir Painel MURADE Completo</span>
+                  <span>Abrir Painel MURAD Completo</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
 
@@ -285,7 +285,7 @@ export default function ModalAcessoAdmin({
             /* Estado 2: Administrador BLOQUEADO -> Pede a Senha */
             <form onSubmit={handleVerificarSenha} className="space-y-4">
               <div className="text-xs text-slate-600 leading-relaxed">
-                Para visualizar as opções de <strong>Administrador (Painel Murade, Faturamento, Bloqueio e Planos)</strong>, digite a sua senha de segurança.
+                Para visualizar as opções de <strong>Administrador (Painel Murad, Faturamento, Bloqueio e Planos)</strong>, digite a sua senha de segurança.
               </div>
 
               <div className="space-y-1.5">

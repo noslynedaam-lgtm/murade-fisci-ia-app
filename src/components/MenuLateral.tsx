@@ -207,9 +207,9 @@ export default function MenuLateral({
 
   // Itens do menu permitidos conforme o perfil
   const itensMuradeAdmin = [
-    { id: 'admin', rotulo: 'Painel MURADE', icone: Crown, admin: true },
+    { id: 'admin', rotulo: 'Painel MURAD', icone: Crown, admin: true },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026', admin: true },
-    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP', admin: true },
+    { id: 'modulos', rotulo: 'Módulos Murad', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP', admin: true },
     { id: 'fiscal', rotulo: 'Notas & Resumo Local', icone: Receipt, tag: 'v3.2.1', admin: true },
     { id: 'configuracao', rotulo: 'Config. Integração', icone: Settings, tag: '3 Sistemas', admin: true },
     { id: 'admin_faturamento', rotulo: 'Faturamento', icone: DollarSign, admin: true },
@@ -217,7 +217,7 @@ export default function MenuLateral({
     { id: 'admin_precos', rotulo: 'Preços & Planos', icone: Tag, admin: true },
     { id: 'minhaConta', rotulo: 'Minha Conta', icone: User, admin: true },
     { id: 'calculadora', rotulo: 'Calculadora Fiscal', icone: Calculator, destaque: true, tag: 'DESTAQUE', admin: true },
-    { id: 'iaVoz', rotulo: 'IA Murade Voz Natural', icone: Volume2, tag: 'ElevenLabs', destaque: true, admin: true },
+    { id: 'iaVoz', rotulo: 'IA Murad Voz Natural', icone: Volume2, tag: 'ElevenLabs', destaque: true, admin: true },
     { id: 'videoAulas', rotulo: 'Vídeo Aulas', icone: Video, admin: true },
   ];
 
@@ -227,7 +227,7 @@ export default function MenuLateral({
   const itensContador = [
     { id: 'dashboard', rotulo: 'Início', icone: LayoutDashboard },
     { id: 'automacaoFiscal', rotulo: 'Automação Fiscal', icone: Cpu, tag: 'Robô 2026' },
-    { id: 'modulos', rotulo: 'Módulos Murade', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP' },
+    { id: 'modulos', rotulo: 'Módulos Murad', icone: LayoutGrid, tag: 'Fiscal • Contábil • DP' },
     { id: 'cadastro-empresa', rotulo: 'Cadastrar Empresa', icone: UserPlus },
     { id: 'conformidade', rotulo: 'Relatório de Conformidade', icone: ClipboardCheck, tag: 'Empresas' },
     { id: 'empresas', rotulo: 'Clientes / Empresas', icone: Building2 },
@@ -240,9 +240,9 @@ export default function MenuLateral({
     { id: 'dteGoias', rotulo: 'DT-e Goiás', icone: Mailbox },
     ...(!ocultarIntegracoes ? [{ id: 'configuracao', rotulo: 'Config. Integração', icone: Settings, tag: '3 Sistemas' }] : []),
     { id: 'minhaConta', rotulo: 'Minha Conta', icone: User },
-    ...(isAdmin ? [{ id: 'admin', rotulo: 'Painel MURADE', icone: Crown, admin: true }] : []),
+    ...(isAdmin ? [{ id: 'admin', rotulo: 'Painel MURAD', icone: Crown, admin: true }] : []),
     { id: 'calculadora', rotulo: 'Calculadora Fiscal', icone: Calculator, destaque: true, tag: 'DESTAQUE' },
-    { id: 'iaVoz', rotulo: 'IA Murade Voz Natural', icone: Volume2, tag: 'ElevenLabs', destaque: true },
+    { id: 'iaVoz', rotulo: 'IA Murad Voz Natural', icone: Volume2, tag: 'ElevenLabs', destaque: true },
     { id: 'videoAulas', rotulo: 'Vídeo Aulas', icone: Video },
   ];
 
@@ -308,7 +308,7 @@ export default function MenuLateral({
             pointerEvents: 'none'
           }}
         >
-          MURADE
+          MURAD
         </div>
 
         {/* CABEÇALHO COM SETAS CLARAS DE ESTICAR / RECOLHER */}
@@ -357,7 +357,7 @@ export default function MenuLateral({
                     }}
                     className="flex items-center gap-1.5"
                   >
-                    <span>Murade Fisco IA</span>
+                    <span>Murad Fisco IA</span>
                   </h2>
                   <p 
                     style={{ 
@@ -413,10 +413,10 @@ export default function MenuLateral({
             }}
           >
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#ffffff' }}>
-              {estaAdminAtivo ? '👑 PAINEL MASTER' : 'MURADE FISCO IA'}
+              {estaAdminAtivo ? '👑 PAINEL MASTER' : 'MURAD FISCO IA'}
             </div>
             <div style={{ fontSize: '11px', color: estaAdminAtivo ? '#fde68a' : '#a5b4fc', marginTop: '2px' }}>
-              {estaAdminAtivo ? 'Diretoria Executiva Murade' : 'Sistema de Gestão Contábil'}
+              {estaAdminAtivo ? 'Diretoria Executiva Murad' : 'Sistema de Gestão Contábil'}
             </div>
           </div>
         )}
@@ -651,7 +651,7 @@ export default function MenuLateral({
                 <div className="flex items-center justify-between text-[11px] font-black text-blue-300">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                    <span>MURADE FISCO IA</span>
+                    <span>MURAD FISCO IA</span>
                   </div>
                   <span className="text-[9px] bg-blue-900/60 text-blue-200 border border-blue-400/30 px-1.5 py-0.5 rounded font-bold">2026</span>
                 </div>

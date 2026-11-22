@@ -32,7 +32,7 @@ export default function SimboloContabil({
         boxShadow: '0 0 20px rgba(212, 175, 55, 0.3), 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2)',
         transform: 'perspective(400px) rotateX(4deg)',
       }}
-      title="Símbolo Contábil Oficial — Murade Fisco IA"
+      title="Símbolo Contábil Oficial — Murad Fisco IA"
     >
       {/* Luz animada passando suavemente pelo símbolo */}
       {comBrilho && (
