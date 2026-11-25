@@ -1,35 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { assinarAgente } from '../utils/agenteParar';
-import { assinarVozes, definirVozDaAssistente, ouvirExemploDaVoz, pararHumana, vozAutomatica, vozEscolhidaPeloUsuario, vozesDaAssistente } from '../utils/vozHumana';
-import { idDaVoz, nivelDaVoz, rotuloDaVoz } from '../utils/vozNaturalPtBr';
+import { ID_VOZ_HUMANA, ouvirExemploDaVoz, pararHumana } from '../utils/vozHumana';
 import { OPCOES_SILENCIO_MS, SILENCIO_PADRAO_MS, definirTempoSilencio, lerTempoSilencio, rotuloSilencio } from '../utils/microfoneChat';
 
-// "Voz da assistente" (igual nos 5 sistemas Murad): lista as vozes em português DESTE aparelho, toca um exemplo e guarda a
-// escolha por usuário neste aparelho. Padrão: automática — o sistema escolhe sozinho a voz mais natural. Tudo grátis.
+// "Voz da assistente": a Agente fala só com a voz humana (do servidor). A voz do aparelho (robótica) foi retirada a pedido do dono (25/11/2026).
 // Também ajusta o tempo de silêncio do microfone dos chats (padrão 2,5 s): parou de falar esse tempo, a pergunta vai.
 export function OpcaoVozAssistente({ className }: { className?: string }): React.ReactElement {
-  const [vozes, setVozes] = useState<SpeechSynthesisVoice[]>(() => vozesDaAssistente());
-  const [escolhida, setEscolhida] = useState<string>(() => vozEscolhidaPeloUsuario());
   const [tocando, setTocando] = useState(false);
   const [silencio, setSilencio] = useState<number>(() => lerTempoSilencio());
-  const temSintese = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   useEffect(() => {
-    const atualizar = () => { setVozes(vozesDaAssistente()); setEscolhida(vozEscolhidaPeloUsuario()); setSilencio(lerTempoSilencio()); };
+    const atualizar = () => setSilencio(lerTempoSilencio());
     atualizar();
-    // As vozes chegam com atraso em alguns aparelhos: confere de novo por alguns segundos.
-    const tentativas = [300, 1000, 2500].map((ms) => window.setTimeout(atualizar, ms));
-    const sairVozes = assinarVozes(atualizar);
-    const sairAgente = assinarAgente(atualizar); // troca de usuário no mesmo aparelho
-    return () => { tentativas.forEach((t) => window.clearTimeout(t)); sairVozes(); sairAgente(); };
+    return assinarAgente(atualizar); // troca de usuário no mesmo aparelho
   }, []);
 
-  const automatica = vozAutomatica();
-  const escolhidaExiste = !escolhida || vozes.some((v) => idDaVoz(v) === escolhida);
   const ouvir = () => {
     if (tocando) { pararHumana(); setTocando(false); return; }
     setTocando(true);
-    void ouvirExemploDaVoz(escolhidaExiste ? escolhida : '', () => setTocando(false));
+    void ouvirExemploDaVoz(ID_VOZ_HUMANA, () => setTocando(false));
   };
 
   const caixa: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
@@ -41,32 +30,13 @@ export function OpcaoVozAssistente({ className }: { className?: string }): React
   return (
     <div className={className} style={caixa} data-opcao="voz-da-assistente">
       <label htmlFor="opcao-voz-assistente"><strong>Voz da assistente</strong></label>
-      {!temSintese ? (
-        <span style={dica}>Este navegador não tem voz. A Agente continua respondendo por escrito.</span>
-      ) : (
-        <>
-          <div style={linha}>
-            <select
-              id="opcao-voz-assistente"
-              value={escolhidaExiste ? escolhida : ''}
-              onChange={(e) => { definirVozDaAssistente(e.target.value); setEscolhida(e.target.value); }}
-              style={seletor}
-              aria-describedby="opcao-voz-assistente-dica"
-            >
-              <option value="">{automatica ? `Automática (a mais natural): ${rotuloDaVoz(automatica)}` : 'Automática (a mais natural deste aparelho)'}</option>
-              {vozes.map((v) => <option key={idDaVoz(v)} value={idDaVoz(v)}>{rotuloDaVoz(v)}</option>)}
-            </select>
-            <button type="button" onClick={ouvir} style={botao} aria-pressed={tocando}>{tocando ? 'Parar' : 'Ouvir exemplo'}</button>
-          </div>
-          <span id="opcao-voz-assistente-dica" style={dica}>
-            {vozes.length === 0
-              ? 'Este aparelho ainda não mostrou voz em português. No Android: Configurações › Idioma › Saída de texto para fala › Português (Brasil). No iPhone: Ajustes › Acessibilidade › Conteúdo Falado › Vozes › Português (Brasil).'
-              : automatica && nivelDaVoz(automatica) < 3
-                ? 'Voz grátis do aparelho, guardada só para você. Para uma voz mais humana: no computador use o navegador Edge (vozes Francisca e Thalita); no iPhone baixe a voz Luciana (Melhorada) em Ajustes › Acessibilidade › Conteúdo Falado.'
-                : 'Voz grátis do próprio aparelho, guardada só para você. Na automática, o sistema escolhe sozinho a voz mais natural.'}
-          </span>
-        </>
-      )}
+      <div style={linha}>
+        <span id="opcao-voz-assistente" style={{ ...seletor, display: 'flex', alignItems: 'center', fontWeight: 700 }}>Voz humana Murad</span>
+        <button type="button" onClick={ouvir} style={botao} aria-pressed={tocando}>{tocando ? 'Parar' : 'Ouvir exemplo'}</button>
+      </div>
+      <span id="opcao-voz-assistente-dica" style={dica}>
+        A Agente fala só com a voz humana, igual no computador, no Android e no iPhone (a voz robótica do aparelho foi retirada). Precisa de internet; sem internet, a resposta aparece só escrita.
+      </span>
       <label htmlFor="opcao-mic-silencio" style={{ marginTop: 4 }}><strong>Microfone: enviar depois de quanto silêncio</strong></label>
       <select
         id="opcao-mic-silencio"

@@ -1,4 +1,7 @@
-// Voz da Agente: a voz grátis do aparelho (a pt-BR mais natural) é a padrão; a premium (Gemini "Kore") só se ligada. Uma fala por vez; dá para interromper.
+// Voz da Agente: a voz grátis do aparelho (a pt-BR mais natural) é a padrão; a "voz humana" (Gemini "Kore", gerada no servidor)
+// liga quando a pessoa escolhe em Configurações ou pede por voz ("muda para a voz humana"). Uma fala por vez; dá para interromper.
+// Por que a voz humana existe: no celular (Android/iPhone) o navegador quase sempre mostra UMA voz em português e ignora a troca,
+// então "mudar a voz" no aparelho não muda nada. A voz humana vem do servidor e soa igual em computador, Android e iPhone.
 import { avisarMudancaAgente, falarRespostasLigado, registrarParador, usuarioDaVozAtual } from './agenteParar';
 import { FRASE_EXEMPLO_VOZ, TOM_NATURAL, VELOCIDADE_NATURAL, dividirEmFrases, escolherVozNatural, idDaVoz, nivelDaVoz, ordenarVozesPtBr, prepararTextoParaFala } from './vozNaturalPtBr';
 let audioAtual: HTMLAudioElement | null = null;
@@ -12,9 +15,18 @@ let sequencia = 0;
 let falandoFlag = false;
 
 // ---- Voz econômica (do navegador, grátis) é a padrão. A voz premium (Gemini) gasta a chave e só liga se pedirem. ----
-const CHAVE_PREMIUM = 'murade_voz_premium_v1';
-export const vozPremiumLigada = (): boolean => { try { return localStorage.getItem(CHAVE_PREMIUM) === '1'; } catch { return false; } };
+// A voz humana é a PADRÃO para todo mundo (pedido do dono: a voz do aparelho soava robótica). Só sai dela quem pedir
+// "volta para a voz do celular" ou escolher outra voz em Configurações. Chave nova: todos começam na voz humana.
+const CHAVE_PREMIUM = 'murade_voz_humana_v2';
+// Decisão do dono (25/11/2026): a voz do aparelho (robótica) foi RETIRADA para todos os clientes. A Agente fala só com a voz humana.
+// Se a voz humana não sair (sem internet), a resposta fica só escrita — nunca cai na voz robótica.
+export const vozPremiumLigada = (): boolean => true;
+void CHAVE_PREMIUM;
 const definirPremium = (ligada: boolean): void => { try { localStorage.setItem(CHAVE_PREMIUM, ligada ? '1' : '0'); } catch { /* ignora */ } };
+/** Valor da opção "Voz humana" na lista de vozes das Configurações. */
+export const ID_VOZ_HUMANA = 'murad-voz-humana';
+/** Liga/desliga a voz humana (do servidor). Desligada, volta a voz do aparelho. */
+export function definirVozHumana(ligada: boolean): void { definirPremium(ligada); vozesMudaram(); }
 
 // ---- Ajuste de volume e velocidade por comando de voz ("fala mais rápido", "aumenta a voz"). Fica salvo. ----
 const CHAVE_AJUSTE = 'murade_voz_ajuste_v1';
@@ -32,20 +44,17 @@ function salvarAjuste(): void {
 }
 
 /** Reconhece pedidos de volume/velocidade (texto já sem acento). Devolve a frase de confirmação, ou null. */
-export function ajustarVoz(texto: string): string | null {
+const MSG_SO_HUMANA = 'A voz do aparelho foi retirada: a Agente fala só com a voz humana.';
+export function ajustarVoz(texto: string, maxPalavras = 8): string | null {
   const t = texto.trim();
-  if (t.split(' ').length > 8) return null;
-  // Reclamação de voz robótica ("essa voz está muito robótica", "quero uma voz mais natural"): passa para a voz mais natural
-  // deste aparelho (grátis). Não oferece voz paga.
-  if (/\bvoz\b/.test(t) && /\b(robotic[ao]s?|robo|robozinho|mecanic[ao]|artificial|menos robo\w*|mais (natural|humana|bonita|normal))\b/.test(t) && !/\bvoz (premium|humana|bonita|cara)\b.*\b(usa|use|liga|ative|ativa)\b/.test(t)) return usarVozMaisNatural();
+  if (t.split(' ').length > maxPalavras) return null;
+  // A Agente tem só a voz humana (a do aparelho, robótica, foi retirada). Pedidos de voz respondem isso, sem trocar nada.
+  if (/\bvoz\b/.test(t) && /\b(humana|de gente|de pessoa|premium)\b/.test(t) && !/\b(desliga|desligue|tira|tire|sem|nao quero)\b/.test(t)) return 'Já estou falando com a voz humana.';
+  if (/\bvoz (do celular|do aparelho|do telefone|normal|economica|barata|simples|do navegador)\b/.test(t) && /\b(usa|use|usar|volta|volte|liga|ligue|ativa|ative|coloca|ponha|poe|quero)\b/.test(t)) return MSG_SO_HUMANA;
+  if (/\b(desliga|desligue|tira|tire)\b.*\bvoz (humana|premium)\b/.test(t)) return MSG_SO_HUMANA;
+  if (/\bvoz\b/.test(t) && /\b(robotic[ao]s?|robo|robozinho|mecanic[ao]|artificial|menos robo\w*|mais (natural|humana|bonita|normal))\b/.test(t)) return usarVozMaisNatural();
   if (/\b(melhor voz|voz automatica|voz mais natural)\b/.test(t) && /\b(usa|use|usar|volta|volte|coloca|ponha|poe|escolhe|escolha|quero)\b/.test(t)) return usarVozMaisNatural();
   if (/\b(troca|troque|muda|mude|trocar|mudar|outra|quero)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
-  if (/\bvoz (premium|humana|bonita|cara)\b/.test(t) && /\b(usa|use|usar|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
-    definirPremium(true); return 'Ativei a voz premium. Ela é mais bonita, mas gasta mais da chave.';
-  }
-  if (/\bvoz (normal|economica|barata|simples|do navegador)\b/.test(t) && /\b(usa|use|usar|volta|volte|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
-    definirPremium(false); return 'Voltei para a voz econômica, que não gasta a chave.';
-  }
   const falaOuVoz = /\b(fala|fale|falar|voz|volume)\b/.test(t);
   if (/\b(aumenta|aumente|sobe|suba)\b.*\b(voz|volume)\b/.test(t) || (falaOuVoz && /\bmais alto\b/.test(t))) {
     if (volumeVoz >= 1) return 'A voz já está no máximo. Aumente o volume do aparelho, se precisar.';
@@ -80,7 +89,7 @@ export function pararHumana(): void {
   if (estava) avisarMudancaAgente();
 }
 
-// A central do "para" corta a voz junto com o resto.
+// A central do "para" corta a voz junto com o resto (piloto, apresentação, Escola).
 registrarParador({
   id: 'voz',
   ativo: () => humanaFalando(),
@@ -292,28 +301,15 @@ export function aplicarVozNatural(u: SpeechSynthesisUtterance): SpeechSynthesisU
 /** Texto pronto para a voz (sem markdown, emojis e links; valores, datas e siglas falados do jeito certo). */
 export const textoParaFala = (texto: string): string => prepararTextoParaFala(texto);
 
-/** "Troca a voz": passa para a próxima voz em português deste aparelho e guarda a escolha. */
-export function trocarVoz(): string {
-  try {
-    const lista = vozesDaAssistente();
-    if (lista.length < 2) return 'Este aparelho só tem uma voz em português disponível.';
-    const atual = vozDaAssistenteAgora();
-    const i = Math.max(0, lista.findIndex((v) => atual !== null && idDaVoz(v) === idDaVoz(atual)));
-    const j = (i + 1) % lista.length;
-    // Deu a volta: volta para a automática (a mais natural).
-    definirVozDaAssistente(j === 0 ? '' : idDaVoz(lista[j]));
-    return 'Pronto, esta é a nova voz. Gostou?';
-  } catch { return 'Não consegui trocar a voz agora.'; }
-}
+/** "Troca a voz": a Agente tem só a voz humana (a voz do aparelho, robótica, foi retirada). */
+export function trocarVoz(): string { return 'A Agente agora tem só a voz humana, a mais natural.'; }
 
-/** "Essa voz está robótica": volta para a voz mais natural deste aparelho (grátis). */
+/** "Essa voz está robótica": a Agente já usa só a voz humana; se ainda soa robótica, o aplicativo está numa versão antiga. */
 export function usarVozMaisNatural(): string {
-  definirVozDaAssistente('');
-  const melhor = vozAutomatica();
-  if (!melhor) return 'Este aparelho não tem voz em português instalada. Instale a voz Português do Brasil nas configurações de fala do aparelho.';
-  if (nivelDaVoz(melhor) >= 3) return 'Pronto, passei para a voz mais natural deste aparelho.';
-  return 'Pronto, passei para a melhor voz deste aparelho. Para uma voz ainda mais humana, e grátis: no computador, use o navegador Edge; no iPhone, baixe a voz Luciana melhorada em Ajustes, Acessibilidade, Conteúdo Falado.';
+  return 'Já estou usando a voz humana. Se ainda ouvir voz robótica, clique em "Atualização do app disponível", no alto da tela, ou feche e abra o sistema de novo.';
 }
+/** Mantido por compatibilidade: a voz do aparelho foi retirada. */
+export function usarMelhorVozDoAparelho(): string { return MSG_SO_HUMANA; }
 
 // ---- Voz do navegador: por frases curtas, com proteção contra falha silenciosa e bloqueio do navegador ----
 const esperar = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -347,8 +343,15 @@ function mostrarDicaVoz(): void {
     if (document.getElementById('murade-dica-voz')) return;
     const d = document.createElement('div');
     d.id = 'murade-dica-voz';
-    d.textContent = '🔊 Toque aqui para liberar a voz';
-    d.style.cssText = 'position:fixed;right:12px;bottom:56px;z-index:2147483000;background:#0a2342;color:#fff;padding:9px 14px;border-radius:14px;font:600 13px sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);cursor:pointer';
+    d.style.cssText = 'position:fixed;right:12px;bottom:56px;z-index:2147483000;display:flex;align-items:center;gap:10px;background:#0a2342;color:#fff;padding:7px 8px 7px 14px;border-radius:14px;font:600 13px sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3);cursor:pointer';
+    const texto = document.createElement('span');
+    texto.textContent = '🔊 Toque aqui para liberar a voz';
+    // Botão para dispensar o aviso sem ligar a voz (antes ele só saía tocando no texto ou depois de 20 segundos).
+    const fechar = document.createElement('span');
+    fechar.textContent = '✕'; fechar.setAttribute('role', 'button'); fechar.setAttribute('aria-label', 'Fechar o aviso da voz'); fechar.title = 'Fechar';
+    fechar.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.2);font-weight:700;cursor:pointer';
+    fechar.onclick = (e) => { e.stopPropagation(); d.remove(); };
+    d.append(texto, fechar);
     d.onclick = () => { d.remove(); liberarVoz(); };
     document.body.appendChild(d);
     window.setTimeout(() => d.remove(), 20000);
@@ -360,7 +363,7 @@ function liberarVoz(): void {
   const pendente = falaPendente;
   falaPendente = null;
   document.getElementById('murade-dica-voz')?.remove();
-  if (pendente) void falarNoNavegador(pendente, sequencia);
+  if (pendente) void tocarVozHumana(pendente, sequencia, null);
 }
 
 // O navegador só deixa falar depois de um toque na página; o primeiro toque libera a voz.
@@ -399,7 +402,10 @@ export async function ouvirExemploDaVoz(idVoz: string, aoTerminar?: () => void):
   const minha = sequencia;
   falandoFlag = true;
   avisarMudancaAgente();
-  try { await falarNoNavegador(prepararTextoParaFala(FRASE_EXEMPLO_VOZ), minha, idVoz); }
+  try {
+    void idVoz; // só existe a voz humana
+    await tocarVozHumana(prepararTextoParaFala(FRASE_EXEMPLO_VOZ), minha, null);
+  }
   finally {
     if (minha === sequencia) { falandoFlag = false; avisarMudancaAgente(); }
     aoTerminar?.();
@@ -418,36 +424,52 @@ export async function falarHumana(texto: string, aoTerminar?: () => void): Promi
   const controle = typeof AbortController !== 'undefined' ? new AbortController() : null;
   pedidoVoz = controle;
   try {
-    // Voz premium (Gemini) só em respostas curtas, para o custo ficar baixo. O resto usa a voz do navegador.
-    const usarPremium = vozPremiumLigada() && limpo.length <= 260;
-    if (!usarPremium) {
-      await falarNoNavegador(limpo, minha);
-      return;
-    }
-    const trechos = dividirEmTrechos(limpo);
-    let proximo = buscarAudio(trechos[0], controle?.signal);
-    for (let i = 0; i < trechos.length; i += 1) {
-      const src = await proximo;
-      if (minha !== sequencia) return;
-      if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1], controle?.signal);
-      if (!src) { await falarNoNavegador(trechos.slice(i).join(' '), minha); break; }
-      await new Promise<void>((resolver) => {
-        const resolve = () => { if (soltarAudio === resolve) soltarAudio = null; resolver(); };
-        soltarAudio = resolve;
-        const audio = new Audio(src);
-        audio.volume = volumeVoz;
-        audio.playbackRate = velocidadeVoz;
-        audioAtual = audio;
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
-        audio.play().catch(() => resolve());
-      });
-      if (minha !== sequencia) return;
-    }
+    // Voz humana (escolhida pela pessoa): fala a resposta inteira com ela, em trechos. Se o servidor ou o aparelho
+    // não tocar, o resto sai na voz do aparelho (nunca fica mudo).
+    await tocarVozHumana(limpo, minha, controle);
   } finally {
     if (pedidoVoz === controle) pedidoVoz = null;
     if (minha === sequencia) { falandoFlag = false; audioAtual = null; avisarMudancaAgente(); aoTerminar?.(); }
   }
+}
+
+/** Toca o texto com a voz humana (servidor). Falhou (sem internet, cota, aparelho bloqueou o som): segue na voz do aparelho. */
+async function tocarVozHumana(limpo: string, minha: number, controle: AbortController | null): Promise<void> {
+  const trechos = dividirEmTrechos(limpo).filter((t) => t.trim());
+  if (!trechos.length) return;
+  let proximo = buscarAudio(trechos[0], controle?.signal);
+  for (let i = 0; i < trechos.length; i += 1) {
+    const src = await proximo;
+    if (minha !== sequencia) return;
+    if (i + 1 < trechos.length) proximo = buscarAudio(trechos[i + 1], controle?.signal);
+    // Falhou: tenta de novo uma vez; se não vier, a resposta fica só escrita (nunca a voz robótica).
+    const audioOk = src || (minha === sequencia ? await buscarAudio(trechos[i], controle?.signal) : null);
+    if (!audioOk) { avisarFalhaVozHumana(); return; }
+    const tocou = await new Promise<boolean>((resolver) => {
+      let fim = false;
+      const resolve = (ok: boolean) => { if (fim) return; fim = true; if (soltarAudio === soltar) soltarAudio = null; resolver(ok); };
+      const soltar = () => resolve(true);
+      soltarAudio = soltar;
+      const audio = new Audio(audioOk);
+      audio.volume = volumeVoz;
+      audio.playbackRate = velocidadeVoz;
+      audioAtual = audio;
+      audio.onended = () => resolve(true);
+      audio.onerror = () => resolve(false);
+      // Celular bloqueou o som (ainda sem toque na tela): não fica mudo, fala na voz do aparelho.
+      audio.play().catch(() => resolve(false));
+    });
+    if (minha !== sequencia) return;
+    // O navegador bloqueou o som (ainda sem toque na tela): guarda o resto e fala na voz humana no primeiro toque.
+    if (!tocou) { falaPendente = trechos.slice(i).join(' '); return; }
+  }
+}
+
+let jaAvisouFalha = false;
+function avisarFalhaVozHumana(): void {
+  if (jaAvisouFalha) return;
+  jaAvisouFalha = true;
+  try { console.warn('[Voz humana] o servidor não devolveu o áudio agora; usando a voz do aparelho.'); } catch { /* ignora */ }
 }
 
 /** Respostas prontas para conversa de rotina ("obrigado", "ok", "tchau"): grátis e instantâneas, sem chamar a IA. */

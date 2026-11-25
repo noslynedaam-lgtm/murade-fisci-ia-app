@@ -20,8 +20,12 @@ export function registrarRotaVozGemini(
       // Trava de custo: a voz premium gasta a chave e só funciona se o dono ligar VOZ_PREMIUM=ligada no servidor.
       if (process.env.VOZ_PREMIUM !== 'ligada') return res.status(403).json({ error: 'Voz premium desligada; usando a voz econômica do navegador.' });
       if (!(await opcoes.autorizar(req))) return res.status(401).json({ error: 'Entre no sistema para usar a voz.' });
-      const texto = typeof req.body?.text === 'string' ? req.body.text : '';
-      if (!texto.trim()) return res.status(400).json({ error: 'Texto não fornecido para síntese de voz.' });
+      const texto = typeof req.body?.text === 'string' ? req.body.text : typeof req.body?.texto === 'string' ? req.body.texto : '';
+      if (!texto.trim()) {
+        // Registro para achar quem mandou pedido vazio (só os nomes dos campos e o tipo do conteúdo; nunca o texto).
+        console.warn(`[Voz humana] pedido sem texto: campos=${Object.keys(req.body || {}).join(',') || '-'} tipo=${req.headers['content-type'] || '-'}`);
+        return res.status(400).json({ error: 'Texto não fornecido para síntese de voz.' });
+      }
       const ia = opcoes.obterIA();
       if (!ia) return res.status(503).json({ error: 'Serviço de IA não configurado no servidor.' });
 
