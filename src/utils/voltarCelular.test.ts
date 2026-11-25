@@ -1,18 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  JANELA_SAIR_MS,
-  TEXTO_AVISO_SAIR,
-  criarEstadoVoltar,
-  decidirEmpilhar,
-  decidirVoltar,
-  deveTentarFecharDialogo,
-  estadoAoAbrir,
-  fecharUltimoPorCima,
-  lerEstadoVoltar,
-  quantosPorCima,
-  registrarPorCima,
-} from './voltarCelular';
+import { ControleVoltar, criarEstadoVoltar, lerEstadoVoltar, JANELA_REDIRECIONAMENTO_MS, type HistoricoNavegador } from './voltarCelular';
 
 test('lê só estados do sistema; entrada de fora (link com #, roteador) é ignorada', () => {
   assert.equal(lerEstadoVoltar(null), null);
@@ -20,7 +8,7 @@ test('lê só estados do sistema; entrada de fora (link com #, roteador) é igno
   assert.equal(lerEstadoVoltar({ murade: true }), null);
   assert.equal(lerEstadoVoltar({ murade: 'sim', tela: 'x' }), null);
   assert.deepEqual(lerEstadoVoltar({ murade: true, tela: 'x', n: 3 }), { murade: true, tela: 'x', n: 3 });
-  assert.deepEqual(lerEstadoVoltar({ murade: true, tela: 'i', n: 0, base: true }), { murade: true, tela: 'i', n: 0, base: true });
+  assert.deepEqual(lerEstadoVoltar({ murade: true, tela: 'x', n: 2, camada: true }), { murade: true, tela: 'x', n: 2, camada: true });
   assert.equal(lerEstadoVoltar({ murade: true, tela: 'x', n: -1 })?.n, 0);
 });
 
@@ -29,137 +17,214 @@ test('criar estado preserva o que o roteador guardou na mesma entrada', () => {
   assert.deepEqual(e, { usr: null, key: 'abc', idx: 0, murade: true, tela: 'folha', n: 2 });
 });
 
-test('ao abrir: entrada nova vira a base (tela inicial); recarregar numa tela só atualiza a tela', () => {
-  assert.deepEqual(estadoAoAbrir(null, 'inicio', 'inicio'), { murade: true, tela: 'inicio', n: 0, base: true });
-  assert.deepEqual(estadoAoAbrir(null, 'guias', 'inicio'), { murade: true, tela: 'inicio', n: 0, base: true });
-  assert.deepEqual(estadoAoAbrir({ murade: true, tela: 'guias', n: 4 }, 'inicio', 'inicio'), { murade: true, tela: 'inicio', n: 4 });
-  assert.deepEqual(estadoAoAbrir({ murade: true, tela: 'inicio', n: 0, base: true }, 'x', 'inicio'), { murade: true, tela: 'inicio', n: 0, base: true });
-});
-
-test('empilhar: nunca duplica a mesma tela; base nunca é trocada; redirecionamento logo após o voltar substitui', () => {
-  const t = (tela: string, n: number) => ({ murade: true, tela, n });
-  assert.equal(decidirEmpilhar(t('a', 1), 'a'), 'nada');
-  assert.equal(decidirEmpilhar(t('a', 1), 'b'), 'empilhar');
-  assert.equal(decidirEmpilhar({ murade: true, tela: 'inicio', n: 0, base: true }, 'inicio'), 'empilhar');
-  assert.equal(decidirEmpilhar({ murade: true, tela: 'inicio', n: 0, base: true }, 'b', { logoAposVoltar: true }), 'empilhar');
-  assert.equal(decidirEmpilhar(null, 'b'), 'substituir');
-  assert.equal(decidirEmpilhar(t('admin', 3), 'inicio', { logoAposVoltar: true }), 'substituir');
-  assert.equal(decidirEmpilhar(t('a', 1), 'dr_beni', { telasSemHistorico: ['dr_beni'] }), 'nada');
-  assert.equal(decidirEmpilhar(t('b', 2), 'a', { telaAnterior: 'a' }), 'voltar');
-  assert.equal(decidirEmpilhar(t('b', 2), 'c', { telaAnterior: 'a' }), 'empilhar');
-  assert.equal(decidirEmpilhar(t('b', 2), '', {}), 'nada');
-});
-
-test('voltar: fecha o que está por cima primeiro, depois volta de tela, e na inicial só avisa', () => {
-  const base = { murade: true, tela: 'inicio', n: 0, base: true };
-  assert.deepEqual(decidirVoltar({ estado: null, telaAtual: 'a', telaInicial: 'inicio', temPorCima: true }), { tipo: 'ignorar' });
-  assert.deepEqual(decidirVoltar({ estado: { murade: true, tela: 'a', n: 1 }, telaAtual: 'b', telaInicial: 'inicio', temPorCima: true }), { tipo: 'fechar-por-cima' });
-  assert.deepEqual(decidirVoltar({ estado: { murade: true, tela: 'a', n: 1 }, telaAtual: 'b', telaInicial: 'inicio', temPorCima: false }), { tipo: 'ir-para-tela', tela: 'a' });
-  assert.deepEqual(decidirVoltar({ estado: base, telaAtual: 'inicio', telaInicial: 'inicio', temPorCima: false }), { tipo: 'avisar-sair' });
-  assert.deepEqual(decidirVoltar({ estado: base, telaAtual: 'b', telaInicial: 'inicio', temPorCima: false }), { tipo: 'ir-para-inicial' });
-  assert.deepEqual(decidirVoltar({ estado: base, telaAtual: 'inicio', telaInicial: 'inicio', temPorCima: true }), { tipo: 'fechar-por-cima' });
-  assert.deepEqual(decidirVoltar({ estado: { murade: true, tela: 'a', n: 1 }, telaAtual: 'a', telaInicial: 'inicio', temPorCima: false }), { tipo: 'nada' });
-});
-
-test('janela da tela só é tentada uma vez (nunca prende a pessoa)', () => {
-  const el = {};
-  assert.equal(deveTentarFecharDialogo(null, null), false);
-  assert.equal(deveTentarFecharDialogo(el, null), true);
-  assert.equal(deveTentarFecharDialogo(el, el), false);
-  assert.equal(deveTentarFecharDialogo({}, el), true);
-});
-
-test('pilha do que está aberto por cima: fecha o último; quem não fecha sai da lista mesmo assim', () => {
-  const fechados: string[] = [];
-  const tirarMenu = registrarPorCima(() => fechados.push('menu'));
-  registrarPorCima(() => { throw new Error('quebrou'); });
-  registrarPorCima(() => fechados.push('agente'));
-  assert.equal(quantosPorCima(), 3);
-  assert.equal(fecharUltimoPorCima(), true);
-  assert.deepEqual(fechados, ['agente']);
-  assert.equal(fecharUltimoPorCima(), true); // o que deu erro sai da lista sem travar
-  tirarMenu(); // o menu fechou sozinho (clicou num item)
-  assert.equal(quantosPorCima(), 0);
-  assert.equal(fecharUltimoPorCima(), false);
-  tirarMenu(); // tirar duas vezes não faz mal
-  assert.equal(quantosPorCima(), 0);
-});
-
-// Simulação do histórico do navegador + o que o hook faz, para conferir o caminho completo sem celular.
-function simular(telaInicial: string, telaAoAbrir = telaInicial) {
-  const pilha: unknown[] = [null];
+// ---------------------------------------------------------------------------------------------------------------
+// Histórico de mentira que imita o Chrome do celular: a entrada que a página deixou para trás criando outra SEM
+// toque da pessoa é PULADA pelo botão voltar. Na primeira entrada, o voltar sai do app.
+// ---------------------------------------------------------------------------------------------------------------
+function navegador() {
+  type Entrada = { estado: unknown; tocou: boolean; pular: boolean };
+  const pilha: Entrada[] = [{ estado: null, tocou: false, pular: false }];
   let i = 0;
-  let tela = telaAoAbrir;
+  let relogio = 1_000;
   let saiu = false;
-  let avisos = 0;
-  const porCima: string[] = [];
-  const sincronizar = () => {
-    const acao = decidirEmpilhar(pilha[i], tela);
-    const n = (lerEstadoVoltar(pilha[i])?.n ?? 0) + 1;
-    if (acao === 'empilhar') { pilha.length = i + 1; pilha.push(criarEstadoVoltar(tela, n)); i++; }
-    else if (acao === 'substituir') pilha[i] = criarEstadoVoltar(tela, n - 1);
+  const tarefas: Array<() => void> = [];
+  let aoVoltar: (estado: unknown) => void = () => undefined;
+  const h: HistoricoNavegador = {
+    get state() { return pilha[i].estado; },
+    pushState(estado) { if (!pilha[i].tocou) pilha[i].pular = true; pilha.length = i + 1; pilha.push({ estado, tocou: false, pular: false }); i += 1; },
+    replaceState(estado) { pilha[i].estado = estado; },
+    back() { if (i > 0) { i -= 1; pilha[i].tocou = false; aoVoltar(pilha[i].estado); } },
   };
-  pilha[0] = estadoAoAbrir(pilha[0], tela, telaInicial);
-  sincronizar();
   return {
-    abrirTela(t: string) { tela = t; sincronizar(); },
-    abrirPorCima(nome: string) { porCima.push(nome); },
+    h,
+    agora: () => relogio,
+    depois: (f: () => void) => { tarefas.push(f); },
+    ligarVoltar(f: (estado: unknown) => void) { aoVoltar = f; },
+    /** Toque da pessoa na tela. */
+    tocar() { pilha[i].tocou = true; },
+    passar(ms: number) { relogio += ms; },
+    rodarTarefas() { while (tarefas.length) tarefas.shift()!(); },
+    /** Botão voltar do celular (pula as entradas marcadas, como o Chrome). */
     voltar() {
-      if (i === 0) { saiu = true; return; }
-      i--;
-      const d = decidirVoltar({ estado: pilha[i], telaAtual: tela, telaInicial, temPorCima: porCima.length > 0 });
-      if (d.tipo === 'fechar-por-cima') { porCima.pop(); pilha.length = i + 1; pilha.push(criarEstadoVoltar(tela, i + 1)); i++; }
-      else if (d.tipo === 'ir-para-tela') { tela = d.tela; sincronizar(); }
-      else if (d.tipo === 'ir-para-inicial') { tela = telaInicial; sincronizar(); }
-      else if (d.tipo === 'avisar-sair') avisos++;
+      let j = i - 1;
+      while (j >= 0 && pilha[j].pular) j -= 1;
+      if (j < 0) { saiu = true; return; }
+      i = j; pilha[i].tocou = false; relogio += 50; aoVoltar(pilha[i].estado);
     },
-    passouOTempoDoAviso() { if (lerEstadoVoltar(pilha[i])?.base) { pilha.length = i + 1; pilha.push(criarEstadoVoltar(tela, 1)); i++; } },
-    get tela() { return tela; }, get saiu() { return saiu; }, get avisos() { return avisos; }, get porCima() { return porCima.length; }, get entradas() { return pilha.length; },
+    get saiu() { return saiu; }, get entradas() { return pilha.length; }, get posicao() { return i; },
   };
 }
 
-test('caminho completo: telas, menu aberto, aviso de sair e saída só no segundo voltar', () => {
-  const s = simular('inicio');
-  s.abrirTela('departamento');
-  s.abrirTela('funcionarios');
-  s.abrirTela('funcionarios'); // re-render: não empilha
-  assert.equal(s.entradas, 4);
-  s.abrirPorCima('menu');
-  s.voltar();
-  assert.equal(s.porCima, 0);
-  assert.equal(s.tela, 'funcionarios'); // primeiro voltar só fechou o menu
-  s.voltar();
-  assert.equal(s.tela, 'departamento');
-  s.voltar();
-  assert.equal(s.tela, 'inicio');
-  s.voltar();
-  assert.equal(s.avisos, 1);
-  assert.equal(s.saiu, false); // na inicial, o primeiro voltar não fecha o app
-  s.voltar();
-  assert.equal(s.saiu, true); // segundo voltar dentro do tempo sai
+/** App de mentira: telas + coisas abertas por cima, ligado ao controle como o hook liga. */
+function app(telaInicial = 'inicio', telaAoAbrir = telaInicial) {
+  const nav = navegador();
+  let tela = telaAoAbrir;
+  const abertos = new Map<string, () => void>();
+  const c = new ControleVoltar(nav.h, nav.agora, nav.depois);
+  const irPara = (t: string) => { tela = t; c.telaMudou(t); };
+  nav.ligarVoltar((e) => c.aoVoltar(e));
+  c.ligar({ telaAtual: tela, telaInicial, irParaTela: irPara });
+  const fecharSemVoltar = (nome: string) => { const tirar = abertos.get(nome); abertos.delete(nome); tirar?.(); };
+  return {
+    nav, c,
+    /** A pessoa toca num botão do menu/tela que abre outra tela. */
+    tocarETrocar(t: string) { nav.tocar(); c.toque(); nav.passar(300); irPara(t); nav.rodarTarefas(); },
+    /** A tela muda sem toque (Agente por voz, redirecionamento, piloto). */
+    trocarSozinha(t: string) { nav.passar(900); irPara(t); nav.rodarTarefas(); },
+    /** Toque que abre o menu/janela. */
+    tocarEAbrir(nome: string) {
+      nav.tocar(); c.toque();
+      const tirar = c.abrirCamada(() => { abertos.delete(nome); });
+      abertos.set(nome, tirar);
+    },
+    abrirSozinho(nome: string) { const tirar = c.abrirCamada(() => { abertos.delete(nome); }); abertos.set(nome, tirar); },
+    /** Toque no X da janela. */
+    tocarEFechar(nome: string) { nav.tocar(); c.toque(); fecharSemVoltar(nome); nav.rodarTarefas(); },
+    /** Toque num item do menu do celular: fecha o menu e abre a tela no mesmo toque. */
+    tocarItemDoMenu(nome: string, t: string) { nav.tocar(); c.toque(); fecharSemVoltar(nome); tela = t; c.telaMudou(t); nav.rodarTarefas(); },
+    /** A Agente (sem toque novo) fecha o painel dela e abre a tela pedida. */
+    agenteFechaETroca(nome: string, t: string) { nav.passar(2500); fecharSemVoltar(nome); tela = t; c.telaMudou(t); nav.rodarTarefas(); },
+    voltar() { nav.voltar(); nav.rodarTarefas(); nav.passar(JANELA_REDIRECIONAMENTO_MS + 100); },
+    get tela() { return tela; }, get aberto() { return [...abertos.keys()]; },
+  };
+}
+
+test('abrir o app não cria entrada nova (nada para o Chrome pular)', () => {
+  const a = app();
+  assert.equal(a.nav.entradas, 1);
+  assert.deepEqual(lerEstadoVoltar(a.nav.h.state), { murade: true, tela: 'inicio', n: 0 });
+  a.voltar();
+  assert.equal(a.nav.saiu, true); // na tela inicial o voltar sai do app
 });
 
-test('passado o tempo do aviso, o próximo voltar avisa de novo em vez de sair', () => {
-  const s = simular('inicio');
-  s.voltar();
-  assert.equal(s.avisos, 1);
-  s.passouOTempoDoAviso();
-  s.voltar();
-  assert.equal(s.avisos, 2);
-  assert.equal(s.saiu, false);
+test('telas abertas por toque: o voltar volta uma por uma até o Início e só então sai', () => {
+  const a = app();
+  a.tocarETrocar('funcionarios');
+  a.tocarETrocar('rescisao');
+  a.tocarETrocar('cad-sindicato');
+  a.voltar(); assert.equal(a.tela, 'rescisao');
+  a.voltar(); assert.equal(a.tela, 'funcionarios');
+  a.voltar(); assert.equal(a.tela, 'inicio');
+  assert.equal(a.nav.saiu, false);
+  a.voltar(); assert.equal(a.nav.saiu, true);
 });
 
-test('abriu direto numa tela interna: o voltar leva para a tela inicial', () => {
-  const s = simular('inicio', 'guias');
-  s.voltar();
-  assert.equal(s.tela, 'inicio');
-  assert.equal(s.saiu, false);
-  s.voltar();
-  assert.equal(s.avisos, 1);
-  assert.equal(s.saiu, false);
+test('menu do celular: o voltar fecha só o menu; item do menu reaproveita a entrada (sem voltar fantasma)', () => {
+  const a = app();
+  a.tocarETrocar('folha');
+  a.tocarEAbrir('menu');
+  a.voltar();
+  assert.deepEqual(a.aberto, []);
+  assert.equal(a.tela, 'folha'); // continuou na mesma tela
+  a.tocarEAbrir('menu');
+  a.tocarItemDoMenu('menu', 'ferias');
+  assert.equal(a.tela, 'ferias');
+  a.voltar(); assert.equal(a.tela, 'folha'); // não precisa apertar duas vezes
+  a.voltar(); assert.equal(a.tela, 'inicio');
+  a.voltar(); assert.equal(a.nav.saiu, true);
 });
 
-test('textos e tempo do aviso', () => {
-  assert.equal(TEXTO_AVISO_SAIR, 'Aperte voltar de novo para sair');
-  assert.equal(JANELA_SAIR_MS, 2000);
+test('janela fechada pelo X: a entrada dela sai do histórico (o próximo voltar troca de tela de verdade)', () => {
+  const a = app();
+  a.tocarETrocar('empresa');
+  a.tocarEAbrir('calculadora');
+  a.tocarEFechar('calculadora');
+  a.voltar();
+  assert.equal(a.tela, 'inicio');
+});
+
+test('depois de fechar o menu com o voltar, as telas anteriores continuam (o Chrome não pula nenhuma)', () => {
+  const a = app();
+  a.tocarETrocar('empresa');
+  a.tocarETrocar('cargos');
+  a.tocarEAbrir('menu');
+  a.voltar(); // fecha o menu
+  a.voltar(); assert.equal(a.tela, 'empresa');
+  a.voltar(); assert.equal(a.tela, 'inicio');
+  assert.equal(a.nav.saiu, false);
+});
+
+test('tela aberta pela Agente (sem toque) também volta; o painel da Agente aberto por toque fecha primeiro', () => {
+  const a = app();
+  a.tocarETrocar('funcionarios');
+  a.tocarEAbrir('agente');
+  // A Agente fecha o próprio painel e abre a tela pedida (no mesmo instante: a entrada do painel é reaproveitada).
+  a.agenteFechaETroca('agente', 'rescisao');
+  assert.equal(a.tela, 'rescisao');
+  a.voltar(); assert.equal(a.tela, 'funcionarios');
+  a.voltar(); assert.equal(a.tela, 'inicio');
+});
+
+test('Agente com o painel aberto troca telas sozinha (voz, sem toque): o voltar volta para a tela onde a pessoa estava', () => {
+  const a = app();
+  a.tocarETrocar('folha');
+  a.tocarEAbrir('agente'); // o toque que abre o painel guarda a entrada da folha
+  a.trocarSozinha('rescisao');
+  a.trocarSozinha('ferias');
+  a.voltar();
+  assert.equal(a.tela, 'folha');
+  assert.deepEqual(a.aberto, []); // o painel fechou junto
+  a.voltar(); assert.equal(a.tela, 'inicio');
+  assert.equal(a.nav.saiu, false);
+});
+
+test('o "Voltar" da própria tela anda junto com o histórico (não cresce A → B → A)', () => {
+  const a = app();
+  a.tocarETrocar('empresa');
+  a.tocarETrocar('cargos');
+  const antes = a.nav.entradas;
+  a.nav.tocar(); a.c.toque(); a.nav.passar(200);
+  a.c.telaMudou('empresa'); // botão Voltar da tela
+  assert.equal(a.nav.posicao, 1);
+  assert.equal(a.nav.entradas, antes);
+});
+
+test('redirecionamento logo depois do voltar substitui (não cria laço)', () => {
+  const a = app();
+  a.tocarETrocar('admin');
+  a.tocarETrocar('relatorios');
+  a.nav.voltar(); // volta para admin...
+  a.c.telaMudou('inicio'); // ...que redireciona na hora para o início (tela restrita)
+  assert.equal(lerEstadoVoltar(a.nav.h.state)?.tela, 'inicio');
+  assert.equal(a.nav.posicao, 1);
+});
+
+test('janela aberta sozinha (sem toque) não ganha entrada: o voltar fecha junto e volta a tela', () => {
+  const a = app();
+  a.tocarETrocar('folha');
+  a.abrirSozinho('aviso');
+  a.voltar();
+  assert.deepEqual(a.aberto, []);
+  assert.equal(a.tela, 'inicio');
+});
+
+test('abriu direto numa tela (link/atalho): a tela abre e o voltar sai do app sem travar', () => {
+  const a = app('inicio', 'guias');
+  assert.deepEqual(lerEstadoVoltar(a.nav.h.state), { murade: true, tela: 'guias', n: 0 });
+  a.tocarETrocar('empresa');
+  a.voltar(); assert.equal(a.tela, 'guias');
+  a.voltar(); assert.equal(a.nav.saiu, true);
+});
+
+test('entrada criada por link com # é adotada pela próxima tela e telas de passagem não entram', () => {
+  const nav = navegador();
+  const c = new ControleVoltar(nav.h, nav.agora, nav.depois);
+  c.ligar({ telaAtual: 'inicio', telaInicial: 'inicio', irParaTela: () => undefined, telasSemHistorico: ['dr_beni'] });
+  nav.h.pushState(null); // link com #
+  assert.equal(c.telaMudou('acessos'), 'substituiu');
+  assert.equal(c.telaMudou('dr_beni'), 'nada');
+  assert.equal(c.aoVoltar({ outro: 1 }), 'ignorado');
+});
+
+test('fechar uma janela nunca trava o voltar', () => {
+  const nav = navegador();
+  const c = new ControleVoltar(nav.h, nav.agora, nav.depois);
+  let tela = 'a';
+  c.ligar({ telaAtual: tela, telaInicial: 'a', irParaTela: (t) => { tela = t; } });
+  nav.ligarVoltar((e) => c.aoVoltar(e));
+  nav.tocar(); c.toque();
+  c.abrirCamada(() => { throw new Error('quebrou'); });
+  nav.voltar();
+  assert.equal(c.quantasCamadas, 0);
+  assert.equal(tela, 'a');
 });

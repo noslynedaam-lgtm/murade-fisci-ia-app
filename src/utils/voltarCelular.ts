@@ -1,23 +1,32 @@
 // Botão VOLTAR do celular (gesto/botão do Android, voltar do navegador) dentro do sistema Murade.
-// Pedido do dono (20/11/2026): o voltar volta para a TELA ANTERIOR do sistema em vez de fechar o aplicativo;
-// se houver algo aberto por cima (menu do celular, janela, Agente IA, cartão), o primeiro voltar fecha isso;
-// na tela inicial o primeiro voltar só avisa "Aperte voltar de novo para sair".
-// Aqui fica só a decisão (sem React e sem tocar no navegador), para poder ser testada. O hook useVoltarCelular usa isto.
+// Pedido do dono (20/11 e 24/11/2026): o voltar volta para a TELA ANTERIOR do sistema, como no aplicativo do cliente;
+// o que estiver aberto por cima (menu do celular, janela, Agente IA) fecha primeiro; na tela inicial o voltar sai do app.
+//
+// Por que mudou (24/11/2026): o Chrome do celular PULA, no botão voltar, as entradas do histórico que a página criou
+// sem um toque da pessoa. A versão anterior criava entradas sozinha (a "base" ao abrir e a entrada reposta depois de
+// fechar o menu com o voltar), e o Chrome pulava justamente a tela anterior: o voltar fechava o app ou caía no Início.
+// Regras desta versão:
+//  - nunca cria entrada dentro do evento do voltar (o voltar só lê o histórico e troca a tela);
+//  - ao abrir, só marca a entrada atual (não cria outra);
+//  - janela/menu aberto por um toque ganha a própria entrada (o voltar fecha só ele); fechado pelo X, a entrada é
+//    reaproveitada pela próxima tela ou retirada com history.back();
+//  - troca de tela empilha uma entrada; redirecionamento logo depois de um voltar substitui (não cria laço).
+// Este arquivo não usa React nem o DOM (o hook useVoltarCelular liga isto ao navegador) para poder ser testado.
 
-export const TEXTO_AVISO_SAIR = 'Aperte voltar de novo para sair';
-/** Tempo do aviso "aperte de novo": um segundo voltar dentro dele sai do aplicativo. */
-export const JANELA_SAIR_MS = 2000;
-/** Troca de tela logo depois de um voltar é redirecionamento da própria tela (ex.: tela restrita volta ao início): substitui, não empilha. */
-export const JANELA_REDIRECIONAMENTO_MS = 600;
-
-/** Estado que o sistema guarda em cada entrada do histórico do navegador. "base" marca a primeira entrada (a de sair do app). */
+/** Estado que o sistema guarda em cada entrada do histórico do navegador. */
 export interface EstadoVoltar {
   murade: true;
   tela: string;
-  /** Posição da entrada no histórico do sistema (0 = base). */
+  /** Posição da entrada no histórico do sistema (0 = a entrada em que o app abriu). */
   n: number;
-  base?: true;
+  /** Entrada de algo aberto por cima da tela (menu, janela, Agente). */
+  camada?: true;
 }
+
+/** Troca de tela logo depois de um voltar é redirecionamento da própria tela: substitui, não empilha. */
+export const JANELA_REDIRECIONAMENTO_MS = 600;
+/** Toque que ainda vale para abrir a entrada de uma janela (o Chrome considera o toque recente por alguns segundos). */
+export const JANELA_TOQUE_MS = 4000;
 
 const ehObjeto = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -25,101 +34,168 @@ const ehObjeto = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export function lerEstadoVoltar(estado: unknown): EstadoVoltar | null {
   if (!ehObjeto(estado) || estado.murade !== true || typeof estado.tela !== 'string' || !estado.tela) return null;
   const n = typeof estado.n === 'number' && Number.isInteger(estado.n) && estado.n >= 0 ? estado.n : 0;
-  return estado.base === true ? { murade: true, tela: estado.tela, n, base: true } : { murade: true, tela: estado.tela, n };
+  return estado.camada === true ? { murade: true, tela: estado.tela, n, camada: true } : { murade: true, tela: estado.tela, n };
 }
 
-/** Monta o estado de uma tela. Com "existente", preserva o que outra parte do app guardou na mesma entrada (ex.: roteador). */
-export function criarEstadoVoltar(tela: string, n: number, base = false, existente?: unknown): Record<string, unknown> {
+/** Monta o estado de uma entrada. Com "existente", preserva o que outra parte do app guardou nela (ex.: roteador). */
+export function criarEstadoVoltar(tela: string, n: number, camada = false, existente?: unknown): Record<string, unknown> {
   const resto: Record<string, unknown> = {};
   if (ehObjeto(existente)) {
-    for (const [k, v] of Object.entries(existente)) if (k !== 'murade' && k !== 'tela' && k !== 'base' && k !== 'n') resto[k] = v;
+    for (const [k, v] of Object.entries(existente)) if (!['murade', 'tela', 'n', 'camada', 'base'].includes(k)) resto[k] = v;
   }
-  return base ? { ...resto, murade: true, tela, n, base: true } : { ...resto, murade: true, tela, n };
+  return camada ? { ...resto, murade: true, tela, n, camada: true } : { ...resto, murade: true, tela, n };
+}
+
+/** O que o controle precisa do navegador (window.history no app; um histórico de mentira nos testes). */
+export interface HistoricoNavegador {
+  readonly state: unknown;
+  pushState(estado: unknown): void;
+  replaceState(estado: unknown): void;
+  back(): void;
+}
+
+interface Camada { id: number; fechar: () => void; n: number | null; fechadaPeloVoltar: boolean }
+
+export interface OpcoesControle {
+  telaAtual: string;
+  telaInicial: string;
+  irParaTela: (tela: string) => void;
+  telasSemHistorico?: readonly string[];
 }
 
 /**
- * Ao abrir o sistema (ou entrar depois do login): o que gravar na entrada atual do histórico.
- * - Entrada que já é uma tela do sistema (recarregou a página): só atualiza para a tela que está aberta agora.
- * - Senão (abriu agora): vira a entrada "base", marcada como tela inicial. A tela atual é empilhada por cima dela
- *   (decidirEmpilhar), de modo que o primeiro voltar nunca fecha o app de cara, e quem abriu direto numa tela
- *   interna volta para a tela inicial.
+ * Controle do botão voltar. Um por página (o hook usa a instância única). O voltar nunca salva, transmite nem apaga:
+ * só troca de tela ou fecha o que está por cima.
  */
-export function estadoAoAbrir(atual: unknown, telaAtual: string, telaInicial: string): Record<string, unknown> {
-  const lido = lerEstadoVoltar(atual);
-  if (lido && !lido.base) return criarEstadoVoltar(telaAtual, lido.n, false, atual);
-  return criarEstadoVoltar(telaInicial, 0, true, atual);
-}
+export class ControleVoltar {
+  private camadas: Camada[] = [];
+  private proximoId = 1;
+  private opcoes: OpcoesControle | null = null;
+  private ignorarVoltas = 0;
+  private ultimoVoltarMs = -Infinity;
+  private ultimoToqueMs = -Infinity;
+  private toqueUsadoMs = -Infinity;
+  private remocaoPendente: number | null = null;
+  private telasPorPosicao = new Map<number, string>();
+  private ultimaPosicao = 0;
 
-export type AcaoEmpilhar = 'nada' | 'empilhar' | 'substituir' | 'voltar';
+  constructor(
+    private readonly h: HistoricoNavegador,
+    private readonly agora: () => number = () => Date.now(),
+    private readonly depois: (f: () => void) => void = (f) => { setTimeout(f, 0); },
+    /** Fecha janelas da tela que não se registraram (ex.: confirmação com aria-modal). */
+    private readonly fecharDialogoSolto: () => boolean = () => false,
+  ) {}
 
-/**
- * A tela mudou (menu, botão, Agente, ou o próprio voltar): o que fazer com o histórico do navegador.
- * Nunca empilha duas vezes a mesma tela (re-render não cria entrada nova).
- * "telaAnterior" = tela da entrada logo abaixo (quando conhecida e não é a base): se a pessoa usou o "Voltar" da própria
- * tela e foi para ela, o histórico do navegador volta junto ('voltar') em vez de crescer A → B → A.
- */
-export function decidirEmpilhar(
-  atual: unknown,
-  telaAtual: string,
-  opcoes: { logoAposVoltar?: boolean; telasSemHistorico?: readonly string[]; telaAnterior?: string | null } = {},
-): AcaoEmpilhar {
-  if (!telaAtual || opcoes.telasSemHistorico?.includes(telaAtual)) return 'nada';
-  const lido = lerEstadoVoltar(atual);
-  if (!lido) return 'substituir'; // entrada criada fora do sistema (link com #): passa a ser desta tela, sem sobrar entrada vazia
-  if (lido.base) return 'empilhar'; // a entrada base nunca é trocada: é ela que segura o "aperte de novo para sair"
-  if (lido.tela === telaAtual) return 'nada';
-  if (opcoes.logoAposVoltar) return 'substituir'; // a tela redirecionou sozinha logo após o voltar: não cria laço
-  if (opcoes.telaAnterior && opcoes.telaAnterior === telaAtual) return 'voltar';
-  return 'empilhar';
-}
+  get ligado(): boolean { return this.opcoes !== null; }
+  get quantasCamadas(): number { return this.camadas.length; }
 
-export type DecisaoVoltar =
-  | { tipo: 'ignorar' }
-  | { tipo: 'nada' }
-  | { tipo: 'fechar-por-cima' }
-  | { tipo: 'ir-para-tela'; tela: string }
-  | { tipo: 'ir-para-inicial' }
-  | { tipo: 'avisar-sair' };
+  /** Liga depois do login: só marca a entrada atual (não cria entrada nova). */
+  ligar(o: OpcoesControle): void {
+    this.opcoes = { ...o };
+    const lido = lerEstadoVoltar(this.h.state);
+    const n = lido?.n ?? 0;
+    this.h.replaceState(criarEstadoVoltar(o.telaAtual, n, false, this.h.state));
+    this.ultimaPosicao = n;
+    this.telasPorPosicao.set(n, o.telaAtual);
+  }
+  desligar(): void { this.opcoes = null; }
+  atualizar(o: Partial<OpcoesControle>): void { if (this.opcoes) this.opcoes = { ...this.opcoes, ...o }; }
 
-/** A pessoa apertou voltar (evento popstate): o navegador já foi para a entrada "estado". O que o sistema faz. */
-export function decidirVoltar(entrada: { estado: unknown; telaAtual: string; telaInicial: string; temPorCima: boolean }): DecisaoVoltar {
-  const lido = lerEstadoVoltar(entrada.estado);
-  if (!lido) return { tipo: 'ignorar' }; // não é do sistema (ex.: troca de # por link): deixa o app tratar como já tratava
-  if (entrada.temPorCima) return { tipo: 'fechar-por-cima' };
-  if (lido.base) return entrada.telaAtual === entrada.telaInicial ? { tipo: 'avisar-sair' } : { tipo: 'ir-para-inicial' };
-  if (lido.tela === entrada.telaAtual) return { tipo: 'nada' };
-  return { tipo: 'ir-para-tela', tela: lido.tela };
-}
+  /** Toque/tecla de verdade da pessoa (o navegador só deixa a entrada valer no voltar se veio de um toque). */
+  toque(): void { this.ultimoToqueMs = this.agora(); }
+  private toqueDisponivel(): boolean {
+    return this.ultimoToqueMs > this.toqueUsadoMs && this.agora() - this.ultimoToqueMs <= JANELA_TOQUE_MS;
+  }
 
-/** Janela de diálogo achada na tela (fora do controle do App): só tenta fechar uma vez a mesma, para nunca prender a pessoa. */
-export function deveTentarFecharDialogo(encontrado: unknown, ultimoTentado: unknown): boolean {
-  return encontrado != null && encontrado !== ultimoTentado;
-}
+  private gravar(acao: 'push' | 'replace', tela: string, n: number, camada = false): void {
+    const estado = criarEstadoVoltar(tela, n, camada, acao === 'replace' ? this.h.state : undefined);
+    if (acao === 'push') {
+      for (const k of [...this.telasPorPosicao.keys()]) if (k >= n) this.telasPorPosicao.delete(k);
+      this.h.pushState(estado);
+      this.toqueUsadoMs = this.ultimoToqueMs;
+    } else this.h.replaceState(estado);
+    if (!camada) this.telasPorPosicao.set(n, tela);
+    this.ultimaPosicao = n;
+  }
 
-// ---- Coisas abertas por cima (menu do celular, janelas, painel da Agente, cartões) ----
-// Cada componente registra aqui enquanto está aberto; o voltar fecha o último aberto.
-type ItemPorCima = { id: number; fechar: () => void };
-const pilhaPorCima: ItemPorCima[] = [];
-let proximoIdPorCima = 1;
+  /** A tela/aba mudou (menu, botão, Agente ou o próprio voltar). */
+  telaMudou(tela: string): 'nada' | 'empilhou' | 'substituiu' | 'voltou' {
+    const o = this.opcoes;
+    if (!o || !tela) return 'nada';
+    o.telaAtual = tela;
+    if (o.telasSemHistorico?.includes(tela)) return 'nada';
+    const lido = lerEstadoVoltar(this.h.state);
+    // Janela fechada pelo toque que também trocou de tela (ex.: item do menu do celular): a entrada dela vira a da tela nova.
+    if (lido && this.remocaoPendente !== null && lido.n === this.remocaoPendente && lido.camada) {
+      this.remocaoPendente = null;
+      this.gravar('replace', tela, lido.n);
+      return 'substituiu';
+    }
+    if (!lido) { this.gravar('replace', tela, this.ultimaPosicao + 1); return 'substituiu'; } // entrada de link com #
+    if (lido.tela === tela) return 'nada'; // re-render ou chegada pelo voltar
+    if (this.agora() - this.ultimoVoltarMs < JANELA_REDIRECIONAMENTO_MS) { this.gravar('replace', tela, lido.n, !!lido.camada); return 'substituiu'; }
+    // Usou o "Voltar" da própria tela para a tela de baixo: o histórico do navegador volta junto (não cresce A → B → A).
+    if (!lido.camada && lido.n >= 1 && this.telasPorPosicao.get(lido.n - 1) === tela) { this.h.back(); return 'voltou'; }
+    this.gravar('push', tela, lido.n + 1);
+    return 'empilhou';
+  }
 
-/** Registra algo aberto por cima; devolve a função que tira o registro (chamar ao fechar/desmontar). */
-export function registrarPorCima(fechar: () => void): () => void {
-  const item: ItemPorCima = { id: proximoIdPorCima++, fechar };
-  pilhaPorCima.push(item);
-  return () => {
-    const i = pilhaPorCima.findIndex((x) => x.id === item.id);
-    if (i >= 0) pilhaPorCima.splice(i, 1);
-  };
-}
+  /** Algo abriu por cima (menu, janela, Agente). Aberto por toque ganha entrada própria. Devolve a função de fechar o registro. */
+  abrirCamada(fechar: () => void): () => void {
+    const c: Camada = { id: this.proximoId++, fechar, n: null, fechadaPeloVoltar: false };
+    this.camadas.push(c);
+    const o = this.opcoes;
+    if (o && this.toqueDisponivel()) {
+      const lido = lerEstadoVoltar(this.h.state);
+      // Só quando a entrada atual é a da tela que está aberta (senão a camada fica sem entrada: o voltar fecha junto).
+      if (lido && lido.tela === o.telaAtual) { c.n = lido.n + 1; this.gravar('push', o.telaAtual, c.n, true); }
+    }
+    return () => this.tirarCamada(c);
+  }
 
-export function quantosPorCima(): number {
-  return pilhaPorCima.length;
-}
+  private tirarCamada(c: Camada): void {
+    const i = this.camadas.indexOf(c);
+    if (i >= 0) this.camadas.splice(i, 1);
+    if (c.fechadaPeloVoltar || c.n === null) return;
+    const lido = lerEstadoVoltar(this.h.state);
+    if (!lido || !lido.camada || lido.n !== c.n) return; // a pessoa já foi para outra tela com a janela aberta: deixa
+    // Fechou pelo X/fora: a entrada da janela sai do histórico, a menos que uma tela nova a reaproveite agora mesmo.
+    this.remocaoPendente = c.n;
+    const n = c.n;
+    this.depois(() => {
+      if (this.remocaoPendente !== n) return;
+      this.remocaoPendente = null;
+      const atual = lerEstadoVoltar(this.h.state);
+      if (!atual || !atual.camada || atual.n !== n) return;
+      this.ignorarVoltas += 1;
+      this.h.back();
+    });
+  }
 
-/** Fecha o último aberto por cima. Ele sai da lista mesmo se não fechar de verdade (o próximo voltar segue em frente: sem laço). */
-export function fecharUltimoPorCima(): boolean {
-  const item = pilhaPorCima.pop();
-  if (!item) return false;
-  try { item.fechar(); } catch { /* fechar nunca pode travar o voltar */ }
-  return true;
+  /** O navegador já foi para a entrada "estado" (evento popstate). Nunca cria entrada aqui. */
+  aoVoltar(estado: unknown): 'ignorado' | 'fechou' | 'trocou' | 'nada' {
+    if (this.ignorarVoltas > 0) { this.ignorarVoltas -= 1; return 'ignorado'; }
+    const o = this.opcoes;
+    const lido = lerEstadoVoltar(estado);
+    if (!o || !lido) return 'ignorado'; // entrada de fora do sistema (link com #): o app trata como já tratava
+    this.ultimoVoltarMs = this.agora();
+    this.toqueUsadoMs = this.ultimoToqueMs; // o toque anterior não vale para entradas criadas depois do voltar
+    this.remocaoPendente = null;
+    this.ultimaPosicao = lido.n;
+    let fechou = false;
+    for (let i = this.camadas.length - 1; i >= 0; i -= 1) {
+      const c = this.camadas[i];
+      // Fecha o que tinha entrada acima da entrada de agora e o que foi aberto sem entrada (fecha junto com a tela).
+      if (c.n === null || c.n > lido.n) {
+        c.fechadaPeloVoltar = true;
+        this.camadas.splice(i, 1);
+        try { c.fechar(); } catch { /* fechar nunca pode travar o voltar */ }
+        if (c.n !== null) fechou = true;
+      }
+    }
+    if (!fechou) { try { if (this.fecharDialogoSolto()) fechou = lido.tela === o.telaAtual; } catch { /* idem */ } }
+    if (lido.tela !== o.telaAtual) { o.irParaTela(lido.tela); return 'trocou'; }
+    return fechou ? 'fechou' : 'nada';
+  }
 }
