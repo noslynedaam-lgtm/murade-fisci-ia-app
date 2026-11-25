@@ -174,7 +174,7 @@ app.get('/api/ready', async (_req, res) => {
 });
 
 app.get('/api/voz/health', (_req, res) => {
-  res.json({ provedorConfigurado: Boolean(process.env.ELEVENLABS_API_KEY) });
+  res.json({ provedorConfigurado: Boolean(process.env.ELEVENLABS_API_KEY) && process.env.VOZ_PREMIUM === 'ligada' });
 });
 
 const limiteVoz = new Map<string, { total: number; reiniciaEm: number }>();
@@ -189,6 +189,8 @@ app.post("/api/voz/sintetizar", async (req, res) => {
   limiteVoz.set(ip, janela);
   if (janela.total > 20) return res.status(429).json({ erro: 'Limite temporário de síntese atingido. Tente novamente em um minuto.' });
 
+  // Trava de custo (igual à voz premium dos outros sistemas): a voz paga só funciona se o dono ligar VOZ_PREMIUM=ligada.
+  if (process.env.VOZ_PREMIUM !== 'ligada') return res.status(403).json({ erro: 'Voz premium desligada; usando a voz grátis do aparelho.' });
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) return res.status(503).json({ erro: 'Síntese ElevenLabs não configurada no servidor.' });
 

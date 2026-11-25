@@ -164,6 +164,8 @@ export function definirUsuarioDaVoz(usuario: unknown): void {
   usuarioDaVoz = id ? resumo(id.trim().toLowerCase()) : '';
   avisarMudancaAgente();
 }
+/** Código (resumo) de quem entrou, para guardar preferências de voz por usuário neste aparelho. */
+export const usuarioDaVozAtual = (): string => usuarioDaVoz || 'aparelho';
 const chaveFalar = (): string => `${CHAVE_FALAR}:${usuarioDaVoz || 'aparelho'}`;
 export function falarRespostasLigado(): boolean {
   try { return localStorage.getItem(chaveFalar()) !== '0'; } catch { return true; }

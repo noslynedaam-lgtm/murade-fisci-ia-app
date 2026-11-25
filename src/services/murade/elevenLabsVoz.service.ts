@@ -7,14 +7,17 @@ export interface ConfigVozMurad {
 }
 
 import { registrarParador } from '../../utils/agenteParar';
+import { aplicarVozNatural, textoParaFala } from '../../utils/vozHumana';
 
-const STORAGE_KEY = 'murade_ia_voz_config_v1';
+// v2: todos voltam para a voz grátis do aparelho (a v1 vinha com voz paga como padrão).
+const STORAGE_KEY = 'murade_ia_voz_config_v2';
+try { if (typeof localStorage !== 'undefined') localStorage.removeItem('murade_ia_voz_config_v1'); } catch { /* ignora */ }
 
 export const VOZES_PREDEFINIDAS = [
+  { id: 'native_pt_br', nome: 'Voz grátis do aparelho (a mais natural, escolhida em Voz da assistente)', tipo: 'Navegador' },
   { id: '21m00Tcm4TlvDq8ikWAM', nome: 'Voz Brasileira Natural (Feminina Suave)', tipo: 'ElevenLabs' },
   { id: 'AZnzlk1XvdvUeBnXmlld', nome: 'Voz Executiva Murad (Masculina Clara)', tipo: 'ElevenLabs' },
   { id: 'EXAVITQu4vr4xnSDxMaL', nome: 'Voz Contadora Amigável (Feminina)', tipo: 'ElevenLabs' },
-  { id: 'native_pt_br', nome: 'Voz Sintetizada Nativa do Navegador (PT-BR)', tipo: 'Navegador' }
 ];
 
 export function obterConfigVoz(): ConfigVozMurad {
@@ -35,7 +38,8 @@ export function obterConfigVoz(): ConfigVozMurad {
   return CONFIG_VOZ_PADRAO;
 }
 
-const CONFIG_VOZ_PADRAO: ConfigVozMurad = { voiceId: '21m00Tcm4TlvDq8ikWAM' };
+// Padrão: voz grátis do aparelho. A voz paga (ElevenLabs) só se a pessoa escolher e o dono ligar VOZ_PREMIUM no servidor.
+const CONFIG_VOZ_PADRAO: ConfigVozMurad = { voiceId: 'native_pt_br' };
 
 export function salvarConfigVoz(config: Partial<ConfigVozMurad>): ConfigVozMurad {
   const atual = obterConfigVoz();
@@ -140,30 +144,8 @@ function fallbackNativo(
       // Garante despausa no Chrome caso o motor esteja travado
       window.speechSynthesis.resume();
 
-      const utterance = new SpeechSynthesisUtterance(texto);
-      utterance.lang = 'pt-BR';
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-
-      // Busca voz brasileira disponível no sistema
-      const selecionarVoz = (): SpeechSynthesisVoice | null => {
-        const vozes = window.speechSynthesis.getVoices();
-        return (
-          vozes.find(v => v.lang === 'pt-BR' || v.lang === 'pt_BR') ||
-          vozes.find(v => v.lang.toLowerCase().startsWith('pt')) ||
-          null
-        );
-      };
-
-      const vozBrasileira = selecionarVoz();
-      if (vozBrasileira) {
-        utterance.voice = vozBrasileira;
-      } else {
-        window.speechSynthesis.onvoiceschanged = () => {
-          const v = selecionarVoz();
-          if (v) utterance.voice = v;
-        };
-      }
+      // Mesma voz natural da Agente (a pt-BR mais natural do aparelho ou a escolhida em "Voz da assistente").
+      const utterance = aplicarVozNatural(new SpeechSynthesisUtterance(textoParaFala(texto) || texto));
 
       utterance.onstart = () => {
         onInicio?.();

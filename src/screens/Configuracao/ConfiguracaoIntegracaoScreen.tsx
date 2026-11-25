@@ -1,4 +1,5 @@
 import { OpcaoFalarRespostas } from '../../components/OpcaoFalarRespostas';
+import { OpcaoVozAssistente } from '../../components/OpcaoVozAssistente';
 import { useState, FormEvent } from 'react';
 import { 
   Settings, 
@@ -943,6 +944,11 @@ export function ConfiguracaoIntegracaoScreen({
             {/* Agente: falar ou só escrever (guardado por usuário, vale na hora) */}
             <div className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-sm text-slate-800">
               <OpcaoFalarRespostas />
+            </div>
+
+            {/* Voz da assistente: grátis, do próprio aparelho; automática = a mais natural. Guardada por usuário neste aparelho. */}
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+              <OpcaoVozAssistente />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">

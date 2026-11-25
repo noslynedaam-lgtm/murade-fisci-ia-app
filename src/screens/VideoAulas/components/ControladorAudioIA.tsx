@@ -3,6 +3,7 @@ import {
   Volume2, VolumeX, Play, Pause, RotateCcw, 
   Sparkles, Radio, Headphones, Mic 
 } from 'lucide-react';
+import { aplicarVozNatural, textoParaFala } from '../../../utils/vozHumana';
 
 interface ControladorAudioIAProps {
   textoParaFalar: string;
@@ -45,17 +46,9 @@ export default function ControladorAudioIA({
     if (estaMudo) return;
 
     try {
-      const utterance = new SpeechSynthesisUtterance(texto);
-      utterance.lang = 'pt-BR';
+      // Mesma voz natural da Agente (a mais natural do aparelho ou a escolhida em "Voz da assistente").
+      const utterance = aplicarVozNatural(new SpeechSynthesisUtterance(textoParaFala(texto) || texto));
       utterance.rate = velocidade;
-      utterance.pitch = 1.0;
-
-      // Tenta encontrar uma voz em português
-      const vozes = window.speechSynthesis.getVoices();
-      const vozPt = vozes.find(v => v.lang.includes('pt-BR') || v.lang.includes('pt'));
-      if (vozPt) {
-        utterance.voice = vozPt;
-      }
 
       utterance.onstart = () => {
         setEstaFalando(true);

@@ -1,5 +1,6 @@
-// Voz humana (Gemini "Kore") com reserva na voz do navegador. Uma fala por vez; dá para interromper.
-import { avisarMudancaAgente, falarRespostasLigado, registrarParador } from './agenteParar';
+// Voz da Agente: a voz grátis do aparelho (a pt-BR mais natural) é a padrão; a premium (Gemini "Kore") só se ligada. Uma fala por vez; dá para interromper.
+import { avisarMudancaAgente, falarRespostasLigado, registrarParador, usuarioDaVozAtual } from './agenteParar';
+import { FRASE_EXEMPLO_VOZ, TOM_NATURAL, VELOCIDADE_NATURAL, dividirEmFrases, escolherVozNatural, idDaVoz, nivelDaVoz, ordenarVozesPtBr, prepararTextoParaFala } from './vozNaturalPtBr';
 let audioAtual: HTMLAudioElement | null = null;
 // Pedido de voz ao servidor em andamento: o "para" aborta, para não tocar nada depois.
 let pedidoVoz: AbortController | null = null;
@@ -18,7 +19,7 @@ const definirPremium = (ligada: boolean): void => { try { localStorage.setItem(C
 // ---- Ajuste de volume e velocidade por comando de voz ("fala mais rápido", "aumenta a voz"). Fica salvo. ----
 const CHAVE_AJUSTE = 'murade_voz_ajuste_v1';
 let volumeVoz = 0.8;
-let velocidadeVoz = 1;
+let velocidadeVoz = VELOCIDADE_NATURAL; // 1,0: ritmo natural (antes 0,95 ou 1,1, que soavam arrastado ou corrido)
 try {
   const salvo = JSON.parse(localStorage.getItem(CHAVE_AJUSTE) || 'null');
   if (salvo && Number.isFinite(salvo.v)) volumeVoz = Math.min(1, Math.max(0.2, salvo.v));
@@ -34,7 +35,11 @@ function salvarAjuste(): void {
 export function ajustarVoz(texto: string): string | null {
   const t = texto.trim();
   if (t.split(' ').length > 8) return null;
-  if (/\b(troca|troque|muda|mude|trocar|mudar|outra)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
+  // Reclamação de voz robótica ("essa voz está muito robótica", "quero uma voz mais natural"): passa para a voz mais natural
+  // deste aparelho (grátis). Não oferece voz paga.
+  if (/\bvoz\b/.test(t) && /\b(robotic[ao]s?|robo|robozinho|mecanic[ao]|artificial|menos robo\w*|mais (natural|humana|bonita|normal))\b/.test(t) && !/\bvoz (premium|humana|bonita|cara)\b.*\b(usa|use|liga|ative|ativa)\b/.test(t)) return usarVozMaisNatural();
+  if (/\b(melhor voz|voz automatica|voz mais natural)\b/.test(t) && /\b(usa|use|usar|volta|volte|coloca|ponha|poe|escolhe|escolha|quero)\b/.test(t)) return usarVozMaisNatural();
+  if (/\b(troca|troque|muda|mude|trocar|mudar|outra|quero)\b.*\bvoz\b/.test(t) && !/\bvoz (premium|humana|normal|economica)\b/.test(t)) return trocarVoz();
   if (/\bvoz (premium|humana|bonita|cara)\b/.test(t) && /\b(usa|use|usar|liga|ligue|ativa|ative|coloca|ponha|poe)\b/.test(t)) {
     definirPremium(true); return 'Ativei a voz premium. Ela é mais bonita, mas gasta mais da chave.';
   }
@@ -218,73 +223,120 @@ async function buscarAudio(trecho: string, sinal?: AbortSignal): Promise<string 
   } catch { return null; }
 }
 
-const CHAVE_VOZ = 'murade_voz_escolhida_v1';
-function vozesPortugues(): SpeechSynthesisVoice[] {
-  const todas = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith('pt'));
-  const brasil = todas.filter((v) => /br/i.test(v.lang));
-  return brasil.length ? brasil : todas;
+// ---- Voz do aparelho (grátis): escolhe sozinha a pt-BR mais natural; a pessoa pode escolher outra em Configurações. ----
+// A escolha fica guardada por usuário neste aparelho (cada aparelho tem as suas vozes). Vazio = automática.
+const CHAVE_VOZ = 'murade_voz_assistente_v2';
+const chaveVoz = (): string => `${CHAVE_VOZ}:${usuarioDaVozAtual()}`;
+// A escolha antiga valia para o aparelho inteiro e podia prender uma voz robótica: sai, e todos voltam para a mais natural.
+try { if (typeof localStorage !== 'undefined') localStorage.removeItem?.('murade_voz_escolhida_v1'); } catch { /* ignora */ }
+
+const sintese = (): SpeechSynthesis | null => (typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null);
+function lerVozesDoAparelho(): SpeechSynthesisVoice[] {
+  try { return sintese()?.getVoices() || []; } catch { return []; }
 }
+
+// As vozes do navegador chegam com atraso (evento voiceschanged): avisa a tela de Configurações e quem espera para falar.
+const ouvintesVozes = new Set<() => void>();
+function vozesMudaram(): void { ouvintesVozes.forEach((f) => { try { f(); } catch { /* ignora */ } }); }
+(() => {
+  const s = sintese();
+  try { if (s && typeof s.addEventListener === 'function') s.addEventListener('voiceschanged', vozesMudaram); } catch { /* ignora */ }
+})();
+export function assinarVozes(f: () => void): () => void { ouvintesVozes.add(f); return () => { ouvintesVozes.delete(f); }; }
+
+let jaEsperouVozes = false;
+/** Espera as vozes do aparelho carregarem antes de escolher (no máximo `limiteMs`; o navegador nem sempre avisa). */
+export function aguardarVozes(limiteMs = 2500): Promise<SpeechSynthesisVoice[]> {
+  const temPortugues = () => lerVozesDoAparelho().some((v) => nivelDaVoz(v) >= 0);
+  if (temPortugues() || (jaEsperouVozes && lerVozesDoAparelho().length)) return Promise.resolve(lerVozesDoAparelho());
+  return new Promise((resolve) => {
+    let feito = false;
+    const fim = () => {
+      if (feito) return;
+      feito = true; jaEsperouVozes = true;
+      window.clearInterval(relogio); window.clearTimeout(limite); ouvintesVozes.delete(aoMudar);
+      resolve(lerVozesDoAparelho());
+    };
+    const aoMudar = () => { if (temPortugues()) fim(); };
+    ouvintesVozes.add(aoMudar);
+    const relogio = window.setInterval(aoMudar, 150);
+    const limite = window.setTimeout(fim, limiteMs);
+  });
+}
+
+/** Id da voz que a pessoa escolheu neste aparelho ('' = automática, a mais natural). */
+export function vozEscolhidaPeloUsuario(): string {
+  try { return localStorage.getItem(chaveVoz()) || ''; } catch { return ''; }
+}
+export function definirVozDaAssistente(id: string): void {
+  try { localStorage.setItem(chaveVoz(), id || ''); } catch { /* ignora */ } // vazio = automática
+  vozesMudaram();
+}
+/** Vozes em português deste aparelho, da mais natural para a menos (nunca de outro idioma). */
+export const vozesDaAssistente = (): SpeechSynthesisVoice[] => ordenarVozesPtBr(lerVozesDoAparelho());
+/** A voz que o sistema escolhe sozinho (a mais natural deste aparelho). */
+export const vozAutomatica = (): SpeechSynthesisVoice | null => escolherVozNatural(lerVozesDoAparelho());
+/** A voz que vai falar agora: a escolhida pela pessoa ou, sem escolha, a mais natural. */
+export const vozDaAssistenteAgora = (): SpeechSynthesisVoice | null => escolherVozNatural(lerVozesDoAparelho(), vozEscolhidaPeloUsuario());
+
+/** Para telas que montam a própria fala: mesma voz, velocidade, tom e volume da Agente. */
+export function aplicarVozNatural(u: SpeechSynthesisUtterance): SpeechSynthesisUtterance {
+  const voz = vozDaAssistenteAgora();
+  u.lang = voz?.lang ? voz.lang.replace('_', '-') : 'pt-BR';
+  if (voz) u.voice = voz;
+  u.rate = velocidadeVoz;
+  u.pitch = TOM_NATURAL;
+  u.volume = volumeVoz;
+  return u;
+}
+/** Texto pronto para a voz (sem markdown, emojis e links; valores, datas e siglas falados do jeito certo). */
+export const textoParaFala = (texto: string): string => prepararTextoParaFala(texto);
 
 /** "Troca a voz": passa para a próxima voz em português deste aparelho e guarda a escolha. */
 export function trocarVoz(): string {
   try {
-    const lista = vozesPortugues();
+    const lista = vozesDaAssistente();
     if (lista.length < 2) return 'Este aparelho só tem uma voz em português disponível.';
-    const atual = escolherVozDoNavegador();
-    const i = Math.max(0, lista.findIndex((v) => v.name === atual?.name));
-    const proxima = lista[(i + 1) % lista.length];
-    localStorage.setItem(CHAVE_VOZ, proxima.name);
+    const atual = vozDaAssistenteAgora();
+    const i = Math.max(0, lista.findIndex((v) => atual !== null && idDaVoz(v) === idDaVoz(atual)));
+    const j = (i + 1) % lista.length;
+    // Deu a volta: volta para a automática (a mais natural).
+    definirVozDaAssistente(j === 0 ? '' : idDaVoz(lista[j]));
     return 'Pronto, esta é a nova voz. Gostou?';
   } catch { return 'Não consegui trocar a voz agora.'; }
 }
 
-function escolherVozDoNavegador(): SpeechSynthesisVoice | undefined {
-  try {
-    const salva = localStorage.getItem(CHAVE_VOZ);
-    if (salva) { const achada = vozesPortugues().find((v) => v.name === salva); if (achada) return achada; }
-  } catch { /* ignora */ }
-  const vozes = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').startsWith('pt'));
-  const brasil = vozes.filter((v) => /br/i.test(v.lang));
-  const lista = brasil.length ? brasil : vozes;
-  const masculina = /daniel|antonio|ant[oô]nio|felipe|ricardo|male|jorge|diego|donato|humberto|thiago/i;
-  const feminina = /maria|francisca|luciana|camila|vit[oó]ria|thalita|leticia|let[ií]cia|female/i;
-  // Ordem: voz "Natural/Online" (Edge, a mais humana) > voz de rede do Google > voz feminina local > qualquer uma.
-  return lista.find((v) => /natural|online/i.test(v.name) && !masculina.test(v.name))
-    || lista.find((v) => /google/i.test(v.name))
-    || lista.find((v) => feminina.test(v.name))
-    || lista.find((v) => !masculina.test(v.name))
-    || lista[0];
+/** "Essa voz está robótica": volta para a voz mais natural deste aparelho (grátis). */
+export function usarVozMaisNatural(): string {
+  definirVozDaAssistente('');
+  const melhor = vozAutomatica();
+  if (!melhor) return 'Este aparelho não tem voz em português instalada. Instale a voz Português do Brasil nas configurações de fala do aparelho.';
+  if (nivelDaVoz(melhor) >= 3) return 'Pronto, passei para a voz mais natural deste aparelho.';
+  return 'Pronto, passei para a melhor voz deste aparelho. Para uma voz ainda mais humana, e grátis: no computador, use o navegador Edge; no iPhone, baixe a voz Luciana melhorada em Ajustes, Acessibilidade, Conteúdo Falado.';
 }
 
 // ---- Voz do navegador: por frases curtas, com proteção contra falha silenciosa e bloqueio do navegador ----
 const esperar = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
-function agruparFrases(texto: string): string[] {
-  const grupos: string[] = [];
-  let atual = '';
-  for (const frase of texto.split(/(?<=[.!?:;])\s+/)) {
-    if ((atual + ' ' + frase).length > 180 && atual) { grupos.push(atual.trim()); atual = frase; }
-    else atual = atual ? `${atual} ${frase}` : frase;
-  }
-  if (atual.trim()) grupos.push(atual.trim());
-  return grupos;
-}
-
-function falarTrecho(texto: string): Promise<boolean> {
+function falarTrecho(texto: string, voz: SpeechSynthesisVoice | null): Promise<boolean | 'interrompido'> {
   return new Promise((resolve) => {
     try {
       const u = new SpeechSynthesisUtterance(texto);
-      u.lang = 'pt-BR';
-      u.rate = 1.1 * velocidadeVoz;
-      u.pitch = 1.0;
+      u.lang = voz?.lang ? voz.lang.replace('_', '-') : 'pt-BR';
+      u.rate = velocidadeVoz;
+      u.pitch = TOM_NATURAL;
       u.volume = volumeVoz;
-      const voz = escolherVozDoNavegador();
       if (voz) u.voice = voz;
       let iniciou = false;
-      const vigia = window.setTimeout(() => { if (!iniciou) { try { window.speechSynthesis.cancel(); } catch { /* ignora */ } resolve(false); } }, 2200);
+      // Voz de rede (Edge Natural, Google) leva mais tempo para começar a primeira frase.
+      const espera = voz && voz.localService === false ? 5000 : 2500;
+      const vigia = window.setTimeout(() => { if (!iniciou) { try { window.speechSynthesis.cancel(); } catch { /* ignora */ } resolve(false); } }, espera);
       u.onstart = () => { iniciou = true; window.clearTimeout(vigia); };
       u.onend = () => { window.clearTimeout(vigia); resolve(true); };
-      u.onerror = () => { window.clearTimeout(vigia); resolve(false); };
+      // Cortada por outro código depois de já ter começado (ex.: um clique na tela): não é falha, é interrupção.
+      u.onerror = (ev) => { window.clearTimeout(vigia); const motivo = String((ev as SpeechSynthesisErrorEvent)?.error || ''); resolve(iniciou && (motivo === 'interrupted' || motivo === 'canceled') ? 'interrompido' : false); };
+      // Guarda a fala atual: sem isso o Chrome às vezes descarta a frase no meio.
+      try { (window as unknown as { __muradeFalaAtual?: unknown }).__muradeFalaAtual = u; } catch { /* ignora */ }
       window.speechSynthesis.speak(u);
     } catch { resolve(false); }
   });
@@ -318,19 +370,22 @@ if (typeof window !== 'undefined') {
   eventos.forEach((e) => window.addEventListener(e, aoToque, true));
 }
 
-async function falarNoNavegador(texto: string, minha: number): Promise<void> {
-  if (!('speechSynthesis' in window)) return;
-  // As vozes às vezes demoram a carregar na primeira vez.
-  if (!window.speechSynthesis.getVoices().length) {
-    await new Promise<void>((resolve) => { let feito = false; const ir = () => { if (!feito) { feito = true; resolve(); } }; window.speechSynthesis.onvoiceschanged = ir; window.setTimeout(ir, 700); });
-  }
+async function falarNoNavegador(texto: string, minha: number, vozPedida?: string): Promise<void> {
+  if (!sintese()) return;
+  // As vozes chegam com atraso na primeira vez: espera carregar para escolher a mais natural (e nunca uma de outro idioma).
+  await aguardarVozes();
+  if (minha !== sequencia) return;
+  const voz = escolherVozNatural(lerVozesDoAparelho(), vozPedida !== undefined ? vozPedida : vozEscolhidaPeloUsuario());
   // Depois de cancelar, o Chrome pode engolir a fala seguinte: espera um instante.
   await esperar(80);
-  const trechos = agruparFrases(texto);
+  // Uma frase por vez: a pausa entre elas soa natural.
+  const trechos = dividirEmFrases(texto);
   for (let i = 0; i < trechos.length; i += 1) {
     if (minha !== sequencia) return;
-    let ok = await falarTrecho(trechos[i]);
-    if (!ok && minha === sequencia) { await esperar(200); ok = await falarTrecho(trechos[i]); }
+    let ok = await falarTrecho(trechos[i], voz);
+    // Interrompida no meio por um clique ou outra fala alheia: segue para o próximo trecho, sem repetir a frase.
+    if (ok === 'interrompido') { if (minha === sequencia) await esperar(120); continue; }
+    if (!ok && minha === sequencia) { await esperar(200); ok = await falarTrecho(trechos[i], voz); if (ok === 'interrompido') continue; }
     if (!ok) {
       if (minha === sequencia) { falaPendente = trechos.slice(i).join(' '); mostrarDicaVoz(); }
       return;
@@ -338,10 +393,24 @@ async function falarNoNavegador(texto: string, minha: number): Promise<void> {
   }
 }
 
+/** Botão "Ouvir exemplo" das Configurações: fala uma frase com a voz escolhida ('' = automática). Não gasta nada. */
+export async function ouvirExemploDaVoz(idVoz: string, aoTerminar?: () => void): Promise<void> {
+  pararHumana();
+  const minha = sequencia;
+  falandoFlag = true;
+  avisarMudancaAgente();
+  try { await falarNoNavegador(prepararTextoParaFala(FRASE_EXEMPLO_VOZ), minha, idVoz); }
+  finally {
+    if (minha === sequencia) { falandoFlag = false; avisarMudancaAgente(); }
+    aoTerminar?.();
+  }
+}
+
 export async function falarHumana(texto: string, aoTerminar?: () => void): Promise<void> {
   pararHumana();
   const minha = sequencia;
-  const limpo = texto.trim();
+  // Sem markdown, emojis e links; valores em reais, datas e siglas do jeito que se fala.
+  const limpo = prepararTextoParaFala(texto);
   // "Falar as respostas" desligado (configuração da Agente): só o texto aparece.
   if (!limpo || !falarRespostasLigado()) { aoTerminar?.(); return; }
   falandoFlag = true;

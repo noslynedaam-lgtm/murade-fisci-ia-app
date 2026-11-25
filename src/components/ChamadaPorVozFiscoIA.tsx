@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { EVENTO_MICROFONE_CHAT, microfoneDoChatAtivo } from '../utils/microfoneChat';
 import { falarHumana, pararHumana, humanaFalando, ajustarVoz, bipRapido, prepararVoz, respostaRapida } from '../utils/vozHumana';
 import { EVENTO_AGENTE_PAROU, agenteAgindo, continuarDeOndeParou, ehComandoContinuar, ehComandoParar, pararTudo, temParaRetomar, type ResultadoPararTudo } from '../utils/agenteParar';
 import { BotaoPararAgente } from './BotaoPararAgente';
@@ -33,6 +34,12 @@ export default function ChamadaPorVozFiscoIA() {
     try { return localStorage.getItem('murade_chamada_voz') !== '0'; } catch { return false; }
   });
   const [aviso, setAviso] = useState('');
+  const [micChat, setMicChat] = useState<boolean>(() => microfoneDoChatAtivo());
+  useEffect(() => {
+    const aoMudar = () => setMicChat(microfoneDoChatAtivo());
+    window.addEventListener(EVENTO_MICROFONE_CHAT, aoMudar);
+    return () => window.removeEventListener(EVENTO_MICROFONE_CHAT, aoMudar);
+  }, []);
   const [suporta] = useState<boolean>(() => typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
   const tempoAvisoRef = useRef<number | undefined>(undefined);
   const aguardandoRef = useRef(false);
@@ -141,7 +148,8 @@ export default function ChamadaPorVozFiscoIA() {
   useEffect(() => {
     try { localStorage.setItem('murade_chamada_voz', ligada ? '1' : '0'); } catch { /* ignora */ }
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!ligada || !SR) return;
+    // Um microfone por vez: enquanto o microfone do chat ouve, a chamada por voz pausa.
+    if (!ligada || !SR || micChat) return;
     const limpar = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
     const chamada = /\b(fisco|fisca|fisco ia)\b/;
     let ativo = true;
@@ -202,7 +210,7 @@ export default function ChamadaPorVozFiscoIA() {
     };
     iniciar();
     return () => { ativo = false; window.clearTimeout(tempoPreparo); window.clearTimeout(tempoComando); try { rec?.stop(); } catch { /* ignora */ } };
-  }, [ligada]);
+  }, [ligada, micChat]);
 
   if (!suporta) return null;
   return (

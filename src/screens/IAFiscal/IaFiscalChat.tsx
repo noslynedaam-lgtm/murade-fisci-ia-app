@@ -132,6 +132,9 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
     }
   });
 
+  // O que está sendo reconhecido aparece na caixa de texto enquanto a pessoa fala.
+  useEffect(() => { if (ouvindo && transcricaoParcial) setInputTexto(transcricaoParcial); }, [ouvindo, transcricaoParcial]);
+
   // Scroll sempre que chegar nova mensagem ou transcrição parcial
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -322,8 +325,9 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
   // Alternar microfone pelo botão
   const toggleMicrofone = () => {
     if (pensando) return;
+    // Clicar de novo enquanto ouve: para na hora e envia o que já foi dito.
     if (ouvindo) {
-      pararEscuta();
+      pararEscuta(true);
     } else {
       pararFala();
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -582,17 +586,18 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             disabled={!vozSuportada || pensando}
             className={`w-11 h-11 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-sm ${
               ouvindo
-                ? 'bg-rose-500 hover:bg-rose-600 text-white animate-pulse ring-4 ring-rose-400/40'
+                ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-4 ring-red-400/40'
                 : 'bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold'
             } disabled:opacity-50`}
-            title={ouvindo ? 'Clique para parar de falar' : 'Clique e fale com o Fisco IA'}
+            title={ouvindo ? 'Ouvindo… clique para enviar agora' : 'Clique e fale (para sozinho quando você termina)'}
+            aria-pressed={ouvindo}
           >
             {ouvindo ? <Mic className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
 
           <div>
             <div className="text-xs font-bold flex items-center gap-1.5">
-              <span>{ouvindo ? 'Fisco IA está ouvindo você...' : falando ? 'Fisco IA está falando com voz masculina (1.15x)...' : 'Fale com o Fisco IA (Voz Masculina)'}</span>
+              <span>{ouvindo ? 'Ouvindo… fale' : falando ? 'Fisco IA está falando...' : 'Fale com o Fisco IA'}</span>
               {ouvindo && (
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -602,7 +607,7 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             </div>
             <p className="text-[11px] text-slate-300 flex items-center gap-1.5 flex-wrap">
               <span>{ouvindo 
-                ? 'Pode falar sua dúvida fiscal agora...' 
+                ? 'Quando você parar de falar, a pergunta é enviada (ou clique no microfone para enviar já).' 
                 : falando
                 ? 'Ouvindo a resposta do Fisco IA...'
                 : 'Clique no microfone para falar com o Fisco IA'}</span>
@@ -889,12 +894,15 @@ export default function IaFiscalChat({ planoAtivoId, onIrParaPlanos }: IaFiscalC
             disabled={pensando}
             className={`p-3 rounded-2xl flex items-center justify-center transition-all cursor-pointer ${
               ouvindo
-                ? 'bg-rose-600 text-white animate-pulse ring-2 ring-rose-400'
+                ? 'bg-red-600 text-white animate-pulse ring-2 ring-red-400'
                 : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
             } disabled:opacity-50`}
-            title={ouvindo ? 'Parar gravação' : 'Falar com o Fisco IA pelo microfone'}
+            title={ouvindo ? 'Ouvindo… clique para enviar agora' : 'Clique para falar (para sozinho quando você termina)'}
+            aria-pressed={ouvindo}
+            aria-label={ouvindo ? 'Ouvindo, fale. Clique para enviar agora' : 'Falar a pergunta'}
           >
-            {ouvindo ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            <Mic className="w-4 h-4" />
+            {ouvindo && <span className="ml-1 text-[11px] font-bold whitespace-nowrap">Ouvindo… fale</span>}
           </button>
 
           <input
