@@ -305,6 +305,33 @@ const FERRAMENTAS: Ferramenta[] = [
     },
   },
   {
+    tipo: 'leitura',
+    declaracao: { name: 'ver_envios_contabil', description: 'Mostra o envio ao Murad Contábil das guias do DAS do MEI, da dívida ativa e dos parcelamentos já consultados no Integra Contador (enviados, pendentes, com erro ou de empresa ainda fora do Contábil). Lá viram pré-lançamentos para a contadora conferir. Sem custo.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async executar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/carteira-fiscal/envios-contabil?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      return { totais: r.corpo?.totais, ultimos: (r.corpo?.ultimos || []).slice(0, 15).map((u: any) => ({ empresa: u.empresa, tipo: u.tipo, situacao: u.situacao, mensagem: u.mensagem, consultadoEm: u.consultadoEm })), observacao: 'O envio não consulta o Serpro de novo. Os pré-lançamentos ficam no Contábil, em Revisão das origens.' };
+    },
+  },
+  {
+    tipo: 'acao',
+    declaracao: { name: 'enviar_ao_contabil_agora', description: 'Propõe mandar AGORA ao Murad Contábil as guias do DAS do MEI, a dívida ativa e os parcelamentos JÁ consultados do escritório que ainda não chegaram lá (pendentes ou com erro). Lá viram pré-lançamentos para conferir. Não consulta o Serpro e não tem custo.', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId }, required: ['tenantId'] } },
+    async preparar(ctx, args) {
+      const tenantId = idDe(args.tenantId); if (!tenantId) return { erro: 'Informe o id do escritório.' };
+      const r = await ctx.chamarApi('GET', `/api/carteira-fiscal/envios-contabil?tenantId=${q(tenantId)}`);
+      if (!ok(r)) return erroApi(r);
+      const t = r.corpo?.totais || {};
+      const falta = (Number(t.pendentes) || 0) + (Number(t.erros) || 0) + (Number(t.semContabil) || 0);
+      if (!falta) return { erro: 'Nada pendente de envio ao Contábil neste escritório.' };
+      return { cnpj: '', params: { tenantId }, titulo: 'Enviar ao Contábil agora', descricao: [`${falta} consulta(s) guardada(s) para enviar (guias, dívida ativa e parcelamentos).`, 'No Contábil viram pré-lançamentos para a contadora conferir; nada é lançado definitivo.', 'Não consulta o Serpro e não tem custo.'], resumo: 'Enviar guias e parcelamentos ao Contábil' };
+    },
+    async executar(ctx, params) {
+      const r = await ctx.chamarApi('POST', '/api/carteira-fiscal/enviar-contabil', { tenantId: params.tenantId });
+      return ok(r) ? { sucesso: true, mensagem: String(r.corpo?.mensagem || 'Enviado ao Contábil.') } : { sucesso: false, mensagem: String(erroApi(r).erro) };
+    },
+  },
+  {
     tipo: 'acao',
     declaracao: { name: 'pedir_consulta_receita', description: 'Propõe UMA consulta NOVA ao Serpro (Integra Contador) para UMA empresa: situacaoFiscal, caixaPostalNovas (há mensagens novas?), caixaPostalLista (lista das não lidas) ou a lista de pedidos/parcelas de um parcelamento (parcsnPedidos, parcsnParcelas, parcmeiPedidos, parcmeiParcelas, pertsnPedidos, pertsnParcelas, pertmeiPedidos, pertmeiParcelas, relpsnPedidos, relpsnParcelas, parcsnEspPedidos, parcsnEspParcelas, parcmeiEspPedidos, parcmeiEspParcelas). Pode ter CUSTO: o cartão mostra se entra na consulta grátis da semana ou quanto custa, e só roda depois de a pessoa confirmar. O resultado fica guardado na carteira. Antes, veja se o resultado guardado já basta (ver_*_guardada).', parameters: { type: 'OBJECT', properties: { tenantId: props.tenantId, companyId: props.companyId, servico: { type: 'STRING', description: 'Um dos serviços listados na descrição.' } }, required: ['tenantId', 'companyId', 'servico'] } },
     async preparar(ctx, args) {
@@ -545,6 +572,7 @@ VENCIMENTOS E ALERTAS (seja atenta, proativa e inteligente)
 - Carteira fiscal (sem custo): para "como está a carteira", "quem está pendente", "situação fiscal da empresa X", "tem mensagem na Caixa Postal", "parcela atrasada", use ver_carteira_fiscal e ver_situacao_fiscal_guardada / ver_caixa_postal_guardada / ver_parcelamentos_guardados. Diga SEMPRE a data da consulta guardada; nunca apresente como situação de hoje. "Lida do PDF" é leitura automática: diga para confirmar no PDF. Para conferir tudo agora, use conferir_carteira_agora.
 - Consulta NOVA ao Serpro só com pedir_consulta_receita (uma empresa e um serviço por vez): antes diga em voz alta se é grátis ou quanto custa e pergunte se quer consultar; a pessoa ainda confirma no cartão. Consulta em lote de várias empresas é feita na tela SERPRO (botão "Consultar a carteira"), que mostra o total antes. Abrir mensagem da Caixa Postal conta como ciência: isso só na tela, nunca por você.
 - Certificado A1: use ver_certificados_vencendo. Agenda Fiscal: use ver_agenda_fiscal.
+- Fisco IA → Contábil: as guias do DAS do MEI, a dívida ativa e os detalhes de parcelamento consultados por clique vão sozinhos ao Murad Contábil e viram pré-lançamentos para conferir. Para ver use ver_envios_contabil; para reenviar o que ficou pendente use enviar_ao_contabil_agora (cartão; não consulta o Serpro).
 - Quando perguntarem o que vence (hoje, amanhã, na semana, no mês), consulte SEMPRE as ferramentas de vencimentos, guias e lembretes antes de responder. Responda nesta ordem: 1) o que já venceu e continua em aberto; 2) o que vence hoje; 3) o que vence nos próximos dias; 4) diga também o que está em dia ou sem pendência. Para cada item diga a empresa, a obrigação ou o tributo, o valor (se houver) e a data.
 - Depois de listar, ofereça o próximo passo: avisar o cliente por WhatsApp (use preparar_whatsapp quando existir) ou deixar um lembrete. Diga com clareza o que você consegue fazer agora e o que depende de configuração: o envio automático por WhatsApp só funciona com a ligação da Meta configurada; sem ela você prepara a mensagem e o usuário envia.
 - Explique em linguagem simples, como a um cliente leigo: o que é a obrigação, o risco de atrasar (multa e juros, sem inventar percentuais) e o que fazer. Datas e valores só do que as ferramentas trouxerem; se a data for estimada, diga que é estimada.
@@ -578,7 +606,7 @@ APAGAR EMPRESA (por voz ou texto)
 - Uma empresa por vez. Se pedirem "apagar todas", recuse e explique que é uma de cada vez, com confirmação. Se o resultado disser que os outros sistemas não confirmaram, repita esse aviso com clareza.
 
 LIMITES (diga com clareza quando o pedido bater neles)
-- Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal, pedir uma consulta nova ao Serpro, criar tarefa para a equipe e marcar o checklist do DT-e de Goiás, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
+- Aqui você só consulta e confere (as únicas ações que você propõe são a liberação das consultas ao Serpro, apagar uma empresa, consultar a CND federal, pedir uma consulta nova ao Serpro, criar tarefa para a equipe, marcar o checklist do DT-e de Goiás e reenviar ao Contábil as guias e parcelamentos já consultados, e a pessoa confirma no cartão). Não altera notas, certificados nem cadastros, e não consulta a SEFAZ por conta própria.
 - Cálculo de guias e folha são do Departamento Pessoal e do Contábil; notas e busca automática são do Murad Fiscal. Consulte ou peça à Agente do outro sistema pelas ferramentas de comunicação.
 - Nunca invente chaves, valores, datas ou situação na SEFAZ. Se uma ferramenta devolver erro, explique o motivo com as palavras do sistema.`;
 

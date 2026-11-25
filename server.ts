@@ -35,6 +35,7 @@ import { prepararBuscaCertidoes } from "./src/server/roboPreparadorCertidoes";
 import { devePrepararAgora } from "./src/services/certidoes/painelCertidoes";
 import { hojeBrasilia } from "./src/services/certidoes/certidoes";
 import carteiraFiscalRoutes from "./src/server/carteiraFiscal.routes";
+import envioContabilRoutes, { roboEnvioContabil } from "./src/server/envioContabil";
 import dadosEscritorioRoutes from "./src/server/dadosEscritorio.routes";
 import cadastroEscritorioRoutes from "./src/server/cadastroEscritorio.routes";
 import { conferirAgendaFiscal, conferirCarteiraFiscal, conferirCertificadosA1 } from "./src/server/conferidoresCarteira";
@@ -89,6 +90,7 @@ app.use('/api', conferenciaRoutes);
 app.use('/api/serpro', serproRoutes);
 app.use('/api', certidoesRoutes);
 app.use('/api', carteiraFiscalRoutes);
+app.use('/api', envioContabilRoutes);
 app.use('/api', dadosEscritorioRoutes);
 app.use('/api', relatorioClienteRoutes);
 app.use('/api', cadastroEscritorioRoutes);
@@ -485,6 +487,12 @@ const rodarConferidorCarteira = () => { executarRobo('conferidor_carteira_fiscal
 const timerConferidorCarteira = setInterval(rodarConferidorCarteira, 2 * 60 * 60_000);
 setTimeout(rodarConferidorCarteira, 4 * 60_000).unref();
 timerConferidorCarteira.unref();
+// Fisco IA → Contábil: reenvia ao Contábil as guias, dívidas e parcelamentos JÁ consultados (por clique) que ainda não chegaram lá. Não consulta o Serpro.
+registrarRobo({ id: 'envio_contabil', nome: 'Robô de Envio ao Contábil (guias, dívida ativa e parcelamentos)', posto: 'integrador', missao: 'A cada 2 horas, manda ao Murad Contábil as guias do DAS do MEI (principal, multa e juros), a dívida ativa e os parcelamentos (consolidação e parcelas pagas) que alguém JÁ consultou por clique no Integra Contador e que ainda não chegaram lá (pendente, com erro ou de empresa que ainda não estava no Contábil). Lá viram pré-lançamentos para a contadora conferir. Não consulta o Serpro e não gasta crédito.', intervaloMs: 2 * 60 * 60_000 });
+const rodarEnvioContabil = () => executarRobo('envio_contabil', async () => { const r = await roboEnvioContabil(obterPoolBanco()); if (!r.startsWith('Nada a enviar')) console.log(`[Envio ao Contábil] ${r}`); return r; });
+const timerEnvioContabil = setInterval(() => { rodarEnvioContabil().catch((e) => console.error('[Envio ao Contábil]', e?.message || e)); }, 2 * 60 * 60_000);
+setTimeout(() => { rodarEnvioContabil().catch((e) => console.error('[Envio ao Contábil]', e?.message || e)); }, 8 * 60_000).unref();
+timerEnvioContabil.unref();
 registrarRobo({ id: 'conferidor_certificados_a1', nome: 'Robô Conferidor de Vencimento do Certificado A1', posto: 'conferidor', missao: 'A cada 6 horas, conferir a validade dos certificados A1 guardados das empresas e avisar os vencidos e os que vencem em 7, 15 e 30 dias. A validade é lida do próprio arquivo do certificado. Só lê; não consulta nenhum órgão e não altera nada.', intervaloMs: 6 * 60 * 60_000 });
 const rodarConferidorCertificados = () => { executarRobo('conferidor_certificados_a1', async () => { const r = await conferirCertificadosA1(obterPoolBanco()); if (!r.startsWith('Tudo em ordem')) console.log(`[Conferidor dos certificados A1] ${r}`); }).catch((e) => console.error('[Conferidor dos certificados A1]', e?.message || e)); };
 const timerConferidorCertificados = setInterval(rodarConferidorCertificados, 6 * 60 * 60_000);

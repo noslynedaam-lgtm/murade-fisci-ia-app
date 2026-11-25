@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import CotaConsultasSerpro from './CotaConsultasSerpro';
 import ConsumoSerproMensal from './ConsumoSerproMensal';
 import LiberacaoConsultaSerpro from './LiberacaoConsultaSerpro';
@@ -131,8 +131,8 @@ export default function ConsultaRealSerpro({ companyId, tenantId, razaoSocial, c
       {semEmpresa ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">Selecione uma empresa já cadastrada no Fisco IA (banco permanente) para fazer a consulta oficial ao SERPRO. A consulta só acontece quando você clica em &quot;Fazer consulta&quot;; nenhum robô consulta sozinho.</div>
       ) : (<>
-        <CotaConsultasSerpro key={versaoCota} companyId={companyId} tenantId={tenantId} />
-        <ConsumoSerproMensal key={`c${versaoCota}`} tenantId={tenantId} />
+        <Fragment key={versaoCota}><CotaConsultasSerpro companyId={companyId} tenantId={tenantId} /></Fragment>
+        <Fragment key={`c${versaoCota}`}><ConsumoSerproMensal tenantId={tenantId} /></Fragment>
       </>)}
       <LiberacaoConsultaSerpro />
 

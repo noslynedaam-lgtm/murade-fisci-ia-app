@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, FileText, Loader2, PlayCircl
 import { useEmpresa } from '../context/EmpresaContext';
 import { lerEscritorioAtivo } from '../services/empresas/empresasCentral.service';
 import RelatorioClienteModal from './RelatorioClienteModal';
+import EnvioContabilPainel from './EnvioContabilPainel';
 
 type Geral = 'pendente' | 'atencao' | 'regular' | 'sem_consulta';
 interface LinhaCarteira {
@@ -136,6 +137,7 @@ export default function CarteiraFiscal() {
           <label className="ml-auto flex items-center gap-1 font-normal text-slate-700"><input type="checkbox" checked={filtro === 'atencao'} onChange={(e) => setFiltro(e.target.checked ? 'atencao' : 'todas')} />Só as que pedem atenção</label>
         </div>
       )}
+      {tenantId && <EnvioContabilPainel tenantId={tenantId} />}
 
       {aviso && (
         <div role="status" className={`rounded-lg border p-2.5 text-xs ${tons[aviso.tom]}`}>

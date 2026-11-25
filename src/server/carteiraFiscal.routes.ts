@@ -10,10 +10,12 @@ import { lerValidadeEmissorPfx } from './pfxCompat';
 import { hojeBrasilia } from '../services/certidoes/certidoes';
 import { NOME_MODALIDADE, faixaCertificado, mesAtualBrasilia, parcelasAtrasadas, resultadoParaGuardar, situacaoGeral, textoFaixaCertificado, type SituacaoFiscal } from '../services/serpro/carteiraFiscal';
 import { lembretesQuePedemAtencao } from '../services/escritorio/dadosEscritorio';
+import { enviarResultadoAoContabil } from './envioContabil';
+import { TIPOS_PARA_CONTABIL } from '../services/serpro/paraContabil';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAPEIS_CONSULTA = ['OWNER', 'ADMIN'];
-const TIPOS = ['situacao_fiscal', 'caixa_postal_lista', 'caixa_postal_novas', 'parcelamento_pedidos', 'parcelamento_detalhe', 'parcelamento_parcelas'] as const;
+const TIPOS = ['situacao_fiscal', 'caixa_postal_lista', 'caixa_postal_novas', 'parcelamento_pedidos', 'parcelamento_detalhe', 'parcelamento_parcelas', 'guia_das_mei', 'divida_ativa_mei'] as const;
 const router = Router();
 
 /**
@@ -29,7 +31,11 @@ export async function guardarResultadoConsulta(p: { userId: string; tenantId: st
       `INSERT INTO fiscoia.serpro_resultados (tenant_id, company_id, tipo, servico, modalidade, resumo, situacao, situacao_origem, novas_mensagens, pdf, cobrada, criado_por)
        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12) RETURNING id`,
       [p.tenantId, p.companyId, r.tipo, p.servico, r.modalidade, JSON.stringify(r.resumo), r.situacao, r.situacaoOrigem, r.novasMensagens, r.pdf, p.cobrada, p.userId])).rows[0]?.id, PAPEIS_CONSULTA);
-    return g.autorizado && 'resultado' in g && Boolean(g.resultado);
+    const ok = g.autorizado && 'resultado' in g && Boolean(g.resultado);
+    // Guia do MEI, dívida ativa e detalhe de parcelamento seguem sozinhos ao Contábil (pré-lançamento para conferir). Sem custo: não consulta o
+    // Serpro de novo. Se falhar, o Robô de Envio ao Contábil tenta de novo.
+    if (ok && (TIPOS_PARA_CONTABIL as readonly string[]).includes(r.tipo)) void enviarResultadoAoContabil(p.userId, p.tenantId, String((g as any).resultado));
+    return ok;
   } catch { return false; } finally { r.pdf?.fill(0); }
 }
 

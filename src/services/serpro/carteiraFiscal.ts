@@ -5,9 +5,9 @@
  */
 import { inflateSync, constants as zc } from 'node:zlib';
 import { CATALOGO_SERVICOS } from './integraContador';
-import { acharPdfBase64, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerPedidosParcsn, lerDetalheParcsn, lerParcelasParaGerarParcsn } from './resultadoSerpro';
+import { acharPdfBase64, lerIndicadorNovasCaixaPostal, lerListaCaixaPostal, lerPedidosParcsn, lerDetalheParcsn, lerParcelasParaGerarParcsn, lerDasMei, lerDividaAtivaMei } from './resultadoSerpro';
 
-export type TipoResultado = 'situacao_fiscal' | 'caixa_postal_lista' | 'caixa_postal_novas' | 'parcelamento_pedidos' | 'parcelamento_detalhe' | 'parcelamento_parcelas';
+export type TipoResultado = 'situacao_fiscal' | 'caixa_postal_lista' | 'caixa_postal_novas' | 'parcelamento_pedidos' | 'parcelamento_detalhe' | 'parcelamento_parcelas' | 'guia_das_mei' | 'divida_ativa_mei';
 export type SituacaoFiscal = 'regular' | 'pendente' | 'a_conferir';
 export type OrigemSituacao = 'lida_do_pdf' | 'marcada_pela_pessoa' | 'sem_leitura';
 
@@ -18,6 +18,9 @@ export function tipoDoServico(chave: string): { tipo: TipoResultado; modalidade:
   if (chave === 'situacaoFiscal') return { tipo: 'situacao_fiscal', modalidade: null };
   if (chave === 'caixaPostalLista') return { tipo: 'caixa_postal_lista', modalidade: null };
   if (chave === 'caixaPostalNovas') return { tipo: 'caixa_postal_novas', modalidade: null };
+  // Guia do DAS do MEI e dívida ativa do MEI: guardadas para virar pré-lançamento no Contábil (Fisco IA → Contábil).
+  if (chave === 'pgmeiDasPdf' || chave === 'pgmeiDasCodigoBarras') return { tipo: 'guia_das_mei', modalidade: 'PGMEI' };
+  if (chave === 'pgmeiDividaAtiva') return { tipo: 'divida_ativa_mei', modalidade: 'PGMEI' };
   const parcelamento = ['PARCSN', 'PARCSN-ESP', 'PARCMEI', 'PARCMEI-ESP', 'PERTMEI', 'PERTSN', 'RELPSN'].includes(s.idSistema);
   if (!parcelamento) return null;
   if (chave.endsWith('Pedidos')) return { tipo: 'parcelamento_pedidos', modalidade: s.idSistema };
@@ -138,6 +141,14 @@ export function resultadoParaGuardar(chave: string, dados: Record<string, string
     case 'parcelamento_parcelas': {
       const p = lerParcelasParaGerarParcsn(bruto);
       return p ? { ...base, resumo: { parcelas: p.slice(0, 400) } } : null;
+    }
+    case 'guia_das_mei': {
+      const d = lerDasMei(bruto);
+      return d && d.length ? { ...base, resumo: { das: d.slice(0, 24).map((x) => ({ periodo: x.periodo, documento: x.documento, vencimento: x.vencimento, principal: x.principal, multa: x.multa, juros: x.juros, total: x.total })) } } : null;
+    }
+    case 'divida_ativa_mei': {
+      const d = lerDividaAtivaMei(bruto);
+      return d ? { ...base, resumo: { debitos: d.slice(0, 200) } } : null;
     }
   }
 }
